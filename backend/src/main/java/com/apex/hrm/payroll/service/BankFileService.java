@@ -51,6 +51,28 @@ public class BankFileService {
         return files.findById(bankFileId).orElseThrow(() -> new NotFoundException("Bank file", bankFileId));
     }
 
+    /** Plaintext is returned only to the existing MFA-guarded payroll download endpoint. */
+    @Transactional
+    public String downloadContent(UUID fileId) {
+        BankFile file = getFile(fileId);
+        String content = decryptAndVerify(file);
+        audit.log("BankFile", file.getId(), "DOWNLOAD", "Payroll bank export downloaded; payload redacted");
+        return content;
+    }
+
+    public String decryptAndVerify(BankFile file) {
+        UUID tenant = com.apex.hrm.common.TenantContext.get();
+        if (tenant == null || !tenant.equals(file.getTenantId()))
+            throw new NotFoundException("Bank file", file.getId());
+        if (file.getPurgedAt() != null || file.getContentCiphertext() == null)
+            throw new BusinessException("Bank export payload is no longer available");
+        String content = exportCipher.decrypt(file.getContentCiphertext(),
+            file.getTenantId(), file.getRunId(), file.getFileName());
+        if (!BankExportCipher.sha256(content).equals(file.getContentSha256()))
+            throw new IllegalStateException("Bank export digest mismatch");
+        return content;
+    }
+
     private static final Set<String> COLUMNS = Set.of("ACCOUNT_NO", "ACCOUNT_NAME", "AMOUNT", "EMPLOYEE_NO", "EMPLOYEE_NAME", "BANK_CODE");
 
     private final PayrollRunRepository runs;
@@ -61,6 +83,7 @@ public class BankFileService {
     private final EmployeeRepository employees;
     private final EmployeeBankAccountRepository accounts;
     private final BankAccountCipher accountCipher;
+    private final BankExportCipher exportCipher;
     private final AuditService audit;
     private final PayrollBankSettlementRepository settlements;
     private final BankCreditImportRepository resultImports;
@@ -68,7 +91,8 @@ public class BankFileService {
 
     public BankFileService(PayrollRunRepository runs, PayPeriodRepository periods, PayrollEmployeeRepository payrollEmployees,
                            BankTemplateRepository templates, BankFileRepository files, EmployeeRepository employees,
-                           EmployeeBankAccountRepository accounts, BankAccountCipher accountCipher, AuditService audit,
+                           EmployeeBankAccountRepository accounts, BankAccountCipher accountCipher,
+                           BankExportCipher exportCipher, AuditService audit,
                            PayrollBankSettlementRepository settlements,
                            BankCreditImportRepository resultImports, BankCreditResultRepository creditResults) {
         this.runs = runs;
@@ -79,6 +103,7 @@ public class BankFileService {
         this.employees = employees;
         this.accounts = accounts;
         this.accountCipher = accountCipher;
+        this.exportCipher = exportCipher;
         this.audit = audit;
         this.settlements = settlements;
         this.resultImports = resultImports;
@@ -179,7 +204,9 @@ public class BankFileService {
         f.setRecoverySourceFileId(sourceId);
         f.setFileName(t.getBankCode() + "_payroll_" + period.getPayDate()
                 + (sourceId == null ? "" : "_recovery_" + sourceId.toString().substring(0, 8)) + ".csv");
-        f.setContent(sb.toString());
+        UUID tenant = com.apex.hrm.common.TenantContext.get();
+        f.setContentCiphertext(exportCipher.encrypt(sb.toString(), tenant, runId, f.getFileName()));
+        f.setContentSha256(BankExportCipher.sha256(sb.toString()));
         f.setRecordCount(count);
         f.setTotalAmount(total);
         f = files.save(f);
