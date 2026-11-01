@@ -49,6 +49,8 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
   const [completionScores, setCompletionScores] = useState<Record<string,string>>({});
+  const [renewing, setRenewing] = useState<string | null>(null);
+  const [renewal, setRenewal] = useState({ issuedOn: '', expiresOn: '', credentialRef: '' });
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(async () => {
@@ -103,6 +105,20 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Update failed.'); }
     finally { setBusy(false); }
   }
+  async function renewCertificate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!renewing) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const response = await fetch(`/api/v1/learning/certifications/${renewing}/renew`, {
+        method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...renewal, expiresOn: renewal.expiresOn || null, credentialRef: renewal.credentialRef || null }),
+      });
+      if (!response.ok) throw new Error(`Unable to renew certification (HTTP ${response.status}).`);
+      setRenewing(null); setNotice('Certification renewed.'); await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Renewal failed.'); }
+    finally { setBusy(false); }
+  }
   const shown = data[tab].filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
   function fieldControl(field: (typeof fields)[Section][number]) {
     const value = field.name === 'companyId' ? (form.companyId || companyId) : (form[field.name] || '');
@@ -141,6 +157,15 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
         <div className="announcements-list">{shown.map(row => <article className="announcement-card" key={row.id}>
           <h3>{readable(row.title || row.name || row.courseTitle || row.skillName || row.id)}</h3>
           <div>{Object.entries(row).filter(([key]) => key !== 'id').map(([key, value]) => <p key={key}><strong>{key.replace(/([A-Z])/g, ' $1')}:</strong> {readable(value)}</p>)}</div>
+          {tab === 'certifications' && canManage && <div className="announcement-actions">
+            {renewing === row.id ? <form onSubmit={event => void renewCertificate(event)}>
+              <label>New issue date<input type="date" required value={renewal.issuedOn} onChange={event => setRenewal({ ...renewal, issuedOn: event.target.value })} /></label>
+              <label>Expiry (optional)<input type="date" value={renewal.expiresOn} onChange={event => setRenewal({ ...renewal, expiresOn: event.target.value })} /></label>
+              <label>Credential reference<input value={renewal.credentialRef} onChange={event => setRenewal({ ...renewal, credentialRef: event.target.value })} /></label>
+              <button type="submit" disabled={busy} className="announcements-primary">Save renewal</button>
+              <button type="button" className="announcements-secondary" onClick={() => setRenewing(null)}>Cancel</button>
+            </form> : <button type="button" className="announcements-secondary" onClick={() => { setRenewing(row.id); setRenewal({ issuedOn: String(row.issuedOn || ''), expiresOn: String(row.expiresOn || ''), credentialRef: String(row.credentialRef || '') }); }}>Renew</button>}
+          </div>}
           {tab === 'enrollments' && canManage && row.status !== 'COMPLETED' && row.status !== 'CANCELLED' && <div className="announcement-actions">
             {row.status === 'ENROLLED' && <button type="button" className="announcements-secondary" disabled={busy} onClick={() => void transition(row.id, 'IN_PROGRESS')}>Start</button>}
             {row.status === 'IN_PROGRESS' && <><label>Score (optional, 0–100)<input type="number" min={0} max={100} value={completionScores[row.id] || ''} onChange={event => setCompletionScores(values => ({ ...values, [row.id]: event.target.value }))} /></label><button type="button" className="announcements-primary" disabled={busy || (completionScores[row.id] !== undefined && completionScores[row.id] !== '' && (Number(completionScores[row.id]) < 0 || Number(completionScores[row.id]) > 100))} onClick={() => void transition(row.id, 'COMPLETED')}>Complete</button></>}
