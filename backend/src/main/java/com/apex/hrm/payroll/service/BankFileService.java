@@ -69,6 +69,9 @@ public class BankFileService {
 
     @Transactional
     public Result generate(UUID runId, UUID bankTemplateId) {
+        runs.lockForSettlement(runId).orElseThrow(() -> new NotFoundException("Payroll run", runId));
+        if (!files.findByRunId(runId).isEmpty())
+            throw new BusinessException("This payroll run already has a bank export; use rejected-credit recovery, not a duplicate full export");
         return build(runId, bankTemplateId, null, null);
     }
 
