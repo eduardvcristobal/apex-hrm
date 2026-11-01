@@ -10,6 +10,7 @@ import com.apex.hrm.personnel.domain.Employee;
 import com.apex.hrm.personnel.repo.EmployeeRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -26,7 +27,7 @@ class PayslipSnapshotCertificationTest {
         UUID runId = UUID.randomUUID();
         EmployeeRepository employees = mock(EmployeeRepository.class);
         PayslipRepository repository = mock(PayslipRepository.class);
-        ObjectMapper json = new ObjectMapper().findAndRegisterModules();
+        ObjectMapper json = new ObjectMapper().findAndRegisterModules().disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         Employee employee = new Employee();
         employee.setId(employeeId);
         employee.setEmployeeNo("EMP-1001");
