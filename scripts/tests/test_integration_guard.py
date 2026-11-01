@@ -58,7 +58,7 @@ class IntegrationGuardTests(unittest.TestCase):
         self.assertGreaterEqual(len(errors), 5)
 
     def test_audit_fails_closed_without_java_or_security(self):
-        self.security.unlink()
+        self.security.unlink(missing_ok=True)
         self.assertFalse(audit(self.root)["ok"])
 
 if __name__ == "__main__":
