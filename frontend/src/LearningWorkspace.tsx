@@ -48,6 +48,7 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
+  const [completionScores, setCompletionScores] = useState<Record<string,string>>({});
   const headers = { Authorization: `Bearer ${token}` };
 
   const load = useCallback(async () => {
@@ -94,7 +95,7 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
     try {
       const response = await fetch(`/api/v1/learning/enrollments/${id}`, {
         method: 'PATCH', headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, score: null }),
+        body: JSON.stringify({ status, score: status === 'COMPLETED' && completionScores[id] ? Number(completionScores[id]) : null }),
       });
       if (!response.ok) throw new Error(`Could not update enrollment (HTTP ${response.status}).`);
       setNotice(`Enrollment changed to ${status.toLowerCase().replaceAll('_', ' ')}.`);
@@ -105,7 +106,7 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
   const shown = data[tab].filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
   function fieldControl(field: (typeof fields)[Section][number]) {
     const value = field.name === 'companyId' ? (form.companyId || companyId) : (form[field.name] || '');
-    const options = field.name === 'courseId' ? data.courses.map(c => ({ value: String(c.id), label: String(c.title) }))
+    const options = field.name === 'courseId' ? data.courses.filter(c => !companyId || c.companyId === companyId).map(c => ({ value: String(c.id), label: String(c.title) }))
       : field.name === 'skillId' ? data.skills.map(s => ({ value: String(s.id), label: String(s.name) }))
       : field.name === 'employeeId' ? employees.map(e => ({ value: String(e.id), label: `${e.name} (${e.employeeNumber})` }))
       : null;
@@ -142,7 +143,7 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
           <div>{Object.entries(row).filter(([key]) => key !== 'id').map(([key, value]) => <p key={key}><strong>{key.replace(/([A-Z])/g, ' $1')}:</strong> {readable(value)}</p>)}</div>
           {tab === 'enrollments' && canManage && row.status !== 'COMPLETED' && row.status !== 'CANCELLED' && <div className="announcement-actions">
             {row.status === 'ENROLLED' && <button type="button" className="announcements-secondary" disabled={busy} onClick={() => void transition(row.id, 'IN_PROGRESS')}>Start</button>}
-            <button type="button" className="announcements-primary" disabled={busy} onClick={() => void transition(row.id, 'COMPLETED')}>Complete</button>
+            {row.status === 'IN_PROGRESS' && <><label>Score (optional, 0–100)<input type="number" min={0} max={100} value={completionScores[row.id] || ''} onChange={event => setCompletionScores(values => ({ ...values, [row.id]: event.target.value }))} /></label><button type="button" className="announcements-primary" disabled={busy || (completionScores[row.id] !== undefined && completionScores[row.id] !== '' && (Number(completionScores[row.id]) < 0 || Number(completionScores[row.id]) > 100))} onClick={() => void transition(row.id, 'COMPLETED')}>Complete</button></>}
             <button type="button" className="announcements-secondary" disabled={busy} onClick={() => void transition(row.id, 'CANCELLED')}>Cancel</button>
           </div>}
         </article>)}</div>}
