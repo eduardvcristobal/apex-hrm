@@ -103,6 +103,42 @@ public class PerformanceWorkflowController {
                """,user.tenantId(),id);
         });
     }
+    @GetMapping("/my/reviews")
+    public List<Map<String,Object>> myReviews(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authenticated(user);
+        return tenants.inTenant(user.tenantId(),()->{
+            UUID id=employee(user);
+            if(id==null) throw denied();
+            return jdbc.queryForList("""
+               SELECT id,cycle_id AS "cycleId",rating,self_rating AS "selfRating",
+                self_assessment AS "selfAssessment",manager_comments AS "managerComments",
+                status,employee_acknowledged_at AS "acknowledgedAt"
+               FROM performance_review WHERE tenant_id=? AND employee_id=?
+                 AND status IN ('DRAFT','SUBMITTED','ACKNOWLEDGED','FINALIZED')
+               ORDER BY created_at DESC LIMIT 100
+               """,user.tenantId(),id);
+        });
+    }
+    @GetMapping("/team/reviews")
+    public List<Map<String,Object>> teamReviews(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authenticated(user);
+        if(!hr(user)&&!has(user,"ROLE_MANAGER")) throw denied();
+        return tenants.inTenant(user.tenantId(),()->{
+            UUID manager=employee(user);
+            if(!hr(user)&&manager==null) throw denied();
+            if(hr(user)) return jdbc.queryForList("""
+                SELECT id,employee_id AS "employeeId",rating,status FROM performance_review
+                WHERE tenant_id=? ORDER BY created_at DESC LIMIT 500
+                """,user.tenantId());
+            return jdbc.queryForList("""
+                SELECT r.id,r.employee_id AS "employeeId",r.rating,r.status
+                FROM performance_review r JOIN personnel_employee e
+                ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
+                WHERE r.tenant_id=? AND e.supervisor_id=?
+                ORDER BY r.created_at DESC LIMIT 500
+                """,user.tenantId(),manager);
+        });
+    }
     @GetMapping("/team/goals")
     public List<Map<String,Object>> teamGoals(@AuthenticationPrincipal HrmUserPrincipal user) {
         authenticated(user);
