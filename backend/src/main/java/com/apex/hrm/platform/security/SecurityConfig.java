@@ -55,8 +55,10 @@ public class SecurityConfig {
             .addFilterBefore(new GoogleLoginBasicAuthBypassFilter(), BasicAuthenticationFilter.class)
             .csrf(csrf -> csrf.ignoringRequestMatchers(request -> {
                 String header = request.getHeader("Authorization");
+                // Bearer tokens are supplied explicitly by the SPA, not automatically by browsers.
+                // Keep session/cookie requests CSRF-protected on all API paths.
                 return (header != null && header.startsWith("Bearer ")
-                    && request.getRequestURI().startsWith("/api/v1/")
+                    && request.getRequestURI().startsWith("/api/")
                     || (request.getMethod().equals("POST")
                     && (request.getRequestURI().equals("/api/v1/security/platform-admin/google")
                     || request.getRequestURI().equals("/api/v1/security/google")
