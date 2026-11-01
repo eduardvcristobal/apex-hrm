@@ -108,6 +108,15 @@ Branch: feature/m3-1-payroll-compliance
 - Automated checks cover cutoff/compensation gaps, snapshot hash, RLS, trigger immutability and existing authenticated API/Chromium flows.
 - Capture is an evidence checkpoint, **not** a legally approved payment calculation or banking confirmation. See `docs/M3_1_18_CERTIFICATION_REPORT.md`.
 
+## M3.1.19 — Source review, live freshness and manual bank-evidence integrity
+
+- Added Flyway V57 independent source-review requests and irreversible decisions, tenant RLS, immutable review references and MFA-protected APIs. Review approval revalidates **current** source hashes and denies stale/superseded/incomplete evidence.
+- Enhanced completeness to detect missing weekday DTR entries (conservative, not an official holiday/shift audit).
+- New CI changes synthetic loan balances after capture to prove fingerprint invalidation, new capture requirement and payout NO-GO. Database regression tests enforce source review and bank-evidence immutability.
+- Added Flyway V58 to protect **manual** bank-evidence amounts, references and final review decisions against database rewrite/deletion and enforce reviewer separation. This does **not** confirm a real bank payment.
+- Personnel UI now exposes source freshness and independent review actions without payout controls.
+- Details: `docs/M3_1_19_CERTIFICATION_REPORT.md`. **PRODUCTION NO-GO.**
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
