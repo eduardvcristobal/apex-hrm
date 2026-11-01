@@ -5,7 +5,7 @@ type PayPeriod = { id: string; payGroupId: string; periodOfMonth: number; startD
 type PayGroup = { id: string; companyId: string; code: string; name: string; frequency: string };
 type Run = { id: string; payPeriodId: string; payGroupId: string; runType: string; status: string; computedAt: string | null; approvedAt: string | null; lockedAt: string | null; paidAt: string | null; remarks: string | null; employeeCount: number; totalGross: number; totalDeductions: number; totalNet: number; totalEmployerCost: number };
 type PayrollEmployee = { id: string; runId: string; employeeId: string; gross: number; taxableIncome: number; totalDeductions: number; netPay: number; employerCost: number; warnings: string | null };
-type Employee = { id: string; employeeNo: string; firstName: string; lastName: string };
+type Employee = { id: string; employeeNo: string; firstName: string; lastName: string; separationDate: string | null };
 type PayrollLine = { id: string; payrollEmployeeId: string; employeeId: string; itemCode: string; description: string; category: string; quantity: number | null; rate: number | null; amount: number; taxable: boolean };
 
 const money = (amount: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP' }).format(Number(amount || 0));
@@ -21,6 +21,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
   const [runEmployees, setRunEmployees] = useState<PayrollEmployee[]>([]);
   const [lines, setLines] = useState<PayrollLine[]>([]);
   const [periodId, setPeriodId] = useState('');
+  const [finalPayEmployeeId, setFinalPayEmployeeId] = useState('');
   const [runType, setRunType] = useState('REGULAR');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
@@ -67,6 +68,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
   const employeeById = useMemo(() => new Map(employees.map(employee => [employee.id, employee])), [employees]);
   const selectedPeriod = selected ? periodById.get(selected.payPeriodId) : null;
   const openPeriods = periods.filter(period => period.status === 'OPEN');
+  const separatedEmployees = employees.filter(employee => employee.separationDate);
 
   async function selectRun(run: Run) {
     setSelected(run); setError('');
@@ -87,6 +89,19 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
       setNotice('Payroll run created. Compute it to build employee pay and statutory deductions.');
       await load(); await selectRun(run);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create payroll run.'); }
+    finally { setBusy(''); }
+  }
+
+  async function createFinalPayRun() {
+    if (!periodId || !finalPayEmployeeId) return;
+    setBusy('final-pay'); setError(''); setNotice('');
+    try {
+      const run = await request<Run>('/api/payroll/final-pay', {
+        method: 'POST', body: JSON.stringify({ payPeriodId: periodId, employeeId: finalPayEmployeeId }),
+      });
+      setNotice('Final-pay run created. Compute it after the regular period containing the separation date is locked.');
+      await load(); await selectRun(run);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create final-pay run.'); }
     finally { setBusy(''); }
   }
 
@@ -116,13 +131,21 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
     {error && <div className="platform-alert" role="alert">{error}</div>}{notice && <p className="platform-notice" role="status">{notice}</p>}
     <div className="timekeeping-metrics payroll-metrics"><article><span>PAY PERIODS</span><strong>{periods.length}</strong><small>{openPeriods.length} open</small></article><article><span>PAYROLL RUNS</span><strong>{runs.length}</strong><small>{runs.filter(run => !['PAID'].includes(run.status)).length} in progress</small></article><article><span>PENDING APPROVAL</span><strong>{runs.filter(run => run.status === 'REVIEWED').length}</strong><small>Reviewed runs</small></article><article><span>PAID RUNS</span><strong>{runs.filter(run => run.status === 'PAID').length}</strong><small>Completed</small></article></div>
     <div className="payroll-layout">
+      <div className="payroll-create-stack">
       <section className="payroll-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">PAY CYCLE</p><h2>Start a payroll run</h2></div></div>
         <p className="payroll-help">Payroll runs use approved attendance, employee compensation, pay group rules, contributions, taxes, and approved adjustments.</p>
         <label className="payroll-field">Open pay period<select value={periodId} onChange={event => setPeriodId(event.target.value)}><option value="">Select a pay period…</option>{openPeriods.map(period => <option key={period.id} value={period.id}>{date(period.startDate)} – {date(period.endDate)} · Pay {date(period.payDate)} · {groupById.get(period.payGroupId)?.name || 'Pay group'}</option>)}</select></label>
-        <label className="payroll-field">Run type<select value={runType} onChange={event => setRunType(event.target.value)}><option value="REGULAR">Regular</option><option value="OFF_CYCLE">Off-cycle</option><option value="THIRTEENTH_MONTH">13th month</option></select></label>
+        <label className="payroll-field">Run type<select value={runType} onChange={event => setRunType(event.target.value)}><option value="REGULAR">Regular</option><option value="OFF_CYCLE">Off-cycle</option><option value="THIRTEENTH_MONTH">13th month</option><option value="YEAR_END_ADJUSTMENT">Year-end tax adjustment</option></select></label>
         <button type="button" className="security-submit" onClick={() => void createRun()} disabled={!!busy || loading || !periodId || mfaVerified === false}>{busy === 'create' ? 'Creating…' : '＋ Create payroll run'}</button>
         {!periods.length && !loading && <p className="payroll-empty-note">No pay periods are configured yet. Payroll setup requires a pay group and pay periods.</p>}
       </section>
+      <section className="payroll-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">EMPLOYEE EXIT</p><h2>Start final pay</h2></div></div>
+        <p className="payroll-help">Select a separated employee and an open pay period in their pay group. The last regular pay period must be locked before computation.</p>
+        <label className="payroll-field">Separated employee<select value={finalPayEmployeeId} onChange={event => setFinalPayEmployeeId(event.target.value)}><option value="">Select an employee…</option>{separatedEmployees.map(employee => <option key={employee.id} value={employee.id}>{employee.employeeNo} · {employee.firstName} {employee.lastName} · Separated {date(employee.separationDate!)}</option>)}</select></label>
+        <button type="button" className="security-submit" onClick={() => void createFinalPayRun()} disabled={!!busy || loading || !periodId || !finalPayEmployeeId || mfaVerified === false}>{busy === 'final-pay' ? 'Creating…' : '＋ Create final-pay run'}</button>
+        {!separatedEmployees.length && !loading && <p className="payroll-empty-note">No employees have a separation date recorded.</p>}
+      </section>
+      </div>
       <section className="payroll-panel payroll-runs-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">PAYROLL REGISTER</p><h2>Recent runs</h2></div><span>{runs.length} run{runs.length === 1 ? '' : 's'}</span></div>
         {loading ? <div className="timekeeping-empty">Loading payroll records…</div> : runs.length ? <div className="timekeeping-table-wrap"><table className="timekeeping-table payroll-table"><thead><tr><th>PAY PERIOD</th><th>PAY GROUP</th><th>TYPE</th><th>STATUS</th><th>EMPLOYEES</th><th>NET PAY</th></tr></thead><tbody>{runs.map(run => { const period = periodById.get(run.payPeriodId); return <tr key={run.id} className={selected?.id === run.id ? 'payroll-selected-row' : ''}><td><button type="button" className="payroll-run-link" onClick={() => void selectRun(run)}>{period ? `${date(period.startDate)} – ${date(period.endDate)}` : 'Period details unavailable'}<small>Pay date {period ? date(period.payDate) : '—'}</small></button></td><td>{groupById.get(run.payGroupId)?.name || '—'}</td><td>{run.runType.replaceAll('_', ' ')}</td><td><span className={`timekeeping-status ${run.status === 'PAID' ? 'open' : run.status === 'DRAFT' ? 'warning' : run.status === 'LOCKED' ? 'locked' : 'open'}`}>{run.status}</span></td><td>{run.employeeCount}</td><td><strong>{money(run.totalNet)}</strong></td></tr>; })}</tbody></table></div> : <div className="timekeeping-empty">No payroll runs yet. Select an open pay period to get started.</div>}
       </section>

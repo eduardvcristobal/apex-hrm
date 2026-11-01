@@ -18,4 +18,6 @@ import org.springframework.data.repository.query.Param;
 public interface PayrollRunRepository extends JpaRepository<PayrollRun, UUID> {
 
     List<PayrollRun> findByPayPeriodIdAndRunType(UUID payPeriodId, String runType);
+
+    List<PayrollRun> findByEmployeeIdAndRunType(UUID employeeId, String runType);
 }

@@ -15,7 +15,10 @@ import com.apex.hrm.payroll.domain.StatutoryContributionRule;
 import com.apex.hrm.payroll.domain.WageOrder;
 import com.apex.hrm.payroll.domain.WithholdingTaxBracket;
 import com.apex.hrm.payroll.engine.AttendancePayCalculator;
+import com.apex.hrm.payroll.engine.AnnualTaxCalculator;
 import com.apex.hrm.payroll.engine.Money;
+import com.apex.hrm.payroll.engine.SalaryProration;
+import com.apex.hrm.payroll.engine.ThirteenthMonthCalculator;
 import com.apex.hrm.payroll.engine.PagIbigCalculator;
 import com.apex.hrm.payroll.engine.PayBasis;
 import com.apex.hrm.payroll.engine.PayLine;
@@ -67,8 +70,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PayrollService {
     private static final Set<String> ATTENDANCE_DEDUCTIONS = Set.of("ABSENCE", "LATE_UT");
-    private static final Set<String> RUN_TYPES = Set.of("REGULAR", "OFF_CYCLE", "THIRTEENTH_MONTH");
-    private static final BigDecimal THIRTEENTH_MONTH_EXEMPT_CAP = new BigDecimal("90000");
+    private static final Set<String> RUN_TYPES = Set.of("REGULAR", "OFF_CYCLE", "THIRTEENTH_MONTH", "YEAR_END_ADJUSTMENT");
+    private static final Set<String> SETTLEMENT_TYPES = Set.of("FINAL_PAY");
 
     private final PayrollRunRepository runs;
     private final PayPeriodRepository periods;
@@ -89,6 +92,7 @@ public class PayrollService {
     private final WorkLocationRepository locations;
     private final PayslipService payslips;
     private final AuditService audit;
+    private final SettlementService settlement;
 
     public PayrollService(PayrollRunRepository runs, PayPeriodRepository periods, PayGroupRepository payGroups,
                           PayrollEmployeeRepository payrollEmployees, PayrollLineRepository lines,
@@ -97,7 +101,7 @@ public class PayrollService {
                           RecurringItemRepository recurring, LoanRepository loans, PremiumRuleRepository premiumRules,
                           StatutoryContributionRuleRepository statutory, WithholdingTaxBracketRepository taxBrackets,
                           WageOrderRepository wageOrders, WorkLocationRepository locations, PayslipService payslips,
-                          AuditService audit) {
+                          AuditService audit, SettlementService settlement) {
         this.runs = runs;
         this.periods = periods;
         this.payGroups = payGroups;
@@ -117,17 +121,33 @@ public class PayrollService {
         this.locations = locations;
         this.payslips = payslips;
         this.audit = audit;
+        this.settlement = settlement;
     }
 
     @Transactional
     public PayrollRun createRun(UUID payPeriodId, String runType) {
         String type = runType == null ? "REGULAR" : runType;
+        if ("FINAL_PAY".equals(type)) {
+            throw new BusinessException("Create final pay runs with POST /api/payroll/final-pay");
+        }
         if (!RUN_TYPES.contains(type)) {
             throw new BusinessException("runType must be one of " + RUN_TYPES);
         }
         PayPeriod period = periods.findById(payPeriodId).orElseThrow(() -> new NotFoundException("Pay period", payPeriodId));
         if ("LOCKED".equals(period.getStatus())) {
             throw new BusinessException("Pay period is locked");
+        }
+        if ("YEAR_END_ADJUSTMENT".equals(type)
+                && (period.getEndDate().getMonthValue() != 12 || period.getEndDate().getDayOfMonth() != 31)) {
+            throw new BusinessException("Year-end tax adjustments must use the final pay period ending December 31");
+        }
+        if ("YEAR_END_ADJUSTMENT".equals(type)
+                && !runs.findByPayPeriodIdAndRunType(payPeriodId, "REGULAR").isEmpty()) {
+            throw new BusinessException("Use the year-end adjustment run instead of a separate regular run for this period");
+        }
+        if ("REGULAR".equals(type)
+                && !runs.findByPayPeriodIdAndRunType(payPeriodId, "YEAR_END_ADJUSTMENT").isEmpty()) {
+            throw new BusinessException("A year-end adjustment run already exists for this period");
         }
         if (!"OFF_CYCLE".equals(type) && !runs.findByPayPeriodIdAndRunType(payPeriodId, type).isEmpty()) {
             throw new BusinessException("A " + type + " run already exists for this period");
@@ -138,6 +158,39 @@ public class PayrollService {
         run.setRunType(type);
         run = runs.save(run);
         audit.log("PayrollRun", run.getId(), "CREATE", type + " run for period " + period.getStartDate() + " to " + period.getEndDate());
+        return run;
+    }
+
+    /** A settlement run for one separated employee, attached to an open pay period (usually the next payroll). */
+    @Transactional
+    public PayrollRun createFinalPayRun(UUID payPeriodId, UUID employeeId) {
+        Employee emp = employees.findById(employeeId).orElseThrow(() -> new NotFoundException("Employee", employeeId));
+        if (emp.getSeparationDate() == null) {
+            throw new BusinessException("Set the employee's separation date first");
+        }
+        PayPeriod period = periods.findById(payPeriodId).orElseThrow(() -> new NotFoundException("Pay period", payPeriodId));
+        if ("LOCKED".equals(period.getStatus())) {
+            throw new BusinessException("Pay period is locked");
+        }
+        if (period.getEndDate().isBefore(emp.getSeparationDate())) {
+            throw new BusinessException("Final-pay period must end on or after the employee's separation date");
+        }
+        EmploymentRecord lastEmployment = employment
+                .findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(employeeId, emp.getSeparationDate())
+                .orElseThrow(() -> new BusinessException("No employment record is effective on the separation date"));
+        if (!period.getPayGroupId().equals(lastEmployment.getPayGroupId())) {
+            throw new BusinessException("Final-pay period must belong to the employee's pay group at separation");
+        }
+        if (!runs.findByEmployeeIdAndRunType(employeeId, "FINAL_PAY").isEmpty()) {
+            throw new BusinessException("A final-pay run already exists for this employee");
+        }
+        PayrollRun run = new PayrollRun();
+        run.setPayPeriodId(payPeriodId);
+        run.setPayGroupId(period.getPayGroupId());
+        run.setRunType("FINAL_PAY");
+        run.setEmployeeId(employeeId);
+        run = runs.save(run);
+        audit.log("PayrollRun", run.getId(), "CREATE", "FINAL_PAY run for " + emp.getEmployeeNo());
         return run;
     }
 
@@ -157,7 +210,8 @@ public class PayrollService {
         payrollEmployees.deleteByRunId(runId);
         payrollEmployees.flush();
 
-        Rules rules = loadRules(group, period.getEndDate());
+        Rules rules = SETTLEMENT_TYPES.contains(run.getRunType()) ? null : loadRules(group, period.getEndDate());
+        if ("YEAR_END_ADJUSTMENT".equals(run.getRunType())) settlement.validateYearEnd(period, group);
         Map<UUID, EmploymentRecord> current = new LinkedHashMap<>();
         for (EmploymentRecord r : employment.findActiveInPayGroup(group.getId(), period.getStartDate(), period.getEndDate())) {
             current.merge(r.getEmployeeId(), r, (a, b) -> a.getEffectiveFrom().isAfter(b.getEffectiveFrom()) ? a : b);
@@ -170,16 +224,23 @@ public class PayrollService {
         BigDecimal employer = BigDecimal.ZERO;
         List<String> skipped = new ArrayList<>();
 
-        for (Map.Entry<UUID, EmploymentRecord> e : current.entrySet()) {
-            Employee emp = employees.findById(e.getKey()).orElse(null);
-            if (emp == null || emp.getHireDate().isAfter(period.getEndDate())
-                    || (emp.getSeparationDate() != null && emp.getSeparationDate().isBefore(period.getStartDate()))) {
-                continue;
+        List<PayrollEmployee> results = new ArrayList<>();
+        if (SETTLEMENT_TYPES.contains(run.getRunType())) {
+            results.addAll(settlement.compute(run, group));
+        } else {
+            for (Map.Entry<UUID, EmploymentRecord> e : current.entrySet()) {
+                Employee emp = employees.findById(e.getKey()).orElse(null);
+                if (emp == null || emp.getHireDate().isAfter(period.getEndDate())
+                        || (emp.getSeparationDate() != null && emp.getSeparationDate().isBefore(period.getStartDate()))) {
+                    continue;
+                }
+                PayrollEmployee computed = computeEmployee(run, period, group, rules, emp, e.getValue(), skipped);
+                if (computed != null) {
+                    results.add(computed);
+                }
             }
-            PayrollEmployee pe = computeEmployee(run, period, group, rules, emp, e.getValue(), skipped);
-            if (pe == null) {
-                continue;
-            }
+        }
+        for (PayrollEmployee pe : results) {
             count++;
             gross = gross.add(pe.getGross());
             deductions = deductions.add(pe.getTotalDeductions());
@@ -236,14 +297,14 @@ public class PayrollService {
         }
         for (PayrollEmployee pe : pes) {
             payslips.issue(run, period, pe, byEmployee.getOrDefault(pe.getId(), List.of()));
-            if ("REGULAR".equals(run.getRunType())) {
+            if (isRegularPeriodRun(run.getRunType())) {
                 for (DtrDay d : dtrDays.findByEmployeeIdAndWorkDateBetween(pe.getEmployeeId(), period.getStartDate(), period.getEndDate())) {
                     d.setStatus("LOCKED");
                     dtrDays.save(d);
                 }
             }
         }
-        if ("REGULAR".equals(run.getRunType())) {
+        if (isRegularPeriodRun(run.getRunType())) {
             period.setStatus("LOCKED");
             periods.save(period);
         }
@@ -303,6 +364,14 @@ public class PayrollService {
                 .orElseThrow(() -> new BusinessException("No " + agency + " contribution rule effective on " + asOf));
     }
 
+    private List<WithholdingTaxCalculator.Bracket> annualTaxBrackets(LocalDate asOf) {
+        List<WithholdingTaxBracket> all = taxBrackets.findByPeriodTypeAndEffectiveFromLessThanEqual("ANNUAL", asOf);
+        LocalDate latest = all.stream().map(WithholdingTaxBracket::getEffectiveFrom).max(LocalDate::compareTo)
+                .orElseThrow(() -> new BusinessException("No annual withholding tax table is configured"));
+        return all.stream().filter(b -> b.getEffectiveFrom().equals(latest))
+                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate())).toList();
+    }
+
     private PayrollEmployee computeEmployee(PayrollRun run, PayPeriod period, PayGroup group, Rules rules, Employee emp,
                                             EmploymentRecord rec, List<String> skipped) {
         LocalDate start = period.getStartDate();
@@ -313,7 +382,8 @@ public class PayrollService {
             skipped.add(emp.getEmployeeNo() + " (no compensation record)");
             return null;
         }
-        boolean regular = "REGULAR".equals(run.getRunType());
+        boolean yearEnd = "YEAR_END_ADJUSTMENT".equals(run.getRunType());
+        boolean regular = "REGULAR".equals(run.getRunType()) || yearEnd;
         boolean thirteenth = "THIRTEENTH_MONTH".equals(run.getRunType());
         int periodsPerMonth = "MONTHLY".equals(group.getFrequency()) ? 1 : 2;
         PayBasis basis = PayBasis.valueOf(comp.getPayBasis());
@@ -332,18 +402,26 @@ public class PayrollService {
 
         if (thirteenth) {
             BigDecimal earned = lines.basicEarned(emp.getId(), LocalDate.of(end.getYear(), 1, 1), LocalDate.of(end.getYear(), 12, 31));
-            BigDecimal amount = Money.round(earned.divide(BigDecimal.valueOf(12), 6, RoundingMode.HALF_UP));
-            if (amount.signum() > 0) {
-                out.add(line(run, pe, emp, cc, new PayLine("THIRTEENTH_MONTH", "13th month pay", PayLine.EARNING, null, null, amount, false), null, null));
+            BigDecimal yearStartPaid = lines.thirteenthPaid(emp.getId(), LocalDate.of(end.getYear(), 1, 1), end);
+            BigDecimal yearStartExempt = lines.thirteenthExemptPaid(emp.getId(), LocalDate.of(end.getYear(), 1, 1), end);
+            BigDecimal otherBenefits = lines.otherExemptBenefitsYtd(emp.getId(), LocalDate.of(end.getYear(), 1, 1), end);
+            ThirteenthMonthCalculator.Result m13 = ThirteenthMonthCalculator.split(earned, yearStartPaid, yearStartExempt, otherBenefits);
+            if (m13.exempt().signum() > 0) {
+                out.add(line(run, pe, emp, cc, new PayLine("THIRTEENTH_MONTH", "13th month pay (tax-exempt part)", PayLine.EARNING, null, null, m13.exempt(), false), null, null));
             }
-            if (amount.compareTo(THIRTEENTH_MONTH_EXEMPT_CAP) > 0) {
-                warnings.add("13th month exceeds 90,000; the taxable excess (with other benefits) is not computed here");
+            if (m13.taxable().signum() > 0) {
+                out.add(line(run, pe, emp, cc, new PayLine("THIRTEENTH_MONTH", "13th month pay (taxable excess)", PayLine.EARNING, null, null, m13.taxable(), true), null, null));
+                warnings.add("Part of the 13th month pay is taxable; withholding on it is reconciled by the year-end adjustment run");
+            }
+            if (otherBenefits.signum() > 0) {
+                warnings.add("Review exempt benefit classifications against the shared PHP 90,000 13th-month and other-benefits ceiling");
             }
         }
 
         if (regular) {
+            BigDecimal periodBasic = basis == PayBasis.MONTHLY ? proratedBasic(emp, comp, start, end, periodsPerMonth) : null;
             AttendancePayCalculator.Config cfg = new AttendancePayCalculator.Config(basis, comp.getBaseRate(),
-                    group.getDaysFactor(), group.getHoursPerDay(), periodsPerMonth);
+                    group.getDaysFactor(), group.getHoursPerDay(), periodsPerMonth, periodBasic);
             List<AttendancePayCalculator.DayInput> days = dtrDays.findByEmployeeIdAndWorkDateBetween(emp.getId(), start, end).stream()
                     .map(PayrollService::toDayInput).toList();
             if (days.isEmpty()) {
@@ -390,9 +468,11 @@ public class PayrollService {
         BigDecimal preTax = sumCodes(out, Set.of("SSS_EE", "PHIC_EE", "HDMF_EE"));
         BigDecimal taxable = taxableEarnings.subtract(attendanceDeductions).subtract(preTax).max(BigDecimal.ZERO);
 
+        BigDecimal periodWithholding = BigDecimal.ZERO;
         if (regular) {
             BigDecimal tax = Boolean.TRUE.equals(emp.getMinimumWageEarner()) ? Money.ZERO
                     : WithholdingTaxCalculator.tax(rules.brackets(), taxable);
+            periodWithholding = tax;
             if (tax.signum() > 0) {
                 out.add(line(run, pe, emp, cc, new PayLine("WTAX", "Withholding tax", PayLine.DEDUCTION, null, null, tax, false), null, null));
             }
@@ -408,6 +488,33 @@ public class PayrollService {
             }
         } else if ("OFF_CYCLE".equals(run.getRunType())) {
             warnings.add("Off-cycle run: no withholding tax is computed");
+        }
+
+        if (yearEnd) {
+            if (Boolean.TRUE.equals(emp.getMinimumWageEarner())) {
+                warnings.add("Annual tax adjustment was skipped for a minimum-wage earner; review taxable benefits manually");
+            } else {
+                LocalDate yearStart = LocalDate.of(end.getYear(), 1, 1);
+                BigDecimal taxableYtd = payrollEmployees.taxableIncomeYtd(emp.getId(), yearStart, end).add(taxable);
+                BigDecimal withheldYtd = lines.taxWithheldYtd(emp.getId(), yearStart, end).add(periodWithholding);
+                BigDecimal adjustment = AnnualTaxCalculator.adjustment(annualTaxBrackets(end), taxableYtd, withheldYtd);
+                if (adjustment.signum() > 0) {
+                    BigDecimal earningsAvailable = sum(out, PayLine.EARNING, false, null).subtract(attendanceDeductions);
+                    BigDecimal otherDeductions = sum(out, PayLine.DEDUCTION, false, null);
+                    BigDecimal availableForTax = earningsAvailable.subtract(otherDeductions).max(BigDecimal.ZERO);
+                    BigDecimal withheld = adjustment.min(availableForTax);
+                    if (withheld.signum() > 0) {
+                        out.add(line(run, pe, emp, cc, new PayLine("WTAX", "Year-end annual tax adjustment", PayLine.DEDUCTION, null, null, withheld, false), null, null));
+                    }
+                    if (adjustment.compareTo(withheld) > 0) {
+                        warnings.add("Additional annual tax of " + Money.round(adjustment.subtract(withheld))
+                                + " could not be withheld from this pay; resolve the balance manually");
+                    }
+                } else if (adjustment.signum() < 0) {
+                    BigDecimal refund = adjustment.negate();
+                    out.add(line(run, pe, emp, cc, new PayLine("TAX_REFUND", "Year-end refund of excess tax withheld", PayLine.EARNING, null, null, refund, false), null, null));
+                }
+            }
         }
 
         BigDecimal earnings = sum(out, PayLine.EARNING, false, null);
@@ -428,11 +535,33 @@ public class PayrollService {
         return payrollEmployees.save(pe);
     }
 
+    /** Calendar-day proration for hires, separations and salary changes inside the period. */
+    private BigDecimal proratedBasic(Employee emp, Compensation current, LocalDate start, LocalDate end, int periodsPerMonth) {
+        List<SalaryProration.Segment> segments = new ArrayList<>();
+        LocalDate hire = emp.getHireDate();
+        LocalDate separation = emp.getSeparationDate();
+        for (Compensation c : compensations.findByEmployeeIdOrderByEffectiveFromDesc(emp.getId())) {
+            if (!"MONTHLY".equals(c.getPayBasis())) {
+                continue;
+            }
+            LocalDate from = c.getEffectiveFrom().isBefore(hire) ? hire : c.getEffectiveFrom();
+            LocalDate to = c.getEffectiveTo();
+            if (separation != null && (to == null || to.isAfter(separation))) {
+                to = separation;
+            }
+            segments.add(new SalaryProration.Segment(c.getBaseRate(), from, to));
+        }
+        if (segments.isEmpty()) {
+            segments.add(new SalaryProration.Segment(current.getBaseRate(), hire, separation));
+        }
+        return SalaryProration.periodBasic(segments, start, end, periodsPerMonth);
+    }
+
     private static AttendancePayCalculator.DayInput toDayInput(DtrDay d) {
         return new AttendancePayCalculator.DayInput(d.getWorkDate(), DayType.valueOf(d.getDayType()), d.getRegularMinutes(),
                 d.getLateMinutes(), d.getUndertimeMinutes(), d.getNightMinutes(), d.getNightOtMinutes(),
                 Math.min(d.getOtDetectedMinutes(), d.getOtApprovedMinutes()), Boolean.TRUE.equals(d.getAbsent()),
-                Boolean.TRUE.equals(d.getPaidLeave()));
+                Boolean.TRUE.equals(d.getPaidLeave()), !Boolean.FALSE.equals(d.getHolidayPayEligible()));
     }
 
     /** Fraction of the monthly statutory contribution deducted in this cutoff. */
@@ -519,5 +648,9 @@ public class PayrollService {
             }
         }
         throw new BusinessException("Run is " + run.getStatus() + "; this action requires " + String.join(" or ", allowed));
+    }
+
+    private static boolean isRegularPeriodRun(String runType) {
+        return "REGULAR".equals(runType) || "YEAR_END_ADJUSTMENT".equals(runType);
     }
 }

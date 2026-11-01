@@ -20,8 +20,10 @@ import com.apex.hrm.org.domain.Company;
 import com.apex.hrm.org.repo.CompanyRepository;
 import com.apex.hrm.platform.security.HrmUserPrincipal;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -42,6 +44,9 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 @RestController
 @RequestMapping("/api/payroll")
 public class PayrollController {
+    public record FinalPayRequest(@NotNull UUID payPeriodId, @NotNull UUID employeeId) {
+    }
+
     public record CreateRunRequest(UUID payPeriodId, String runType) {
     }
 
@@ -78,10 +83,11 @@ public class PayrollController {
     }
 
     /** Minimal employee directory for payroll staff; avoids exposing private employee fields. */
-    public record EmployeeSummary(UUID id, String employeeNo, String firstName, String lastName, String status) {
+    public record EmployeeSummary(UUID id, String employeeNo, String firstName, String lastName, String status,
+                                  LocalDate separationDate) {
         static EmployeeSummary from(Employee employee) {
             return new EmployeeSummary(employee.getId(), employee.getEmployeeNo(), employee.getFirstName(),
-                    employee.getLastName(), employee.getStatus());
+                    employee.getLastName(), employee.getStatus(), employee.getSeparationDate());
         }
     }
 
@@ -105,6 +111,13 @@ public class PayrollController {
     @ResponseStatus(HttpStatus.CREATED)
     public PayrollRun create(@RequestBody CreateRunRequest r) {
         return payroll.createRun(r.payPeriodId(), r.runType());
+    }
+
+    /** Settlement for one separated employee. Needs the regular period containing the separation date to be locked. */
+    @PostMapping("/final-pay")
+    @ResponseStatus(HttpStatus.CREATED)
+    public PayrollRun createFinalPay(@jakarta.validation.Valid @RequestBody FinalPayRequest r) {
+        return payroll.createFinalPayRun(r.payPeriodId(), r.employeeId());
     }
 
     @PostMapping("/runs/{id}/compute")

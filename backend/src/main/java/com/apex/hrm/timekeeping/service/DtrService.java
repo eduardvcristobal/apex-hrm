@@ -26,6 +26,8 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.TextStyle;
+import com.apex.hrm.payroll.engine.HolidayPayRule;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -150,11 +152,32 @@ public class DtrService {
                 dtr.setOtApprovedMinutes(otApproved);
                 dtr.setPaidLeave(paidLeave);
                 dtr.setAbsent(!worked && dayType == DayType.ORDINARY && !paidLeave);
+                dtr.setHolidayPayEligible(holidayPayEligible(empId, d, dayType, worked, paidLeave));
                 dtrDays.save(dtr);
                 processed++;
             }
         }
         return processed;
+    }
+
+    /** Daily-paid employees get regular holiday pay only if they worked or were on paid leave the working day before. */
+    private boolean holidayPayEligible(UUID empId, LocalDate d, DayType type, boolean worked, boolean paidLeave) {
+        if ((type != DayType.REGULAR_HOLIDAY && type != DayType.REGULAR_HOLIDAY_REST_DAY) || worked || paidLeave) {
+            return true;
+        }
+        Map<LocalDate, DtrDay> byDate = new HashMap<>();
+        for (DtrDay x : dtrDays.findByEmployeeIdAndWorkDateBetween(empId, d.minusDays(7), d.minusDays(1))) {
+            byDate.put(x.getWorkDate(), x);
+        }
+        List<HolidayPayRule.PriorDay> prior = new ArrayList<>();
+        for (int i = 1; i <= 7; i++) {
+            DtrDay x = byDate.get(d.minusDays(i));
+            if (x != null) {
+                prior.add(new HolidayPayRule.PriorDay(DayType.ORDINARY.name().equals(x.getDayType()),
+                        x.getRegularMinutes() > 0 || Boolean.TRUE.equals(x.getPaidLeave())));
+            }
+        }
+        return HolidayPayRule.eligible(prior);
     }
 
     private static EmployeeSchedule pick(List<EmployeeSchedule> list, LocalDate d) {

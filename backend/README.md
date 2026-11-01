@@ -27,7 +27,7 @@ Configure `HRM_MFA_ENCRYPTION_KEY` before enrolling MFA or saving encrypted Rese
 | `payroll` | pay groups/periods, rule tables, runs, lines, adjustments, payslips, journal entries, bank files |
 | `*.engine` | pure calculation classes (no Spring, no DB): `DtrCalculator`, `AttendancePayCalculator`, `Sss/PhilHealth/PagIbig/WithholdingTax` calculators |
 
-Migrations V1–V8 create the original Apex HRM schema. Additive migrations V9–V47 add workspace identity and tenant isolation, MFA, invitations, billing, platform operations, secured personnel features, and organization chart features. Existing Apex HRM tables and payroll/timekeeping endpoints remain in place.
+Migrations V1–V8 create the original Apex HRM schema. Additive migrations V9–V49 add workspace identity and tenant isolation, MFA, invitations, billing, platform operations, secured personnel features, organization charts, and payroll settlement support. Existing Apex HRM tables and payroll/timekeeping endpoints remain in place.
 
 ## Multi-tenancy
 
@@ -45,6 +45,12 @@ curl localhost:8080/api/v1/me -H "Authorization: Bearer $TOKEN"
 
 Workflow endpoints: `/api/attendance/*`, `/api/dtr/process`, `/api/leave/*`, `/api/overtime/*`,
 `/api/employees/{id}/compensation`, `/api/payroll/*`. Master data and read-only listings are generated under `/api/<resource>`.
+
+## Payroll settlements (V49)
+
+The payroll workspace supports final-pay runs for separated employees and a year-end annual tax adjustment in the December 31 payroll. Final pay requires the regular period containing the separation date to be locked. The year-end adjustment run replaces the regular run for the December 31 period and requires prior regular periods, 13th-month runs, and final-pay runs for that year to be locked or paid. These runs use the normal review, approval, lock, payslip, journal, and payment lifecycle.
+
+The calculations currently provide a starting point for review. Final pay does not calculate the separation-month statutory contribution step, and minimum-wage earners are flagged for manual taxable-benefit review. The 13th-month exemption uses recorded non-taxable earning lines (excluding de minimis and tax refunds) to estimate the shared ₱90,000 benefit ceiling; verify benefit classifications, prior-employer income, leave conversion, and statutory deductions before approval. Do not treat the generated result as a substitute for payroll or tax review.
 
 ## Design rules worth knowing
 

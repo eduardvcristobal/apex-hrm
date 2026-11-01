@@ -26,6 +26,7 @@ public class PayrollRun extends BaseEntity {
     private Instant lockedAt;
     private Instant paidAt;
     private String remarks;
+    private UUID employeeId;
     private Integer employeeCount = 0;
     private BigDecimal totalGross = new BigDecimal("0");
     private BigDecimal totalDeductions = new BigDecimal("0");

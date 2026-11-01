@@ -52,6 +52,8 @@ public class TenantProvisioningService {
         item("SSS_EC", "SSS employees' compensation", "EMPLOYER_COST", false);
         item("PHIC_ER", "PhilHealth employer share", "EMPLOYER_COST", false);
         item("HDMF_ER", "Pag-IBIG employer share", "EMPLOYER_COST", false);
+        item("LEAVE_CONVERSION", "Conversion of unused leave", "EARNING", true);
+        item("TAX_REFUND", "Refund of excess tax withheld", "EARNING", false);
 
         // Statutory entitlements are examples to verify against current law and company policy.
         leave("SIL", "Service incentive leave", true, "5");
@@ -95,6 +97,8 @@ public class TenantProvisioningService {
         map(gl, "SSS_EC", "5130", "2100");
         map(gl, "PHIC_ER", "5130", "2110");
         map(gl, "HDMF_ER", "5130", "2120");
+        map(gl, "LEAVE_CONVERSION", "5100", null);
+        map(gl, "TAX_REFUND", "2130", null);
         map(gl, "NET_PAY", null, "2140");
     }
 

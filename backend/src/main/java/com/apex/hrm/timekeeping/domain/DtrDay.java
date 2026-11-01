@@ -32,4 +32,5 @@ public class DtrDay extends BaseEntity {
     private Boolean absent = false;
     private Boolean paidLeave = false;
     private String status = "OPEN";
+    private Boolean holidayPayEligible = true;
 }

@@ -18,13 +18,23 @@ public final class AttendancePayCalculator {
     private AttendancePayCalculator() {
     }
 
+    /** periodBasicOverride: pre-computed basic for the period (pro-rated hire, separation or raise); null = full period. */
     public record Config(PayBasis basis, BigDecimal baseRate, BigDecimal daysFactor, BigDecimal hoursPerDay,
-                         int periodsPerMonth) {
+                         int periodsPerMonth, BigDecimal periodBasicOverride) {
+        public Config(PayBasis basis, BigDecimal baseRate, BigDecimal daysFactor, BigDecimal hoursPerDay, int periodsPerMonth) {
+            this(basis, baseRate, daysFactor, hoursPerDay, periodsPerMonth, null);
+        }
     }
 
+    /** holidayEligible: daily-paid pay for an unworked regular holiday needs attendance before it (see HolidayPayRule). */
     public record DayInput(LocalDate date, DayType dayType, int regularMinutes, int lateMinutes, int undertimeMinutes,
                            int nightMinutes, int nightOtMinutes, int otPayableMinutes, boolean absent,
-                           boolean paidLeave) {
+                           boolean paidLeave, boolean holidayEligible) {
+        public DayInput(LocalDate date, DayType dayType, int regularMinutes, int lateMinutes, int undertimeMinutes,
+                        int nightMinutes, int nightOtMinutes, int otPayableMinutes, boolean absent, boolean paidLeave) {
+            this(date, dayType, regularMinutes, lateMinutes, undertimeMinutes, nightMinutes, nightOtMinutes,
+                    otPayableMinutes, absent, paidLeave, true);
+        }
     }
 
     public record PremiumRuleData(DayType dayType, BigDecimal workedMultiplier, BigDecimal otMultiplier,
@@ -46,9 +56,9 @@ public final class AttendancePayCalculator {
         BigDecimal hourly = hourlyRate(c);
         boolean monthly = c.basis() == PayBasis.MONTHLY;
 
-        BigDecimal basic = monthly
-                ? c.baseRate().divide(BigDecimal.valueOf(c.periodsPerMonth()), 6, RoundingMode.HALF_UP)
-                : BigDecimal.ZERO;
+        BigDecimal basic = !monthly ? BigDecimal.ZERO
+                : c.periodBasicOverride() != null ? c.periodBasicOverride()
+                : c.baseRate().divide(BigDecimal.valueOf(c.periodsPerMonth()), 6, RoundingMode.HALF_UP);
         BigDecimal premium = BigDecimal.ZERO;
         BigDecimal ot = BigDecimal.ZERO;
         BigDecimal nd = BigDecimal.ZERO;
@@ -82,7 +92,7 @@ public final class AttendancePayCalculator {
                 if (!monthly) {
                     leavePay = leavePay.add(daily);
                 }
-            } else if (!monthly && r.unworkedMultiplier().signum() > 0) {
+            } else if (!monthly && d.holidayEligible() && r.unworkedMultiplier().signum() > 0) {
                 holidayPay = holidayPay.add(daily.multiply(r.unworkedMultiplier()));
             }
             if (d.otPayableMinutes() > 0) {
