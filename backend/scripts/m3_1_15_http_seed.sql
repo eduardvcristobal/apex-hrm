@@ -64,4 +64,19 @@ INSERT INTO auth_api_token(identity_id,token_sha256,expires_at,mfa_verified) VAL
     encode(sha256(convert_to(repeat('d',64),'UTF8')),'hex'),now()+interval '2 hours',true),
  ('83000000-0000-4000-8000-000000000005',
     encode(sha256(convert_to(repeat('e',64),'UTF8')),'hex'),now()+interval '2 hours',false);
+-- Mixed realistic ledger data. The pending final-pay loan claim is 500, but source has 700.
+INSERT INTO loan(id,tenant_id,employee_id,loan_type,principal,amortization,balance,start_date,status)
+VALUES('8d000000-0000-4000-8000-000000000001',
+ '81000000-0000-4000-8000-000000000001',
+ '85000000-0000-4000-8000-000000000001',
+ 'CI_TEST',1500,150,700,'2025-01-01','ACTIVE');
+INSERT INTO leave_type(id,tenant_id,code,name,paid,convertible)
+VALUES('8e000000-0000-4000-8000-000000000001',
+ '81000000-0000-4000-8000-000000000001','CI_LEAVE','CI Convertible Leave',true,true);
+INSERT INTO leave_ledger(id,tenant_id,employee_id,leave_type_id,entry_date,entry_type,days)
+VALUES('8f000000-0000-4000-8000-000000000001',
+ '81000000-0000-4000-8000-000000000001',
+ '85000000-0000-4000-8000-000000000001',
+ '8e000000-0000-4000-8000-000000000001',
+ '2026-09-01','GRANT',4.5);
 COMMIT;

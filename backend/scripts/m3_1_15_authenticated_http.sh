@@ -74,6 +74,10 @@ echo 'PASS: racing identity approvers produce exactly one successful decision'
 http GET "$A" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
 expect 200 'Source ledger inspects approved employee identity with payroll, loan and leave sources'
 [[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "PAYROLL_SOURCE_MISSING" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .loanStatus)" == "LOAN_BALANCE_MISMATCH" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700.0000" || "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700.0" || "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700.00" || "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .leaveStatus)" == "CONVERSION_RATE_AND_ELIGIBILITY_REVIEW_REQUIRED" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .convertibleLeaveDays)" != "0" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .certificationStatus)" == "REVIEW_REQUIRED" ]] || exit 1
 [[ "$(echo "$LAST_BODY" | jq -r .disbursementEnabled)" == "false" ]] || exit 1
 http GET "$D" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
