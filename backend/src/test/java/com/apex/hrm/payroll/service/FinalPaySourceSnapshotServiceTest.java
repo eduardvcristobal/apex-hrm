@@ -24,6 +24,18 @@ class FinalPaySourceSnapshotServiceTest {
             """);
         assertEquals(1,FinalPaySourceSnapshotService.gapDays(rows,"from","to",from,to,false));
     }
+    @Test void missingWeekdayAttendanceFailsClosed() throws Exception{
+        JsonNode rows=mapper.readTree("""
+            [{"date":"2026-09-01","status":"LOCKED"},
+             {"date":"2026-09-02","status":"LOCKED"},
+             {"date":"2026-09-04","status":"LOCKED"}]
+            """);
+        assertEquals(1,FinalPaySourceSnapshotService.missingWeekdayDtr(rows,from,to));
+        assertEquals(0,FinalPaySourceSnapshotService.missingWeekdayDtr(mapper.readTree("""
+            [{"date":"2026-09-01"},{"date":"2026-09-02"},
+             {"date":"2026-09-03"},{"date":"2026-09-04"}]
+            """),from,to));
+    }
     @Test void statusAndDigestAreDeterministic(){
         assertFalse(FinalPaySourceSnapshotService.isFinal("OPEN"));
         assertTrue(FinalPaySourceSnapshotService.isFinal("LOCKED"));
