@@ -127,6 +127,22 @@ public class PerformanceController {
             WHERE tenant_id=? AND cycle_id=? ORDER BY created_at DESC LIMIT 500
             """,user.tenantId(),cycleId));
     }
+    /** Weighted KPI attainment with a 100% per-goal cap; missing actuals count as zero. */
+    @GetMapping("/scores")
+    public List<Map<String,Object>> scores(@AuthenticationPrincipal HrmUserPrincipal user,
+                                            @RequestParam UUID cycleId) {
+        authorize(user);
+        return tenant.inTenant(user.tenantId(),()->jdbc.queryForList("""
+            SELECT g.employee_id AS "employeeId",COUNT(*) AS "goalCount",
+              ROUND(SUM(g.weight * CASE
+                  WHEN g.target_value IS NULL OR g.target_value=0 THEN 0
+                  ELSE LEAST(1, GREATEST(0, COALESCE(g.actual_value,0)/g.target_value))
+                END) / NULLIF(SUM(g.weight),0) * 100,2) AS "attainmentPercent"
+            FROM performance_goal g
+            WHERE g.tenant_id=? AND g.cycle_id=? AND g.status<>'CANCELLED'
+            GROUP BY g.employee_id ORDER BY g.employee_id LIMIT 500
+            """,user.tenantId(),cycleId));
+    }
     @PostMapping("/goals")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String,Object> createGoal(@AuthenticationPrincipal HrmUserPrincipal user,
