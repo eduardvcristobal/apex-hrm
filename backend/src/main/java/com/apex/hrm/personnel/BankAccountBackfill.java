@@ -38,12 +38,13 @@ public class BankAccountBackfill implements ApplicationRunner {
             List<Row> rows = jdbc.query("""
                 SELECT id,tenant_id,employee_id,account_no_legacy,account_no_ciphertext
                   FROM employee_bank_account
-                 WHERE account_no_legacy IS NOT NULL OR account_no_ciphertext IS NULL
-                    OR account_no_ciphertext NOT LIKE ?
                  FOR UPDATE
                 """, (rs, i) -> new Row(rs.getObject(1, UUID.class),
                     rs.getObject(2, UUID.class), rs.getObject(3, UUID.class),
-                    rs.getString(4), rs.getString(5)), "b1:" + cipher.currentKeyId() + ":%");
+                    rs.getString(4), rs.getString(5)));
+            if (!rows.isEmpty() && !cipher.hasCurrentKey()) {
+                throw new IllegalStateException("HRM_BANK_ACCOUNT_KEY is required to start with financial records");
+            }
             for (Row row : rows) {
                 String clear;
                 if (row.ciphertext() != null) {
@@ -56,6 +57,9 @@ public class BankAccountBackfill implements ApplicationRunner {
                         throw new IllegalStateException("Bank account missing both plaintext and encrypted value");
                     }
                     clear = row.legacy();
+                }
+                if (row.legacy() == null && !cipher.needsRotation(row.ciphertext())) {
+                    continue; // Current-key ciphertext was validated by decrypt above.
                 }
                 String encrypted = cipher.encrypt(clear, row.tenantId(), row.employeeId());
                 jdbc.update("""
