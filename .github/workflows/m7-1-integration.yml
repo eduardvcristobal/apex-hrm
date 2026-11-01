@@ -1,0 +1,44 @@
+name: M7.1 Integration Readiness
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ['feature/m7-1-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  integration-static:
+    name: Flyway + API + security guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Guard self-tests
+        run: python3 -m unittest discover -s scripts/tests -v
+      - name: Audit integrated main tree
+        run: python3 scripts/integration_guard.py --json
+  restored-security-tests:
+    name: Restored tenant, MFA and performance negative tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Compile and execute restored negative tests
+        working-directory: backend
+        run: mvn -B -ntp -Dtest=TenantFilterSecurityTest,MfaSecretCipherSecurityTest,PerformanceWorkflowControllerTest test
+      - name: Preserve test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m7-1-restored-tests
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore
