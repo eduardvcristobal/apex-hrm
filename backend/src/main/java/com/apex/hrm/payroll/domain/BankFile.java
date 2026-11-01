@@ -18,6 +18,7 @@ import lombok.Setter;
 public class BankFile extends BaseEntity {
     private UUID runId;
     private UUID bankTemplateId;
+    private UUID recoverySourceFileId;
     private String fileName;
     private String content;
     private Integer recordCount = 0;
