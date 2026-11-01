@@ -117,6 +117,14 @@ Branch: feature/m3-1-payroll-compliance
 - Personnel UI now exposes source freshness and independent review actions without payout controls.
 - Details: `docs/M3_1_19_CERTIFICATION_REPORT.md`. **PRODUCTION NO-GO.**
 
+## M3.1.20 — Internal period-closure attestations and unverified external provenance
+
+- Flyway V59 adds append-only settlement/source-review-anchored period-attestation records and immutable **user-declared unverified** external document hashes/references with forced tenant RLS.
+- A distinct finance officer can reject incomplete or stale evidence. Positive internal review is blocked unless a separate `SOURCE_REVIEWED` record and latest complete source hash pass live verification; the reviewer must differ from requester, snapshot capturer and source reviewer.
+- Personnel now includes an evidence register with declared issuer/reference/SHA-256, independent review actions and explicit bank and payout NO-GO.
+- CI tests duplicate records, bad digests, MFA/tenant permissions, forbidden actors, rejection of incomplete sources, non-rewritable database records, Maven/React/Flyway and Chromium paths.
+- **No issuer authentication, actual bank receipt, legally certified period closing, government release, live bank transfer or PAID transition.** See `docs/M3_1_20_CERTIFICATION_REPORT.md`.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
