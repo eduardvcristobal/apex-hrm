@@ -76,7 +76,7 @@ public class FinalPayBankEvidenceService {
             if(entries.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Evidence not found");
             Evidence row=entries.get(0);
             Payment p=payment(user.tenantId(),row.paymentAuthorizationId());
-            requireIndependentEvidenceReview(row.status(),row.recordedBy(),p.authorizedBy(),user.id());
+            requireIndependentEvidenceReview(row.status(),row.recordedBy(),p.preparedBy(),p.authorizedBy(),user.id());
             if(approve) verifyAuthorizedPayment(p.status(),p.amount(),row.reportedAmount());
             Evidence decided=jdbc.queryForObject("""
                 UPDATE payroll_final_pay_bank_evidence SET status=?,reviewed_by=?,reviewed_at=now()
@@ -103,12 +103,12 @@ public class FinalPayBankEvidenceService {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
                 "Bank evidence must match an authorized positive payment instruction exactly");
     }
-    static void requireIndependentEvidenceReview(String status,UUID recorder,UUID authorizer,UUID reviewer) {
+    static void requireIndependentEvidenceReview(String status,UUID recorder,UUID preparer,UUID authorizer,UUID reviewer) {
         if(!"SUBMITTED".equals(status))
             throw new ResponseStatusException(HttpStatus.CONFLICT,"Evidence already decided");
-        if(reviewer==null || reviewer.equals(recorder) || reviewer.equals(authorizer))
+        if(reviewer==null || reviewer.equals(recorder) || reviewer.equals(preparer) || reviewer.equals(authorizer))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                "Evidence review must be independent of bank evidence entry and payment authorization");
+                "Evidence reviewer must be independent of recorder, payment preparer and payment authorizer");
     }
 
     private Payment payment(UUID tenant,UUID id) {

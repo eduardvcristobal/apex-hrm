@@ -21,20 +21,26 @@ class FinalPayBankEvidenceServiceTest {
                 "PREPARED",new BigDecimal("5000"),new BigDecimal("5000")));
     }
     @Test void reviewerCannotBeRecorderOrPaymentAuthorizer() {
-        UUID recorder=UUID.randomUUID(), authorizer=UUID.randomUUID();
+        UUID recorder=UUID.randomUUID(), preparer=UUID.randomUUID(), authorizer=UUID.randomUUID();
         assertEquals(403,assertThrows(ResponseStatusException.class,()->
             FinalPayBankEvidenceService.requireIndependentEvidenceReview(
-                "SUBMITTED",recorder,authorizer,recorder)).getStatusCode().value());
+                "SUBMITTED",recorder,preparer,authorizer,recorder)).getStatusCode().value());
         assertEquals(403,assertThrows(ResponseStatusException.class,()->
             FinalPayBankEvidenceService.requireIndependentEvidenceReview(
-                "SUBMITTED",recorder,authorizer,authorizer)).getStatusCode().value());
+                "SUBMITTED",recorder,preparer,authorizer,authorizer)).getStatusCode().value());
         assertDoesNotThrow(()->FinalPayBankEvidenceService.requireIndependentEvidenceReview(
-            "SUBMITTED",recorder,authorizer,UUID.randomUUID()));
+            "SUBMITTED",recorder,preparer,authorizer,UUID.randomUUID()));
+    }
+    @Test void paymentPreparerCannotReviewEvidenceEvenWhenNotAuthorizer() {
+        UUID recorder=UUID.randomUUID(), preparer=UUID.randomUUID(), authorizer=UUID.randomUUID();
+        assertEquals(403,assertThrows(ResponseStatusException.class,()->
+            FinalPayBankEvidenceService.requireIndependentEvidenceReview(
+                "SUBMITTED",recorder,preparer,authorizer,preparer)).getStatusCode().value());
     }
     @Test void evidenceCannotBeReviewedTwice() {
         assertEquals(409,assertThrows(ResponseStatusException.class,()->
             FinalPayBankEvidenceService.requireIndependentEvidenceReview(
-                "EVIDENCE_REVIEWED",UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID()))
+                "EVIDENCE_REVIEWED",UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID()))
                 .getStatusCode().value());
     }
 }
