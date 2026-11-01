@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import './performance.css';
+import { MilestonePanel } from './PerformanceMilestones';
 
+type Plan = { id: string; title: string; status: string; actionItems: string; targetDate?: string };
 type Goal = { id: string; title: string; metric?: string; targetValue?: number; actualValue?: number; status: string };
 type Review = { id: string; cycleId: string; rating?: number; selfRating?: number; status: string; managerComments?: string };
 type TeamGoal = { id: string; employeeId: string; title: string; actualValue?: number; status: string };
@@ -16,6 +18,8 @@ async function api<T>(token: string, path: string, method = 'GET', payload?: unk
 }
 export function PerformanceSelfService({ token, isManager }: { token: string; isManager: boolean }) {
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [selectedPlan, setSelectedPlan] = useState('');
   const [reviews, setReviews] = useState<Review[]>([]);
   const [teamGoals, setTeamGoals] = useState<TeamGoal[]>([]);
   const [teamReviews, setTeamReviews] = useState<TeamReview[]>([]);
@@ -29,8 +33,8 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   async function reload() {
-    const [g, r] = await Promise.all([api<Goal[]>(token, '/my/goals'),api<Review[]>(token, '/my/reviews')]);
-    setGoals(g);setReviews(r);
+    const [g, r, p] = await Promise.all([api<Goal[]>(token, '/my/goals'),api<Review[]>(token, '/my/reviews'),api<Plan[]>(token, '/my/plans')]);
+    setGoals(g);setReviews(r);setPlans(p);
     if (isManager) {
       const [tg, tr, ta] = await Promise.all([api<TeamGoal[]>(token,'/team/goals'),api<TeamReview[]>(token,'/team/reviews'),api<Assignment[]>(token,'/team/assignments')]);
       setTeamGoals(tg);setTeamReviews(tr);setAssignments(ta);
@@ -69,6 +73,13 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
           </form>}
           {r.status==='SUBMITTED' && <><p>{r.managerComments||'No manager comments recorded.'}</p><button disabled={busy} onClick={()=>void run(()=>api(token,'/reviews/'+r.id+'/acknowledge','POST'))}>Acknowledge review</button></>}
         </div>)}
+      </div>
+      <div className="performance-panel"><h2>My development plans</h2>
+        <label>Plan <select value={selectedPlan} onChange={e=>setSelectedPlan(e.target.value)}>
+          <option value="">Select a development plan</option>{plans.map(p=><option key={p.id} value={p.id}>{p.title} — {p.status}</option>)}
+        </select></label>
+        {selectedPlan && <p>{plans.find(p=>p.id===selectedPlan)?.actionItems}</p>}
+        <MilestonePanel token={token} planId={selectedPlan}/>
       </div>
       {isManager && <div className="performance-panel"><h2>My direct reports</h2>
         <p>Goals: {teamGoals.length} · Evaluations: {teamReviews.length}</p>
