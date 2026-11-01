@@ -105,3 +105,65 @@ jobs:
           PGPASSWORD: hrm
         run: |
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_14_postgres_e2e.sql
+
+  authenticated-financial-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Start Spring Boot, seed synthetic signed-in personas, exercise concurrent financial APIs
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/apex_hrm
+          DB_USER: hrm
+          DB_PASSWORD: hrm
+          PGPASSWORD: hrm
+        run: |
+          set -euo pipefail
+          (cd backend && mvn -B -ntp spring-boot:run) > /tmp/m315-startup.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:8080/actuator/health > /dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [[ "$ready" -ne 1 ]]; then tail -n 120 /tmp/m315-startup.log; exit 1; fi
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_15_http_seed.sql
+          bash backend/scripts/m3_1_15_authenticated_http.sh
+          # Database evidence: exactly one authorized payment and one reviewed record.
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SQL'
+          DO $verify$
+          DECLARE n integer;
+          BEGIN
+            SELECT count(*) INTO n FROM payroll_final_pay_payment_authorization
+              WHERE tenant_id='81000000-0000-4000-8000-000000000001' AND status='AUTHORIZED';
+            IF n<>1 THEN RAISE EXCEPTION 'Expected exactly one authorized payment, found %',n; END IF;
+            SELECT count(*) INTO n FROM payroll_final_pay_bank_evidence
+              WHERE tenant_id='81000000-0000-4000-8000-000000000001' AND status='EVIDENCE_REVIEWED';
+            IF n<>1 THEN RAISE EXCEPTION 'Expected exactly one reviewed bank evidence, found %',n; END IF;
+          END $verify$;
+          SQL
