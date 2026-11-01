@@ -36,6 +36,7 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
     courses: [], enrollments: [], skills: [], 'employee-skills': [], certifications: [],
   });
   const [employees, setEmployees] = useState<RecordRow[]>([]);
+  const [companyId, setCompanyId] = useState('');
   const [form, setForm] = useState<Record<string, string>>({ deliveryMode: 'ONLINE', durationHours: '0', level: '1' });
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -56,20 +57,19 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
   }, [token]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    const companyId = form.companyId;
-    if (!companyId || !canManage) return;
+    if (!companyId || !canManage) { setEmployees([]); return; }
     let active = true;
     void fetch(`/api/v1/personnel/employees?companyId=${encodeURIComponent(companyId)}`, { headers })
       .then(r => r.ok ? r.json() as Promise<RecordRow[]> : [])
       .then(rows => { if (active) setEmployees(rows); }).catch(() => { if (active) setEmployees([]); });
     return () => { active = false; };
-  }, [form.companyId, canManage, token]);
+  }, [companyId, canManage, token]);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     const payload: Record<string, unknown> = {};
     fields[tab].forEach(field => {
-      const value = form[field.name] || '';
+      const value = field.name === 'companyId' ? (form.companyId || companyId) : (form[field.name] || '');
       payload[field.name] = value === '' ? null : field.type === 'number' ? Number(value) : value;
     });
     try {
@@ -78,7 +78,7 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
       });
       if (!response.ok) throw new Error(response.status === 403 ? 'Verified HR administrator access is required.' : `Unable to save record (HTTP ${response.status}). Check the values and duplicates.`);
       setNotice('Record saved successfully.');
-      setForm({ companyId: form.companyId || '', deliveryMode: 'ONLINE', durationHours: '0', level: '1' });
+      setForm({ companyId: companyId || '', deliveryMode: 'ONLINE', durationHours: '0', level: '1' });
       await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save.'); }
     finally { setBusy(false); }
@@ -98,7 +98,7 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
   }
   const shown = data[tab].filter(row => JSON.stringify(row).toLowerCase().includes(query.toLowerCase()));
   function fieldControl(field: (typeof fields)[Section][number]) {
-    const value = form[field.name] || '';
+    const value = field.name === 'companyId' ? (form.companyId || companyId) : (form[field.name] || '');
     const options = field.name === 'courseId' ? data.courses.map(c => ({ value: String(c.id), label: String(c.title) }))
       : field.name === 'skillId' ? data.skills.map(s => ({ value: String(s.id), label: String(s.name) }))
       : field.name === 'employeeId' ? employees.map(e => ({ value: String(e.id), label: `${e.firstName} ${e.lastName}` }))
@@ -114,6 +114,7 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
     {error && <div className="announcements-alert" role="alert">{error} {error.includes('Verified') && <button type="button" onClick={onOpenSecurity}>Open MFA settings</button>}</div>}
     {notice && <p className="announcements-notice" role="status">{notice}</p>}
     <div className="account-tabs" role="tablist" aria-label="Learning sections">{sections.map(section => <button type="button" key={section} role="tab" aria-selected={tab === section} className={tab === section ? 'active' : ''} onClick={() => { setTab(section); setError(''); setQuery(''); }}>{titles[section]}</button>)}</div>
+    {canManage && <div className="announcements-editor"><label>Active company ID (for employee selection)<input value={companyId} onChange={event => { setCompanyId(event.target.value); setForm(previous => ({ ...previous, companyId: event.target.value })); }} placeholder="Select a company from the Personnel workspace, then paste its ID" /></label></div>}
     {canManage && <form className="announcements-editor" onSubmit={event => void create(event)}>
       <h2>Add {titles[tab].toLowerCase().replace(/s$/, '')}</h2>
       <p className="security-description">For employee selection, enter a company ID in the training form first. Enrollment and skill records must belong to your workspace.</p>
