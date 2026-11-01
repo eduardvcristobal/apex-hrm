@@ -21,7 +21,7 @@ class PayrollSettlementExceptionTest {
     private final BankFileRepository files = mock(BankFileRepository.class);
     private final PayrollBankSettlementRepository records = mock(PayrollBankSettlementRepository.class);
     private final AuditService audit = mock(AuditService.class);
-    private final PayrollSettlementService service = new PayrollSettlementService(runs, files, records, audit);
+    private final PayrollSettlementService service = new PayrollSettlementService(runs, files, records, audit, mock(BankCreditResultService.class));
     private final UUID runId = UUID.randomUUID();
     private final UUID settlementId = UUID.randomUUID();
     private final UUID recorder = UUID.randomUUID();
