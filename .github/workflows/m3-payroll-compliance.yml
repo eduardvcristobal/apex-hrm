@@ -154,6 +154,20 @@ jobs:
           if [[ "$ready" -ne 1 ]]; then tail -n 120 /tmp/m315-startup.log; exit 1; fi
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_15_http_seed.sql
           bash backend/scripts/m3_1_15_authenticated_http.sh
+          # Browser E2E: launch a real Chromium session at desktop and mobile viewports.
+          npm ci --prefix frontend
+          npm install --prefix frontend --no-save --package-lock=false playwright@1.56.1
+          (cd frontend && npx playwright install --with-deps chromium)
+          (cd frontend && npm run dev) > /tmp/m316-vite.log 2>&1 &
+          frontend_pid=$!
+          trap 'kill "$frontend_pid" "$app_pid" 2>/dev/null || true' EXIT
+          frontend_ready=0
+          for attempt in $(seq 1 50); do
+            if curl -fsS http://127.0.0.1:5173/ > /dev/null; then frontend_ready=1; break; fi
+            sleep 2
+          done
+          if [[ "$frontend_ready" -ne 1 ]]; then tail -n 100 /tmp/m316-vite.log; exit 1; fi
+          node frontend/e2e/m3_1_16_browser.cjs
           # Database evidence: exactly one authorized payment and one reviewed record.
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SQL'
           DO $verify$
