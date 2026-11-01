@@ -48,6 +48,8 @@ http GET "$B" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
 expect 200 'Source ledger fails closed before verified Personnel-to-Payroll identity'
 [[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "IDENTITY_UNVERIFIED" ]] || exit 1
 [[ "$(echo "$LAST_BODY" | jq -r .disbursementEnabled)" == "false" ]] || exit 1
+http POST "$A" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 404 'Snapshot capture requires approved cross-model identity'
 http GET "$B" "$R"; expect 200 'MFA payroll officer can read preflight'
 [[ "$(echo "$LAST_BODY" | jq -r .controlStatus)" == "PAYMENT_NOT_PREPARED" ]] || exit 1
 [[ "$(echo "$LAST_BODY" | jq -r .bankConfirmed)" == "false" ]] || exit 1
@@ -91,6 +93,27 @@ echo "$LAST_BODY" | jq -e '.residualThirteenthCandidate == 400' > /dev/null || {
 [[ "$(echo "$LAST_BODY" | jq -r .disbursementEnabled)" == "false" ]] || exit 1
 http GET "$D" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
 expect 404 'Source ledger is tenant isolated'
+http POST "$A" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 201 'Capture immutable financial-source snapshot'
+snapshotId="$(echo "$LAST_BODY" | jq -r .id)"
+snapshotHash="$(echo "$LAST_BODY" | jq -r .sourceSha256)"
+[[ "$snapshotHash" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid snapshot digest"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .completenessStatus)" == "INCOMPLETE_SOURCE" ]] || { echo "$LAST_BODY";exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .payoutCertified)" == "false" ]] || exit 1
+[[ "$(echo "$LAST_BODY" | jq -r .disbursementEnabled)" == "false" ]] || exit 1
+echo "$LAST_BODY" | jq -e '.cutoffGapDays > 0 and .compensationGapDays > 0 and .unfinalizedDtrDays == 1' > /dev/null || { echo "$LAST_BODY";exit 1; }
+echo "$LAST_BODY" | jq -e '.evidence.payrollLines | length == 3' > /dev/null || { echo "$LAST_BODY";exit 1; }
+http GET "$B" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 200 'Read previously captured financial source lineage'
+[[ "$(echo "$LAST_BODY" | jq -r '.[0].sourceSha256')" == "$snapshotHash" ]] || exit 1
+http POST "$A" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 409 'Reject duplicate source snapshot capture'
+http GET "$D" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 404 'Another tenant cannot see snapshot'
+http POST "$D" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 404 'Another tenant cannot capture snapshot'
+http GET "$E" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
+expect 403 'MFA-less officer cannot access snapshot'
 http GET "$A" "$P/eligible-accounts?personnelEmployeeId=$PERSONNEL"; expect 200 'Masked primary bank account available'
 account="$(echo "$LAST_BODY"|jq -r '.[0].id')"
 [[ "$account" != "null" ]] || exit 1
