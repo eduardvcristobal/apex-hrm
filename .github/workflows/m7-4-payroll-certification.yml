@@ -1,0 +1,79 @@
+name: M7.4 Payroll Full Lifecycle Certification
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ['feature/m7-4-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  payroll-e2e:
+    name: PostgreSQL 16 / attendance to payout / tenant MFA denial
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm_m74_cert
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: m74-ci-disposable
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm_m74_cert"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      HRM_TEST_DB_URL: jdbc:postgresql://localhost:5432/apex_hrm_m74_cert
+      HRM_TEST_DB_USER: hrm
+      HRM_TEST_DB_PASSWORD: m74-ci-disposable
+      DB_URL: jdbc:postgresql://localhost:5432/apex_hrm_m74_cert
+      DB_USER: hrm
+      DB_PASSWORD: m74-ci-disposable
+      HRM_TIMEZONE: Asia/Manila
+      SMTP_HEALTH_ENABLED: 'false'
+      HRM_MFA_ENCRYPTION_KEY: ''
+      HRM_PERSONNEL_PII_KEY: ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Confirm disposable-only target
+        run: |
+          set -euo pipefail
+          test "$HRM_TEST_DB_URL" = "jdbc:postgresql://localhost:5432/apex_hrm_m74_cert"
+          test "$HRM_TEST_DB_USER" = "hrm"
+      - name: Compile all main and test sources
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests test
+      - name: Restore and run persisted payroll E2E and security tests
+        working-directory: backend
+        run: |
+          mvn -B -ntp -Dtest=PostgreSqlPayrollSchemaCertificationTest,PayrollAuthorizationHttpTest,PostgreSqlPayrollLifecycleE2ETest,PostgreSqlPartialBankRecoveryE2ETest test
+      - name: Preserve PostgreSQL migration certification evidence
+        if: always()
+        env:
+          PGHOST: localhost
+          PGPORT: '5432'
+          PGUSER: hrm
+          PGPASSWORD: m74-ci-disposable
+          PGDATABASE: apex_hrm_m74_cert
+        run: |
+          mkdir -p backend/target/m74-evidence
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+          psql -X -A -F, -c "SELECT installed_rank,version,description,success FROM flyway_schema_history ORDER BY installed_rank"             > backend/target/m74-evidence/flyway.csv || true
+      - name: Publish test and migration reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m7-4-postgresql-payroll-regression
+          path: |
+            backend/target/surefire-reports/
+            backend/target/m74-evidence/
+          if-no-files-found: ignore
