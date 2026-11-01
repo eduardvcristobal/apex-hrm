@@ -86,10 +86,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # Install runner before TypeScript checks because test files are included in tsconfig.
+      - run: npm install --no-save --package-lock=false --legacy-peer-deps vitest@3.2.4
       - run: npm run build
-      # Until Vitest is added to the committed lockfile, install a pinned test runner
-      # without modifying the repository or bypassing npm ci.
-      - run: npm install --no-save --package-lock=false vitest@3.2.4
       - run: npx vitest run --config vitest.config.ts
 
   playwright:
