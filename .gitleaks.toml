@@ -7,4 +7,4 @@ useDefault = true
 
 [[allowlists]]
 description = "Literal non-secret disposable PostgreSQL test credential used solely in M7.4 CI"
-regexes = ['^m74-ci-disposable$']
+regexes = ['m74-ci-disposable']
