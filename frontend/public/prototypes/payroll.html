@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Payroll · Apex HRM</title>
+<style>
+:root{--bg:#f2f4f6;--surface:#fff;--ink:#16212a;--muted:#5d6b78;--line:#dde3e8;--accent:#e0932a;--accent-ink:#2a1a02;--bar:#2b6f7c;--side:#12333a;--ok:#1f7a4d;--okbg:#e1f3ea;--warn:#9a6200;--warnbg:#fdf0d6;--bad:#b3261e;--badbg:#fbe4e2;--info:#1d5fa8;--infobg:#e2eefb;--mutebg:#eceff2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--bar:#4aa3b4;--side:#0a1f24;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--bar:#4aa3b4;--side:#0a1f24;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--side);z-index:10}
+button,select{font:inherit;color:inherit}button{cursor:pointer}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{position:sticky;top:0;z-index:5;background:var(--side);color:#fff;display:flex;align-items:center;gap:14px;padding:10px 24px}
+header .sp{flex:1}.pic{width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:600}
+.lo{background:none;border:1px solid #4d7279;color:#fff;border-radius:8px;padding:5px 12px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 24px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.crumb{color:var(--muted)}h1{font-size:22px;margin:2px 0 0}.per{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:500}.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.btn.sm{padding:3px 10px}.btn:disabled{opacity:.5;cursor:not-allowed}
+.chip{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;font-weight:500}
+.ok{background:var(--okbg);color:var(--ok)}.warn{background:var(--warnbg);color:var(--warn)}.bad{background:var(--badbg);color:var(--bad)}.info{background:var(--infobg);color:var(--info)}.mute{background:var(--mutebg);color:var(--muted)}
+.flow{display:flex;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 8px;margin-bottom:14px}
+.fs{flex:1;min-width:110px;padding:0 8px;font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}
+.fs span{width:22px;height:22px;border-radius:50%;background:var(--mutebg);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.fs.d span{background:var(--bar);color:#fff}.fs.c{color:var(--ink);font-weight:600}.fs.c span{background:var(--accent);color:var(--accent-ink)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.tile b{font-size:21px;display:block}.tile span{color:var(--muted);font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:16px}
+.card h2{font-size:15px;margin:0;padding:13px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.tabs{display:flex;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px 10px 0 0;border-bottom:0;padding:0 6px}
+.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:12px 14px;color:var(--muted);white-space:nowrap}.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.tabs i{font-style:normal;background:var(--bad);color:#fff;border-radius:9px;font-size:11px;padding:0 6px;margin-left:6px}
+.body{border:1px solid var(--line);border-radius:0 0 10px 10px;background:var(--bg);padding:16px}
+.sc{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;background:var(--bg)}tr:last-child td{border-bottom:0}.r{text-align:right}tr.k{cursor:pointer}tr.k:hover,tr.sel{background:var(--bg)}tr.tot td{font-weight:600;background:var(--bg)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.pad{padding:14px 16px}
+.hb div{display:grid;grid-template-columns:130px 1fr 96px;gap:10px;align-items:center;margin-bottom:9px}.hb i{display:block;height:10px;border-radius:5px;background:var(--bar)}.hb span:last-child{text-align:right}
+.cl{list-style:none;margin:0;padding:0}.cl li{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}.cl li:last-child{border-bottom:0}.cl .t{flex:1;min-width:0}.cl small{display:block;color:var(--muted)}
+.mk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
+.note{color:var(--muted);font-size:12px;padding:10px 16px}.next{border-left:5px solid var(--accent)}
+pre{margin:0;padding:14px 16px;overflow-x:auto;background:var(--bg);font:13px/1.6 ui-monospace,Menlo,Consolas,monospace}
+.pl p{display:flex;justify-content:space-between;gap:12px;margin:0;padding:6px 16px;border-bottom:1px solid var(--line)}.pl p small{color:var(--muted);display:block}.pl p.t{font-weight:600;background:var(--bg)}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30;max-width:90vw}.toast.show{opacity:1}
+@media(max-width:860px){.wrap{padding:14px}.two{grid-template-columns:1fr}header{padding:10px 14px}.hb div{grid-template-columns:90px 1fr 84px}}
+</style>
+</head>
+<body>
+<header><b>Apex HRM</b><span>Payroll</span><span class="sp"></span><span class="pic" title="Maria Santos, HR manager">MS</span><button class="lo" id="lo">Log out</button></header>
+<div class="wrap">
+<div class="top"><div><div class="crumb">Payroll / Runs</div><h1>Regular run, Oct 16–31, 2026</h1><div class="crumb">Office staff · Semi-monthly · Pay date Nov 5 · Attendance period locked <span class="chip ok">Ready</span></div></div>
+<div class="per"><span class="chip mute" id="slabel"></span><button class="btn" id="recomp">Recompute</button><button class="btn pri" id="adv"></button></div></div>
+<div id="flow"></div><div class="tiles" id="tiles"></div><div class="tabs" id="tabs"></div><div class="body" id="body"></div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+var $=function(s){return document.querySelector(s)},r2=function(x){return Math.round((x+1e-9)*100)/100};
+var P=function(x){return"₱"+x.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})};
+var E=[{n:"Ana Reyes",b:"M",r:42000,late:12,bank:"BDO",cc:"CC-210"},{n:"Marco Dela Cruz",b:"M",r:58500,bank:"BDO",cc:"CC-110",loan:{n:"Cash advance",a:2000}},
+{n:"Joy Santiago",b:"D",r:760,days:11,late:21,bank:"BDO",cc:"CC-320",al:[{c:"ALLOWANCE",d:"Field allowance",a:500,t:1},{c:"DE_MINIMIS",d:"Meal allowance",a:300,t:0}],loan:{n:"Pag-IBIG salary loan",a:1150}},
+{n:"Paolo Navarro",b:"M",r:72000,ot:120,bank:"BDO",cc:"CC-410"},{n:"Liza Mendoza",b:"M",r:31000,abs:1,bank:"BPI",cc:"CC-510"},{n:"Nina Garcia",b:"M",r:24000,nd:70,bank:"BPI",cc:"CC-120"},
+{n:"Ben Uy",b:"M",r:36000,late:8,bank:"BDO",cc:"CC-220"},{n:"Tess Lim",b:"M",r:28000,bank:null,cc:"CC-310"}];
+var ADJ=[{e:"Ana Reyes",c:"ADJ_EARN",d:"Missed overtime, Oct 14",cat:"E",a:1125,s:"PENDING"},{e:"Marco Dela Cruz",c:"ADJ_EARN",d:"Refund of wrong late deduction",cat:"E",a:240,s:"APPROVED",t:"this"},{e:"Ben Uy",c:"ADJ_DED",d:"Uniform deduction",cat:"D",a:600,s:"PENDING"}];
+var GL={BASIC:["5100","Salaries and wages","Dr"],ADJ_EARN:["5100","Salaries and wages","Dr"],OT:["5110","Overtime and premium pay","Dr"],ND:["5110","Overtime and premium pay","Dr"],ALLOWANCE:["5120","Allowances and benefits","Dr"],DE_MINIMIS:["5120","Allowances and benefits","Dr"],ABSENCE:["5100","Salaries and wages","Cr"],LATE_UT:["5100","Salaries and wages","Cr"],SSS_EE:["2100","SSS payable","Cr"],PHIC_EE:["2110","PhilHealth payable","Cr"],HDMF_EE:["2120","Pag-IBIG payable","Cr"],WTAX:["2130","Withholding tax payable","Cr"],LOAN:["1150","Employee loans receivable","Cr"],ADJ_DED:["2150","Other deductions payable","Cr"]};
+var ER={SSS_ER:["5130","Employer contributions","2100","SSS payable"],SSS_EC:["5130","Employer contributions","2100","SSS payable"],PHIC_ER:["5130","Employer contributions","2110","PhilHealth payable"],HDMF_ER:["5130","Employer contributions","2120","Pag-IBIG payable"]};
+var WT=[[0,0,0],[10417,0,.15],[16667,937.5,.2],[33333,4270.7,.25],[83333,16770.7,.3],[333333,91770.7,.35]];
+function wt(x){if(x<=0)return 0;var b=WT[0];WT.forEach(function(w){if(x>=w[0])b=w});return r2(b[1]+(x-b[0])*b[2])}
+function calc(e){var L=[],M=e.b==="M",mon=M?e.r:e.r*261/12,dr=M?e.r*12/261:e.r,hr=dr/8,W=[];
+var add=function(c,d,cat,a,tax){a=r2(a);if(a>0)L.push({c:c,d:d,cat:cat,a:a,tax:!!tax})};
+if(M)add("BASIC","Basic pay, half of "+P(e.r),"E",e.r/2,1);else add("BASIC","Basic pay: "+e.days+" days × "+P(e.r)+(e.late?", less "+e.late+" min late":""),"E",e.days*e.r-(e.late||0)/60*hr,1);
+if(e.ot)add("OT","Overtime: "+e.ot+" min × "+P(r2(hr))+"/h × 1.25","E",e.ot/60*hr*1.25,1);
+if(e.nd)add("ND","Night differential: "+e.nd+" h × "+P(r2(hr))+"/h × 10%","E",e.nd*hr*.1,1);
+(e.al||[]).forEach(function(a){add(a.c,a.d,"E",a.a,a.t)});
+ADJ.forEach(function(a){if(a.e===e.n&&a.s==="APPROVED"&&a.t==="this")add(a.c,a.d,a.cat==="E"?"E":"D",a.a,a.cat==="E")});
+if(M&&e.abs)add("ABSENCE",e.abs+" absence × "+P(r2(dr)),"A",e.abs*dr,1);if(M&&e.late)add("LATE_UT",e.late+" min late × "+P(r2(hr/60))+"/min","A",e.late/60*hr,1);
+var msc=Math.min(35000,Math.max(5000,Math.round(mon/500)*500)),sE=r2(msc*.05),sR=r2(msc*.1),ec=msc<15000?10:30,pb=Math.min(100000,Math.max(10000,mon)),ph=r2(pb*.025),hb=Math.min(mon,10000),hd=r2(hb*.02);
+add("SSS_EE","SSS contribution (MSC "+P(msc)+")","D",sE);add("PHIC_EE","PhilHealth contribution","D",ph);add("HDMF_EE","Pag-IBIG contribution","D",hd);
+var te=0,att=0;L.forEach(function(l){if(l.cat==="E"&&l.tax)te+=l.a;if(l.cat==="A")att+=l.a});var tx=te-att-(sE+ph+hd);
+add("WTAX","Withholding tax (taxable "+P(r2(Math.max(0,tx)))+")","D",wt(tx));
+if(e.loan)add("LOAN",e.loan.n,"D",e.loan.a);
+add("SSS_ER","SSS employer share","R",sR);add("SSS_EC","SSS employees' compensation","R",ec);add("PHIC_ER","PhilHealth employer share","R",ph);add("HDMF_ER","Pag-IBIG employer share","R",hd);
+var sm=function(c){return r2(L.filter(function(l){return l.cat===c}).reduce(function(s,l){return s+l.a},0))};
+var g=r2(sm("E")-sm("A")),d=sm("D");
+if(e.abs)W.push("1 absence deducted");if(!e.bank)W.push("No bank account on file");if(g-d<0)W.push("Negative net pay");
+return{L:L,gross:g,ded:d,net:r2(g-d),er:sm("R"),W:W,tx:tx}}
+var st={i:1,tab:"over",sel:-1,stale:false,bank:"BDO",je:false,posted:false,snap:null},S=["Draft","Computed","Reviewed","Approved","Locked","Paid"],A=["Compute payroll","Send for review","Approve run","Lock and issue payslips","Mark as paid","Paid"];
+function live(){return E.map(calc)}
+function res(){return st.snap||live()}
+function tot(R,k){return r2(R.reduce(function(s,x){return s+x[k]},0))}
+function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(function(){t.classList.remove("show")},2800)}
+function chip(c,t){return'<span class="chip '+c+'">'+t+"</span>"}
+function head(){var R=res(),np=ADJ.filter(function(a){return a.s==="PENDING"}).length;
+$("#flow").innerHTML='<div class="flow">'+S.map(function(x,i){return'<div class="fs '+(i<st.i?"d":i===st.i?"c":"")+'"><span>'+(i<st.i?"✓":i+1)+"</span>"+x+"</div>"}).join("")+"</div>";
+$("#slabel").textContent=S[st.i]+(st.stale?", needs recompute":"");$("#slabel").className="chip "+(st.stale?"warn":st.i>=4?"ok":"info");
+var b=$("#adv");b.textContent=A[st.i];b.disabled=st.i>=5||(st.stale&&st.i>0&&st.i<3);$("#recomp").style.display=st.i>=1&&st.i<=2?"":"none";
+var show=st.i>=1;$("#tiles").innerHTML=[[E.length,"Employees"],[show?P(tot(R,"gross")):"—","Gross pay"],[show?P(tot(R,"ded")):"—","Deductions"],[show?P(tot(R,"net")):"—","Net pay"],[show?P(tot(R,"er")):"—","Employer cost"]].map(function(x){return'<div class="tile"><b>'+x[0]+"</b><span>"+x[1]+"</span></div>"}).join("");
+var T=[["over","Overview"],["reg","Register"],["adj","Adjustments",np],["acct","Accounting"],["bank","Bank file"],["rem","Remittances"]];
+$("#tabs").innerHTML=T.map(function(x){return'<button data-tab="'+x[0]+'" class="'+(st.tab===x[0]?"on":"")+'">'+x[1]+(x[2]?"<i>"+x[2]+"</i>":"")+"</button>"}).join("");return R}
+var NX=["Compute the run. The calculation uses locked attendance, salary records, recurring items, loans and approved adjustments.","Check the register and warnings, then send the run for review.","A second person reviews and approves. Approving freezes the numbers and unlocks the journal entry and bank file.","Lock the run to issue payslips, reduce loan balances and freeze the pay period. This cannot be undone.","Payslips are issued. Upload the bank file, then mark the run as paid once the bank confirms.","Done. Remittances and the posted journal entry are the remaining records."];
+var V={};
+V.over=function(R){if(st.i<1)return'<div class="card next"><div class="pad"><b>Next step</b><br>'+NX[0]+"</div></div>";
+var sumc=function(f){return r2(R.reduce(function(s,x){return s+x.L.filter(f).reduce(function(a,l){return a+l.a},0)},0))};
+var g=[["Basic pay",sumc(function(l){return l.c==="BASIC"})],["Overtime and night",sumc(function(l){return l.c==="OT"||l.c==="ND"})],["Allowances",sumc(function(l){return l.c==="ALLOWANCE"||l.c==="DE_MINIMIS"})],["Adjustments",sumc(function(l){return l.c==="ADJ_EARN"})]],
+d=[["Contributions",sumc(function(l){return/_EE$/.test(l.c)})],["Withholding tax",sumc(function(l){return l.c==="WTAX"})],["Loans and others",sumc(function(l){return l.c==="LOAN"||l.c==="ADJ_DED"})],["Absence and late",sumc(function(l){return l.cat==="A"})]];
+var bars=function(a){var m=Math.max.apply(null,a.map(function(x){return x[1]}))||1;return'<div class="pad hb">'+a.map(function(x){return"<div><span>"+x[0]+'</span><i style="width:'+Math.max(2,Math.round(x[1]/m*100))+'%"></i><span>'+P(x[1])+"</span></div>"}).join("")+"</div>"};
+var w=[];R.forEach(function(x,i){x.W.forEach(function(t){w.push([E[i].n,t])})});
+return'<div class="card next"><div class="pad"><b>Next step</b><br>'+NX[st.i]+(st.stale?" <b>An adjustment was approved after the last calculation, so recompute first.</b>":"")+'</div></div><div class="two"><div class="card"><h2>Where the gross pay comes from</h2>'+bars(g)+'</div><div class="card"><h2>Where the deductions go</h2>'+bars(d)+'</div></div>'+
+'<div class="card"><h2>Warnings '+chip(w.length?"warn":"ok",w.length?w.length+" to look at":"None")+'</h2><ul class="cl">'+(w.map(function(x){return'<li><span class="mk warn">!</span><div class="t"><b>'+x[0]+"</b><small>"+x[1]+"</small></div></li>"}).join("")||'<li><div class="t">No warnings.</div></li>')+"</ul></div>"}
+V.reg=function(R){if(st.i<1)return'<div class="card"><div class="pad">Compute the run to see the register.</div></div>';
+var h='<div class="card"><h2>Payroll register<span class="note" style="padding:0">Select an employee to see how the pay was built.</span></h2><div class="sc"><table><thead><tr><th>Employee</th><th>Basis</th><th class="r">Gross</th><th class="r">Deductions</th><th class="r">Net pay</th><th>Notes</th></tr></thead><tbody>'+
+R.map(function(x,i){return'<tr class="k'+(st.sel===i?" sel":"")+'" data-sel="'+i+'"><td><b>'+E[i].n+"</b></td><td>"+(E[i].b==="M"?"Monthly":"Daily")+'</td><td class="r">'+P(x.gross)+'</td><td class="r">'+P(x.ded)+'</td><td class="r"><b>'+P(x.net)+"</b></td><td>"+(st.i>=4?chip("ok","Payslip issued")+" ":"")+x.W.map(function(t){return chip("warn",t)}).join(" ")+"</td></tr>"}).join("")+
+'<tr class="tot"><td>Total</td><td></td><td class="r">'+P(tot(R,"gross"))+'</td><td class="r">'+P(tot(R,"ded"))+'</td><td class="r">'+P(tot(R,"net"))+"</td><td></td></tr></tbody></table></div></div>";
+if(st.sel>=0){var x=R[st.sel],ln=function(cat,pre){return x.L.filter(function(l){return l.cat===cat}).map(function(l){return"<p"+(cat==="A"?' style="color:var(--bad)"':"")+"><span>"+(pre||"")+l.d+(l.tax||cat!=="E"?"":" <small>Not taxable</small>")+"</span><span>"+P(l.a)+"</span></p>"}).join("")};
+h+='<div class="two"><div class="card pl"><h2>'+E[st.sel].n+": earnings</h2>"+ln("E")+ln("A","Less: ")+'<p class="t"><span>Gross pay</span><span>'+P(x.gross)+'</span></p></div><div class="card pl"><h2>Deductions</h2>'+ln("D")+'<p class="t"><span>Net pay</span><span>'+P(x.net)+'</span></p><p><span><small>Taxable income this cutoff</small></span><span><small>'+P(r2(Math.max(0,x.tx)))+'</small></span></p></div></div><div class="card pl"><h2>Employer cost <span class="note" style="padding:0">Not shown on the payslip</span></h2>'+ln("R")+'<p class="t"><span>Total employer cost</span><span>'+P(x.er)+"</span></p></div>"}return h}
+V.adj=function(){return'<div class="card"><h2>Adjustments<span class="note" style="padding:0">Corrections never edit a closed period. Approved items join this run until it is approved, then the next one.</span></h2><ul class="cl">'+ADJ.map(function(a,i){return'<li><div class="t"><b>'+a.e+"</b> "+chip(a.cat==="E"?"info":"mute",a.cat==="E"?"Earning":"Deduction")+" "+chip(a.s==="APPROVED"?"ok":a.s==="REJECTED"?"bad":"warn",a.s.charAt(0)+a.s.slice(1).toLowerCase())+(a.t==="next"?" "+chip("mute","Next run"):"")+"<small>"+a.d+" · "+P(a.a)+"</small></div>"+(a.s==="PENDING"?'<button class="btn sm" data-aj="'+i+'" data-v="APPROVED">Approve</button><button class="btn sm" data-aj="'+i+'" data-v="REJECTED">Reject</button>':"")+"</li>"}).join("")+"</ul></div>"}
+V.acct=function(R){if(st.i<3)return'<div class="card"><div class="pad">The journal entry is generated after the run is approved, from the GL mapping of each pay item.</div></div>';
+var m={};R.forEach(function(x){x.L.forEach(function(l){var g=GL[l.c],e=ER[l.c];if(g){var a=m[g[0]]=m[g[0]]||{n:g[1],d:0,c:0};if(g[2]==="Dr")a.d+=l.a;else a.c+=l.a}if(e){var a1=m[e[0]]=m[e[0]]||{n:e[1],d:0,c:0},a2=m[e[2]]=m[e[2]]||{n:e[3],d:0,c:0};a1.d+=l.a;a2.c+=l.a}})});
+var net=tot(R,"net");m["2140"]={n:"Salaries payable",d:0,c:net};var ks=Object.keys(m).sort(),D=0,C=0;ks.forEach(function(k){D+=m[k].d;C+=m[k].c});D=r2(D);C=r2(C);
+return'<div class="card"><h2>Journal entry, Nov 5, 2026 '+chip(st.posted?"ok":"mute",st.posted?"Posted":"Draft")+" "+chip(D===C?"ok":"bad",D===C?"Balanced":"Out of balance")+'<button class="btn sm" id="post"'+(st.posted?" disabled":"")+">"+(st.posted?"Posted":"Post to ledger")+'</button></h2><div class="sc"><table><thead><tr><th>Account</th><th>Name</th><th class="r">Debit</th><th class="r">Credit</th></tr></thead><tbody>'+ks.map(function(k){return"<tr><td>"+k+"</td><td>"+m[k].n+'</td><td class="r">'+(m[k].d?P(r2(m[k].d)):"")+'</td><td class="r">'+(m[k].c?P(r2(m[k].c)):"")+"</td></tr>"}).join("")+'<tr class="tot"><td></td><td>Total</td><td class="r">'+P(D)+'</td><td class="r">'+P(C)+'</td></tr></tbody></table></div><div class="note">Generation stops if a pay item has no GL mapping or the entry does not balance. Lines also carry the cost center of each employee.</div></div>'}
+V.bank=function(R){if(st.i<3)return'<div class="card"><div class="pad">Bank files are generated after the run is approved.</div></div>';
+var rows=[],skip=[],tt=0;E.forEach(function(e,i){if(!e.bank)skip.push(e.n+": no bank account on file");else if(e.bank!==st.bank)skip.push(e.n+": paid through "+e.bank);else{tt+=R[i].net;rows.push("00"+(1230+i*37)+"4821,"+e.n+","+R[i].net.toFixed(2))}});
+return'<div class="card"><h2>Bank crediting file<select id="bk"><option'+(st.bank==="BDO"?" selected":"")+">BDO</option><option"+(st.bank==="BPI"?" selected":"")+">BPI</option></select></h2><pre>ACCOUNT_NO,ACCOUNT_NAME,AMOUNT\n"+rows.join("\n")+'</pre><div class="pad"><b>'+rows.length+" records · "+P(r2(tt))+'</b> <button class="btn sm" data-t="File downloaded (prototype)">Download CSV</button></div></div><div class="card"><h2>Not in this file '+chip(skip.length?"warn":"ok",String(skip.length))+'</h2><ul class="cl">'+skip.map(function(s){return'<li><span class="mk warn">!</span><div class="t">'+s+"</div></li>"}).join("")+'</ul><div class="note">Account numbers are fake. Each bank has its own template, and employees without an account stay out until HR adds one.</div></div>'}
+V.rem=function(R){if(st.i<1)return'<div class="card"><div class="pad">Compute the run to see what is owed to each agency.</div></div>';
+var s=function(c){return r2(R.reduce(function(a,x){return a+x.L.filter(function(l){return l.c===c}).reduce(function(b,l){return b+l.a},0)},0))},rows=[["SSS",s("SSS_EE"),s("SSS_ER")+s("SSS_EC")],["PhilHealth",s("PHIC_EE"),s("PHIC_ER")],["Pag-IBIG",s("HDMF_EE"),s("HDMF_ER")],["BIR withholding tax",s("WTAX"),0]];
+return'<div class="card"><h2>Amounts to remit for this run</h2><div class="sc"><table><thead><tr><th>Agency</th><th class="r">Withheld from employees</th><th class="r">Employer share</th><th class="r">Total to remit</th></tr></thead><tbody>'+rows.map(function(x){return"<tr><td><b>"+x[0]+'</b></td><td class="r">'+P(x[1])+'</td><td class="r">'+P(x[2])+'</td><td class="r"><b>'+P(r2(x[1]+x[2]))+"</b></td></tr>"}).join("")+'</tbody></table></div><div class="note">SSS employer share includes the employees’ compensation amount. Contributions are deducted on the last cutoff of the month. Remittance deadlines and file formats differ per agency; confirm them before filing.</div></div>'}
+function render(){var R=head();$("#body").innerHTML=V[st.tab](R)}
+function advance(){var i=st.i;if(i===0){st.i=1;st.stale=false;st.snap=live();toast("Payroll computed for 8 employees")}else if(i===1){st.i=2;toast("Sent for review")}else if(i===2){st.i=3;toast("Run approved. Journal entry and bank file are ready")}else if(i===3){st.i=4;toast("8 payslips issued, loan balances updated, pay period locked")}else if(i===4){st.i=5;toast("Run marked as paid")}render()}
+document.addEventListener("click",function(e){var t=e.target,c;
+if(c=t.closest("[data-tab]")){st.tab=c.getAttribute("data-tab");render()}
+else if(c=t.closest("[data-sel]")){var i=+c.getAttribute("data-sel");st.sel=st.sel===i?-1:i;render()}
+else if(c=t.closest("[data-aj]")){var a=ADJ[+c.getAttribute("data-aj")],v=c.getAttribute("data-v");a.s=v;if(v==="APPROVED"){a.t=st.i>=3?"next":"this";if(a.t==="this"&&st.i>=1)st.stale=true;toast(a.t==="next"?"Approved. The run is already approved, so this goes to the next run":"Approved. Recompute to include it in this run")}else toast("Rejected");render()}
+else if(c=t.closest("[data-t]"))toast(c.getAttribute("data-t"));
+else if(t.id==="adv")advance();
+else if(t.id==="recomp"){st.stale=false;st.snap=live();render();toast("Recomputed with the latest data")}
+else if(t.id==="post"){st.posted=true;render();toast("Journal entry posted")}
+else if(t.id==="lo")toast("You have been signed out (prototype)")});
+document.addEventListener("change",function(e){if(e.target.id==="bk"){st.bank=e.target.value;render()}});
+st.snap=live();render();
+</script>
+</body>
+</html>

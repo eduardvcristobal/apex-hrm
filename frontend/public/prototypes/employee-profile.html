@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Joy Santiago · Apex HRM</title>
+<style>
+:root{--bg:#f2f4f6;--surface:#fff;--ink:#16212a;--muted:#5d6b78;--line:#dde3e8;--accent:#e0932a;--accent-ink:#2a1a02;--bar:#2b6f7c;--side:#12333a;--ok:#1f7a4d;--okbg:#e1f3ea;--warn:#9a6200;--warnbg:#fdf0d6;--bad:#b3261e;--badbg:#fbe4e2;--info:#1d5fa8;--infobg:#e2eefb;--mutebg:#eceff2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--bar:#4aa3b4;--side:#0a1f24;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--bar:#4aa3b4;--side:#0a1f24;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--side);z-index:10}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{position:sticky;top:0;z-index:5;background:var(--side);color:#fff;display:flex;align-items:center;gap:14px;padding:10px 24px}
+header b{font-size:15px}header .sp{flex:1}header a{color:#cfe0e2;text-decoration:none}
+.pic{width:36px;height:36px;border-radius:50%;background:var(--bar);color:#fff;display:grid;place-items:center;font-weight:600;flex:none}
+header .pic{background:var(--accent);color:var(--accent-ink)}
+.lo{background:none;border:1px solid #4d7279;color:#fff;border-radius:8px;padding:5px 12px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 24px;display:grid;grid-template-columns:290px 1fr;gap:20px;align-items:start}
+.crumb{grid-column:1/-1;color:var(--muted)}.crumb a{color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.side{padding:20px;position:sticky;top:64px}
+.big{width:84px;height:84px;font-size:28px;margin:0 auto 12px;border:4px solid var(--accent)}
+.side h1{font-size:20px;margin:0;text-align:center}.side .c{text-align:center;color:var(--muted)}
+.chip{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;font-weight:500}
+.ok{background:var(--okbg);color:var(--ok)}.warn{background:var(--warnbg);color:var(--warn)}.bad{background:var(--badbg);color:var(--bad)}.info{background:var(--infobg);color:var(--info)}.mute{background:var(--mutebg);color:var(--muted)}
+.kv{margin:16px 0 0;border-top:1px solid var(--line)}.kv div{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}.kv span{color:var(--muted)}.kv b{font-weight:500;text-align:right}
+.acts{display:grid;gap:8px;margin-top:16px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:500}.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.btn.sm{padding:3px 10px}
+.tabs{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--bg);padding:0 6px}
+.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:12px 14px;color:var(--muted);white-space:nowrap}
+.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.tp{padding:20px}.tp h2{font-size:15px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.tp section{margin-bottom:26px}.tp section:last-child{margin-bottom:0}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px 16px}.grid .w{grid-column:1/-1}
+.grid label{display:block;color:var(--muted);font-size:12px;margin-bottom:3px}
+.grid input,.grid select{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:7px 10px}
+.grid input:disabled,.grid select:disabled{border-color:transparent;background:transparent;padding-left:0;opacity:1;-webkit-text-fill-color:var(--ink);appearance:none}
+.sc{overflow-x:auto;border:1px solid var(--line);border-radius:8px}
+table{width:100%;border-collapse:collapse}th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;background:var(--bg)}tr:last-child td{border-bottom:0}.r{text-align:right}tr.k{cursor:pointer}tr.k:hover{background:var(--bg)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:14px}.tile b{font-size:24px;display:block}.tile span{color:var(--muted)}
+.bar{height:6px;border-radius:3px;background:var(--mutebg);margin-top:8px}.bar i{display:block;height:100%;border-radius:3px;background:var(--bar)}
+.tl{list-style:none;margin:0;padding:0 0 0 18px;border-left:2px solid var(--line)}.tl li{position:relative;padding:0 0 18px 16px}.tl li::before{content:"";position:absolute;left:-26px;top:5px;width:12px;height:12px;border-radius:50%;background:var(--surface);border:3px solid var(--bar)}
+.tl li.cur::before{border-color:var(--accent);background:var(--accent)}.tl small{color:var(--muted);display:block}
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;text-align:center}.wk div{border:1px solid var(--line);border-radius:8px;padding:8px 2px}.wk .off{background:var(--mutebg);color:var(--muted)}.wk small{display:block;color:var(--muted)}
+.pay{border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:14px;background:var(--bg)}.pay .cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+.pay p{display:flex;justify-content:space-between;margin:4px 0}.pay .t{border-top:1px solid var(--line);padding-top:6px;font-weight:600}
+.note{color:var(--muted);font-size:12px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30}.toast.show{opacity:1}
+@media(max-width:860px){.wrap{grid-template-columns:1fr;padding:14px}.side{position:static}.pay .cols{grid-template-columns:1fr}header{padding:10px 14px}}
+</style>
+</head>
+<body>
+<header><b>Apex HRM</b><span class="sp"></span><span class="pic" title="Maria Santos, HR manager">MS</span><button class="lo" id="lo">Log out</button></header>
+<div class="wrap">
+<div class="crumb"><a href="#overview">Personnel</a> / Employees / Joy Santiago</div>
+<aside class="card side">
+<div class="pic big">JS</div><h1>Joy Santiago</h1><div class="c">Account executive</div>
+<div style="text-align:center;margin-top:8px"><span class="chip ok">Active</span> <span class="chip info">Regular</span></div>
+<div class="kv"><div><span>Employee no.</span><b>E-0032</b></div><div><span>Department</span><b>Sales</b></div><div><span>Section</span><b>Inside sales</b></div><div><span>Reports to</span><b>Jose Ramirez</b></div><div><span>Work location</span><b>Taguig branch</b></div><div><span>Hired</span><b>Mar 16, 2025</b></div><div><span>Tenure</span><b>1 yr 7 mos</b></div><div><span>Pay group</span><b>Office staff</b></div></div>
+<div class="acts"><button class="btn pri" data-t="Message sent">Send message</button><button class="btn" data-t="Transfer request started">Transfer</button><button class="btn" data-t="Separation checklist started">Start separation</button></div>
+</aside>
+<main class="card"><div class="tabs" id="tabs"></div><div class="tp" id="tp"></div></main>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+var $=function(s){return document.querySelector(s)};
+var TABS=[["overview","Overview"],["contracts","Contracts"],["compensation","Compensation"],["documents","Documents"],["leave","Leave"],["work","Work and schedule"],["family","Dependents"],["bank","Bank and loans"],["history","History"],["payslips","Payslips"]];
+var edit=false,rev={},open=-1;
+var CH={Valid:"ok",Signed:"ok",Active:"ok",Expiring:"warn",Missing:"bad",Approved:"ok",Pending:"warn",Primary:"info",Issued:"ok"};
+function cell(v){return'<td'+(/^[₱\d.,\-]+$/.test(v)?' class="r"':"")+">"+(CH[v]?'<span class="chip '+CH[v]+'">'+v+"</span>":v)+"</td>"}
+function tbl(h,rows,k){return'<div class="sc"><table><thead><tr>'+h.map(function(x,i){return"<th"+(/^[₱\d.,\-]+$/.test(rows[0][i])?' class="r"':"")+">"+x+"</th>"}).join("")+"</tr></thead><tbody>"+rows.map(function(r,i){return"<tr"+(k?' class="k" data-pay="'+i+'"':"")+">"+r.map(cell).join("")+"</tr>"}).join("")+"</tbody></table></div>"}
+function sec(t,b,a){return"<section><h2>"+t+(a?'<button class="btn sm" data-t="'+a+' (not wired up in this prototype)">'+a+"</button>":"")+"</h2>"+b+"</section>"}
+function f(l,v,o,w){var d=edit?"":" disabled";return'<div class="'+(w?"w":"")+'"><label>'+l+"</label>"+(o?"<select"+d+">"+o.map(function(x){return"<option"+(x===v?" selected":"")+">"+x+"</option>"}).join("")+"</select>":'<input value="'+v+'"'+d+">")+"</div>"}
+function id(l,v){var show=rev[l];return'<div><label>'+l+'</label><div style="display:flex;gap:8px;align-items:center"><span>'+(show?v:v.replace(/\d/g,"•"))+'</span><button class="btn sm" data-rev="'+l+'">'+(show?"Hide":"Reveal")+"</button></div></div>"}
+var PAY=[["Oct 1–15, 2026","₱11,400.00","₱1,150.00","₱10,250.00","Issued",[["Basic pay (15 days × ₱760.00)","11,400.00"]],[["Pag-IBIG salary loan","1,150.00"]]],
+["Sep 16–30, 2026","₱11,400.00","₱2,588.25","₱8,811.75","Issued",[["Basic pay (15 days × ₱760.00)","11,400.00"]],[["SSS contribution","825.00"],["PhilHealth contribution","413.25"],["Pag-IBIG contribution","200.00"],["Pag-IBIG salary loan","1,150.00"]]],
+["Sep 1–15, 2026","₱11,400.00","₱1,150.00","₱10,250.00","Issued",[["Basic pay (15 days × ₱760.00)","11,400.00"]],[["Pag-IBIG salary loan","1,150.00"]]]];
+var T={
+overview:function(){return'<div style="display:flex;justify-content:flex-end;gap:8px;margin:-6px 0 14px">'+(edit?'<button class="btn" id="cancel">Cancel</button><button class="btn pri" id="save">Save changes</button>':'<button class="btn pri" id="edit">Edit information</button>')+"</div>"+
+sec("Personal",'<div class="grid">'+f("First name","Joy")+f("Middle name","Dela Rosa")+f("Last name","Santiago")+f("Birth date","1994-03-12")+f("Sex","Female",["Female","Male"])+f("Civil status","Single",["Single","Married","Widowed"])+f("Citizenship","Filipino")+f("Religion","Roman Catholic")+"</div>")+
+sec("Contact",'<div class="grid">'+f("Mobile","0917 000 0000")+f("Personal email","joy.santiago@example.com")+f("Work email","joy.santiago@acme.example")+f("Home address","12 Sample St., Quezon City",null,1)+f("Emergency contact","Rosa Santiago (mother)")+f("Emergency number","0918 000 0000")+"</div>")+
+sec("Government IDs",'<div class="grid">'+id("TIN","123-456-789-000")+id("SSS no.","34-1234567-8")+id("PhilHealth no.","12-345678901-2")+id("Pag-IBIG no.","1234-5678-9012")+'</div><p class="note">Numbers are masked by default. Revealing them would be recorded in the audit log.</p>')+
+sec("Employment",'<div class="grid">'+f("Company","Acme Corporation")+f("Department","Sales",["Sales","Operations","Finance","Engineering","HR and Admin"])+f("Section","Inside sales",["Inside sales","Field sales"])+f("Position","Account executive",["Account executive","Section head","Payroll officer"])+f("Reports to","Jose Ramirez",["Jose Ramirez","Tess Lim"])+f("Employment type","Regular",["Probationary","Regular","Project"])+f("Cost center","CC-320")+f("Pay group","Office staff",["Office staff","Executives"])+"</div>")},
+contracts:function(){return sec("Employment contracts",'<ul class="tl"><li class="cur"><b>Regular employment</b> <span class="chip ok">Active</span><small>Sep 16, 2025 to open-ended · Signed Sep 10, 2025</small></li><li><b>Probationary employment</b> <span class="chip mute">Ended</span><small>Mar 16 to Sep 15, 2025 · Six-month probation completed</small></li></ul>',"Add contract")+
+sec("Contract terms",tbl(["Term","Value"],[["Position","Account executive"],["Employment type","Regular"],["Probation period","6 months, completed Sep 15, 2025"],["Notice period","30 days"],["Governing agreement","Employment contract v3"]]))},
+compensation:function(){return'<div class="tiles"><div class="tile"><span>Current daily rate</span><b>₱760.00</b><span class="chip ok">Above NCR minimum</span></div><div class="tile"><span>Monthly equivalent</span><b>₱16,530.00</b><span>261-day factor</span></div><div class="tile"><span>Pay basis</span><b>Daily</b><span>Semi-monthly pay</span></div></div><br>'+
+sec("Salary history",tbl(["Effective from","Basis","Rate","Reason"],[["Mar 16, 2026","Daily","₱760.00","Annual review"],["Sep 16, 2025","Daily","₱695.00","Regularization"],["Mar 16, 2025","Daily","₱695.00","Hiring rate"]]),"Change salary")+
+sec("Recurring allowances and deductions",tbl(["Item","Type","Amount","Taxable"],[["Field allowance","Earning","₱500.00","Yes"],["Meal allowance","Earning","₱300.00","No"]]),"Add item")},
+documents:function(){return sec("201 file",tbl(["Document","Uploaded","Expiry","Status"],[["Signed employment contract","Sep 10, 2025","—","Valid"],["TIN ID","Mar 3, 2025","—","Valid"],["NBI clearance","Dec 12, 2025","Dec 12, 2026","Expiring"],["Medical certificate","Mar 3, 2025","—","Valid"],["Birth certificate (PSA)","—","—","Missing"]]),"Upload document")+'<p class="note">Documents expiring within 60 days appear on the HR dashboard. A missing document blocks nothing, but is flagged on the onboarding checklist.</p>'},
+leave:function(){var L=[["Service incentive",5,2],["Vacation",10,4],["Sick",7,1]];return'<div class="tiles">'+L.map(function(x){return'<div class="tile"><span>'+x[0]+"</span><b>"+(x[1]-x[2])+' days left</b><span>'+x[2]+" of "+x[1]+' used</span><div class="bar"><i style="width:'+Math.round(x[2]/x[1]*100)+'%"></i></div></div>'}).join("")+"</div><br>"+
+sec("Leave ledger",tbl(["Date","Type","Entry","Days","Balance"],[["Oct 27, 2026","Sick","Used","-1","6"],["Aug 14–15, 2026","Vacation","Used","-2","6"],["Jan 1, 2026","Vacation","Annual grant","10","8"],["Jan 1, 2026","Service incentive","Annual grant","5","5"]]),"File leave")+
+sec("Requests",tbl(["Dates","Type","Days","Status"],[["Nov 9–10, 2026","Vacation","2","Pending"],["Oct 27, 2026","Sick","1","Approved"]]))},
+work:function(){var d=[["Mon","09:00–18:00"],["Tue","09:00–18:00"],["Wed","09:00–18:00"],["Thu","09:00–18:00"],["Fri","09:00–18:00"],["Sat","Rest"],["Sun","Rest"]];return sec("Current schedule: Day shift",'<div class="wk">'+d.map(function(x){return'<div class="'+(x[1]==="Rest"?"off":"")+'"><b>'+x[0]+"</b><small>"+x[1]+"</small></div>"}).join("")+'</div><p class="note">Unpaid break 60 minutes · Grace period 10 minutes · Night differential applies from 22:00 to 06:00</p>',"Change schedule")+
+sec("Work location",'<div class="tiles"><div class="tile"><span>Assigned to</span><b style="font-size:18px">Taguig branch</b><span>NCR · geofence 100 m</span></div><div class="tile"><span>Punch method</span><b style="font-size:18px">Mobile</b><span>GPS and selfie required</span></div></div>',"Assign location")+
+sec("Location history",tbl(["Location","From","To"],[["Taguig branch","Jan 5, 2026","Open"],["Head office, Quezon City","Mar 16, 2025","Jan 4, 2026"]]))},
+family:function(){return sec("Dependents",tbl(["Name","Relationship","Birth date","Beneficiary"],[["Rosa Santiago","Mother","Jun 2, 1966","Yes"],["Leo Santiago","Brother","Aug 9, 2001","No"]]),"Add dependent")+sec("Emergency contact",tbl(["Name","Relationship","Number"],[["Rosa Santiago","Mother","0918 000 0000"]]),"Edit")},
+bank:function(){return sec("Bank accounts",tbl(["Bank","Account name","Account no.","Use"],[["BDO","Joy D. Santiago","•••• 4821","Primary"]]),"Add account")+sec("Loans and cash advances",tbl(["Loan","Principal","Balance","Per cutoff","Status"],[["Pag-IBIG salary loan","₱30,000.00","₱18,400.00","₱1,150.00","Active"]]),"New loan")+'<p class="note">Loan balances drop only when a payroll run is locked.</p>'},
+history:function(){return sec("Employment history",'<ul class="tl"><li class="cur"><b>Salary increase</b><small>Mar 16, 2026 · ₱695.00 to ₱760.00 per day</small></li><li><b>Transferred to Taguig branch</b><small>Jan 5, 2026 · Head office to Taguig branch</small></li><li><b>Regularized</b><small>Sep 16, 2025 · Probationary to regular</small></li><li><b>Hired as account executive</b><small>Mar 16, 2025 · Sales, Inside sales, reporting to Jose Ramirez</small></li></ul>')},
+payslips:function(){var o=PAY[open],h=sec("Issued payslips",tbl(["Period","Gross","Deductions","Net pay","Status"],PAY.map(function(p){return p.slice(0,5)}),1)+'<p class="note">Select a row to see the breakdown. Oct 16–31 will appear when that run is locked.</p>');
+if(open>=0)h+='<div class="pay"><b>'+o[0]+'</b><div class="cols"><div><p><b>Earnings</b></p>'+o[5].map(function(x){return"<p><span>"+x[0]+"</span><span>"+x[1]+"</span></p>"}).join("")+'<p class="t"><span>Gross</span><span>'+o[1].slice(1)+'</span></p></div><div><p><b>Deductions</b></p>'+o[6].map(function(x){return"<p><span>"+x[0]+"</span><span>"+x[1]+"</span></p>"}).join("")+'<p class="t"><span>Net pay</span><span>'+o[3].slice(1)+"</span></p></div></div></div>";return h}};
+function cur(){var h=location.hash.slice(1);return T[h]?h:"overview"}
+function render(){var c=cur();$("#tabs").innerHTML=TABS.map(function(t){return'<button data-tab="'+t[0]+'" class="'+(t[0]===c?"on":"")+'">'+t[1]+"</button>"}).join("");$("#tp").innerHTML=T[c]()}
+function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(function(){t.classList.remove("show")},2200)}
+document.addEventListener("click",function(e){var t=e.target,c;
+if(c=t.closest("[data-tab]")){open=-1;edit=false;location.hash="#"+c.getAttribute("data-tab");$(".tp").scrollTop=0}
+if(c=t.closest("[data-t]"))toast(c.getAttribute("data-t").indexOf("(")>0||c.getAttribute("data-t").indexOf("started")>0||c.getAttribute("data-t").indexOf("sent")>0?c.getAttribute("data-t"):c.getAttribute("data-t"));
+if(c=t.closest("[data-rev]")){var l=c.getAttribute("data-rev");rev[l]=!rev[l];render()}
+if(c=t.closest("[data-pay]")){var i=+c.getAttribute("data-pay");open=open===i?-1:i;render()}
+if(t.id==="edit"){edit=true;render()}if(t.id==="cancel"){edit=false;render()}if(t.id==="save"){edit=false;render();toast("Changes saved and recorded in the audit log")}
+if(t.id==="lo")toast("You have been signed out (prototype)")});
+window.addEventListener("hashchange",render);render();
+</script>
+</body>
+</html>

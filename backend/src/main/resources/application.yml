@@ -1,0 +1,73 @@
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: apex-hrm
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      "[mail.smtp.auth]": true
+      "[mail.smtp.starttls.enable]": true
+      "[mail.smtp.connectiontimeout]": 5000
+      "[mail.smtp.timeout]": 5000
+      "[mail.smtp.writetimeout]": 5000
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/apex_hrm}
+    username: ${DB_USER:hrm}
+    password: ${DB_PASSWORD:hrm}
+  jpa:
+    open-in-view: false          # required: the tenant is bound per transaction, not per request-wide session
+    hibernate:
+      ddl-auto: validate         # Flyway owns the schema; Hibernate only verifies it
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+  servlet:
+    multipart:
+      max-file-size: ${BACKUP_UPLOAD_MAX_FILE_SIZE:2GB}
+      max-request-size: ${BACKUP_UPLOAD_MAX_REQUEST_SIZE:2GB}
+
+management:
+  health:
+    mail:
+      enabled: ${SMTP_HEALTH_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+server:
+  port: ${SERVER_PORT:8080}
+
+hrm:
+  timezone: ${HRM_TIMEZONE:Asia/Manila}
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}
+    jwk-set-uri: ${GOOGLE_JWK_SET_URI:https://www.googleapis.com/oauth2/v3/certs}
+  platform-admin:
+    emails: ${PLATFORM_ADMIN_EMAILS:}
+  invitation:
+    from: ${INVITATION_FROM:}
+    accept-url: ${INVITATION_ACCEPT_URL:}
+  password-reset:
+    url: ${PASSWORD_RESET_URL:}
+
+app:
+  backup:
+    age-recipient: ${APP_BACKUP_AGE_RECIPIENT:}
+    age-identity: ${APP_BACKUP_AGE_IDENTITY:}
+    directory: ${APP_BACKUP_DIRECTORY:./data/backups}
+    database-url: ${APP_BACKUP_DB_URL:}
+    database-username: ${APP_BACKUP_DB_USERNAME:}
+    database-password: ${APP_BACKUP_DB_PASSWORD:}
+

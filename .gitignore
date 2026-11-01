@@ -1,0 +1,15 @@
+target/
+node_modules/
+dist/
+.vite/
+.env
+.env.*
+!.env.example
+.idea/
+*.iml
+.vscode/
+*.log
+.DS_Store
+*.zip
+backend/target/
+frontend/package-lock.json.tmp

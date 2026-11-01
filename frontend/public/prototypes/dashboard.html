@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Apex HRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f2f4f6;--surface:#fff;--ink:#16212a;--muted:#5d6b78;--line:#dde3e8;--side:#12333a;--side-ink:#cfe0e2;--side-act:#1d4a53;--accent:#e0932a;--accent-ink:#2a1a02;--ok:#1f7a4d;--okbg:#e1f3ea;--warn:#9a6200;--warnbg:#fdf0d6;--bad:#b3261e;--badbg:#fbe4e2;--info:#1d5fa8;--infobg:#e2eefb;--mutebg:#eceff2;--bar:#2b6f7c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--side:#0a1f24;--side-ink:#b4cbce;--side-act:#173f47;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;--bar:#4aa3b4;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--side:#0a1f24;--side-ink:#b4cbce;--side-act:#173f47;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;--bar:#4aa3b4;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--surface);z-index:10}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.app{display:flex;height:100%}
+aside{width:244px;flex:none;background:var(--side);color:var(--side-ink);display:flex;flex-direction:column;overflow-y:auto}
+.brand{padding:18px 20px;font-weight:600;font-size:16px;color:#fff;display:flex;gap:10px;align-items:center}
+.brand i{width:26px;height:26px;border-radius:7px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font-style:normal;font-weight:700}
+nav a{display:block;padding:7px 20px 7px 24px;color:inherit;text-decoration:none;border-left:3px solid transparent}
+nav a:hover{background:var(--side-act)}
+nav a.on{background:var(--side-act);border-left-color:var(--accent);color:#fff;font-weight:500}
+nav .g{width:100%;text-align:left;background:none;border:0;padding:14px 20px 4px;font-weight:600;color:#fff;display:flex;justify-content:space-between}
+nav .g span{opacity:.6;transition:transform .15s}nav .g.shut span{transform:rotate(-90deg)}
+nav .items.shut{display:none}
+.side-foot{margin-top:auto;padding:16px 20px;font-size:12px;opacity:.7}
+.main{flex:1;min-width:0;display:flex;flex-direction:column;overflow-y:auto}
+header{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px;padding:10px 24px}
+.burger{display:none;border:1px solid var(--line);background:none;border-radius:8px;padding:6px 10px}
+.crumb{font-weight:600;font-size:15px;white-space:nowrap}
+.search{margin-left:auto;flex:0 1 280px}
+.search input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:7px 12px;font:inherit}
+.iconbtn{position:relative;border:1px solid var(--line);background:none;border-radius:8px;padding:6px 10px}
+.iconbtn b{position:absolute;top:-6px;right:-6px;background:var(--bad);color:#fff;border-radius:9px;font-size:11px;padding:0 5px;font-weight:500}
+.me{position:relative}
+.avatar{display:flex;align-items:center;gap:10px;border:0;background:none;padding:2px;border-radius:24px}
+.avatar .pic{width:34px;height:34px;border-radius:50%;background:var(--bar);color:#fff;display:grid;place-items:center;font-weight:600}
+.avatar .who{text-align:left;line-height:1.2}.avatar small{color:var(--muted);display:block}
+.menu{position:absolute;right:0;top:46px;min-width:210px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.18);padding:6px;display:none}
+.menu.open{display:block}
+.menu .hd{padding:8px 10px;border-bottom:1px solid var(--line);margin-bottom:4px}.menu .hd small{color:var(--muted);display:block}
+.menu button{display:block;width:100%;text-align:left;background:none;border:0;padding:8px 10px;border-radius:6px}
+.menu button:hover{background:var(--bg)}.menu .out{color:var(--bad);font-weight:500}
+.page{padding:24px;max-width:1180px;width:100%;box-sizing:border-box}
+h1{font-size:22px;margin:0 0 2px;font-weight:600}.sub{color:var(--muted);margin:0 0 18px}
+.bar{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:500}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.sm{padding:3px 10px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-bottom:18px;overflow:hidden}
+.panel h2{font-size:15px;margin:0;padding:14px 16px;border-bottom:1px solid var(--line);font-weight:600}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th,td{padding:10px 16px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;background:var(--bg)}tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right}
+tbody tr:hover{background:var(--bg)}
+.chip{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;font-weight:500}
+.ok{background:var(--okbg);color:var(--ok)}.warn{background:var(--warnbg);color:var(--warn)}.bad{background:var(--badbg);color:var(--bad)}.info{background:var(--infobg);color:var(--info)}.mute{background:var(--mutebg);color:var(--muted)}
+.run{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:10px;padding:18px 20px;margin-bottom:18px}
+.run-top{display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start}
+.run h2{margin:0;font-size:17px}.run p{margin:2px 0 0;color:var(--muted)}
+.steps{display:flex;margin:18px 0 14px;overflow-x:auto}
+.step{flex:1;min-width:84px;position:relative;padding-top:18px;color:var(--muted);font-size:13px}
+.step::before{content:"";position:absolute;top:4px;left:0;right:0;height:3px;background:var(--line)}
+.step::after{content:"";position:absolute;top:0;left:0;width:11px;height:11px;border-radius:50%;background:var(--line)}
+.step.done::before,.step.done::after{background:var(--bar)}.step.cur{color:var(--ink);font-weight:600}
+.step.cur::after{background:var(--accent);box-shadow:0 0 0 4px rgba(224,147,42,.25)}
+.figs{display:flex;flex-wrap:wrap;gap:6px 36px}.figs div{min-width:110px}.figs b{display:block;font-size:20px;font-weight:600}.figs span{color:var(--muted);font-size:13px}
+.strip{display:grid;grid-template-columns:repeat(4,1fr);background:var(--surface);border:1px solid var(--line);border-radius:10px;margin-bottom:18px}
+.strip div{padding:14px 18px;border-right:1px solid var(--line)}.strip div:last-child{border-right:0}
+.strip b{display:block;font-size:24px;font-weight:600}.strip span{color:var(--muted)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.chart{display:flex;align-items:flex-end;gap:14px;height:150px;padding:18px 18px 6px}
+.chart div{flex:1;text-align:center;font-size:12px;color:var(--muted);display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+.chart i{display:block;background:var(--bar);border-radius:5px 5px 0 0;margin-bottom:4px}.chart b{color:var(--ink);font-weight:500}
+.hb{padding:14px 16px}.hb div{display:grid;grid-template-columns:96px 1fr 76px;gap:10px;align-items:center;margin-bottom:9px}
+.hb i{display:block;height:10px;border-radius:5px;background:var(--bar)}.hb span:last-child{text-align:right}
+.list{list-style:none;margin:0;padding:0}
+.list li{display:flex;gap:10px;align-items:center;padding:11px 16px;border-bottom:1px solid var(--line)}.list li:last-child{border-bottom:0}
+.list .t{flex:1;min-width:0}.list small{color:var(--muted);display:block}
+.note{color:var(--muted);font-size:12px;margin:4px 0 24px}
+.login{display:none;min-height:100%;place-items:center;padding:24px;box-sizing:border-box}
+body.out .login{display:grid}body.out .app{display:none}
+.card{width:100%;max-width:370px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:28px}
+.card h1{margin-top:14px}.card label{display:block;margin:14px 0 4px;font-weight:500}
+.card input{width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:8px;padding:9px 12px;font:inherit}
+.card .btn{width:100%;margin-top:20px;padding:10px}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30}
+.toast.show{opacity:1}
+.scrim{display:none}
+@media(max-width:900px){
+aside{position:fixed;inset:0 auto 0 0;z-index:20;transform:translateX(-100%);transition:transform .2s;padding-top:env(safe-area-inset-top,0px)}
+body.nav aside{transform:none}
+body.nav .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:15}
+.burger{display:block}.avatar .who{display:none}.search{display:none}.iconbtn{margin-left:auto}
+.cols{grid-template-columns:1fr}.strip{grid-template-columns:1fr 1fr}.strip div:nth-child(2){border-right:0}.strip div:nth-child(-n+2){border-bottom:1px solid var(--line)}
+.page{padding:16px}header{padding:10px 16px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<section class="login"><div class="card">
+<div class="brand" style="padding:0;color:var(--ink)"><i>A</i>Apex HRM</div>
+<h1>Sign in</h1><p class="sub" style="margin-bottom:0">Personnel, timekeeping and payroll in one place.</p>
+<label for="em">Work email</label><input id="em" value="maria.santos@acme.example" autocomplete="username">
+<label for="pw">Password</label><input id="pw" type="password" value="prototype" autocomplete="current-password">
+<button class="btn pri" id="signin">Sign in</button>
+<p class="note" style="margin:14px 0 0">Prototype: any input signs you in.</p>
+</div></section>
+
+<div class="app">
+<aside id="side"><div class="brand"><i>A</i>Apex HRM</div><nav id="nav"></nav><div class="side-foot">Acme Corporation<br>Prototype with sample data</div></aside>
+<div class="scrim" id="scrim"></div>
+<div class="main">
+<header>
+<button class="burger" id="burger" aria-label="Open menu">Menu</button>
+<div class="crumb" id="crumb">Dashboard</div>
+<div class="search"><input id="q" type="search" placeholder="Filter this table" aria-label="Filter this table"></div>
+<button class="iconbtn" id="bell" aria-label="Notifications">Alerts<b>3</b></button>
+<div class="me">
+<button class="avatar" id="avbtn" aria-haspopup="true" aria-expanded="false"><span class="pic">MS</span><span class="who">Maria Santos<small>HR manager</small></span></button>
+<div class="menu" id="menu" role="menu">
+<div class="hd"><b>Maria Santos</b><small>maria.santos@acme.example</small></div>
+<button data-go="profile">My profile</button><button data-go="settings">Settings</button><button id="theme">Switch theme</button><button class="out" id="logout">Log out</button>
+</div></div>
+</header>
+<div class="page" id="page"></div>
+</div></div>
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+var NAV=[["dashboard","Dashboard"],
+["Personnel",[["employees","Employees"],["organization","Organization"],["compensation","Compensation"],["loans","Loans"]]],
+["Timekeeping",[["attendance","Attendance and DTR"],["schedules","Schedules and holidays"],["leave","Leave"],["overtime","Overtime"]]],
+["Payroll",[["runs","Payroll runs"],["adjustments","Adjustments"],["payslips","Payslips"],["journal","Journal entries"],["bankfiles","Bank files"]]],
+["Insights",[["reports","Reports"]]],
+["Admin",[["rates","Statutory rates"],["gl","GL mapping"],["users","Users and roles"],["settings","Settings"]]]];
+var T=function(cols,rows,h){return{h:h,cols:cols,rows:rows}};
+var PAGES={
+employees:{t:"Employees",s:"Master records, employment history and pay group assignment.",a:"New employee",tb:[T(["No.","Name","Department","Position","Pay group","Status"],[["E-0001","Ana Reyes","Finance","Payroll officer","Semi-monthly","Active"],["E-0014","Marco Dela Cruz","Operations","Team lead","Semi-monthly","Active"],["E-0032","Joy Santiago","Sales","Account executive","Semi-monthly","Active"],["E-0047","Paolo Navarro","Engineering","Developer","Monthly","Active"],["E-0058","Liza Mendoza","Admin","HR assistant","Semi-monthly","Inactive"]])]},
+organization:{t:"Organization",s:"Companies, work locations, departments and cost centers.",a:"Add unit",tb:[T(["Code","Name","Type","Headcount"],[["HO","Head office, Quezon City","Work location","112"],["BGC","Taguig branch","Work location","86"],["DEP-FIN","Finance","Department","14"],["CC-100","Operations","Cost center","130"]])]},
+compensation:{t:"Compensation",s:"Effective-dated salary history. A change closes the previous record.",a:"Change salary",tb:[T(["Employee","Basis","Rate","Effective from","Status"],[["Ana Reyes","Monthly","₱42,000.00","Jul 1, 2026","Active"],["Marco Dela Cruz","Monthly","₱58,500.00","Jan 1, 2026","Active"],["Joy Santiago","Daily","₱760.00","Mar 16, 2026","Active"],["Paolo Navarro","Monthly","₱72,000.00","Sep 1, 2026","Pending"]])]},
+loans:{t:"Loans",s:"Amortization is deducted each run and the balance drops when a run is locked.",a:"New loan",tb:[T(["Employee","Loan","Balance","Per cutoff","Status"],[["Joy Santiago","Pag-IBIG salary loan","₱18,400.00","₱1,150.00","Active"],["Marco Dela Cruz","Cash advance","₱6,000.00","₱2,000.00","Active"],["Ana Reyes","SSS salary loan","₱0.00","₱950.00","Paid"]])]},
+attendance:{t:"Attendance and DTR",s:"Punches from mobile and manual entry, processed into daily time records.",a:"Process DTR",tb:[T(["Employee","Date","In","Out","Late (min)","Status"],[["Ana Reyes","Oct 30","08:58","18:04","0","Approved"],["Joy Santiago","Oct 30","09:21","18:00","21","Approved"],["Paolo Navarro","Oct 30","09:02","20:10","2","Approved"],["Marco Dela Cruz","Oct 30","08:49","18:01","0","Flagged"],["Liza Mendoza","Oct 30","—","—","0","Pending"]])]},
+schedules:{t:"Schedules and holidays",s:"Shifts, rest days and the holiday calendar that drives premium pay.",a:"Add schedule",tb:[T(["Schedule","Hours","Rest days","Grace","Assigned"],[["Day shift","09:00–18:00","Sat, Sun","10 min","198"],["Night shift","22:00–06:00","Sun, Mon","0 min","34"],["Retail","11:00–20:00","Tue, Wed","5 min","16"]],"Schedules"),T(["Date","Holiday","Type"],[["Nov 1, 2026","All Saints’ Day","Special non-working"],["Nov 30, 2026","Bonifacio Day","Regular"],["Dec 25, 2026","Christmas Day","Regular"]],"Holidays (sample)")]},
+leave:{t:"Leave",s:"Requests, approvals and balances from the leave ledger.",a:"File leave",tb:[T(["Employee","Type","Dates","Days","Status"],[["Joy Santiago","Vacation","Nov 9–10","2","Pending"],["Ana Reyes","Sick","Oct 27","1","Approved"],["Marco Dela Cruz","Service incentive","Oct 20–21","2","Approved"],["Liza Mendoza","Unpaid","Oct 5–9","5","Rejected"]])]},
+overtime:{t:"Overtime",s:"Paid only up to approved minutes and only when detected in the DTR.",a:"File overtime",tb:[T(["Employee","Date","Requested","Approved","Status"],[["Paolo Navarro","Oct 29","90 min","—","Pending"],["Paolo Navarro","Oct 30","130 min","120 min","Approved"],["Joy Santiago","Oct 22","60 min","60 min","Approved"]])]},
+runs:{t:"Payroll runs",s:"Draft, compute, review, approve, lock and pay.",a:"New run",tb:[T(["Period","Type","Employees","Net pay","Status"],[["Oct 16–31, 2026","Regular","248","₱3,974,210.55","Reviewed"],["Oct 1–15, 2026","Regular","246","₱3,951,880.20","Paid"],["Sep 16–30, 2026","Regular","245","₱3,938,105.10","Paid"],["13th month 2026","13th month","—","—","Draft"]])]},
+adjustments:{t:"Adjustments",s:"Corrections to closed periods flow into the next run after approval.",a:"New adjustment",tb:[T(["Employee","Item","Amount","Reason","Status"],[["Ana Reyes","Overtime","₱1,125.00","Missed OT, Oct 14","Pending"],["Marco Dela Cruz","Late deduction","₱240.00","Wrongly flagged late","Approved"],["Joy Santiago","Allowance","₱500.00","Field allowance","Approved"]])]},
+payslips:{t:"Payslips",s:"Immutable snapshots issued when a run is locked.",tb:[T(["Employee","Period","Gross","Deductions","Net pay","Version"],[["Ana Reyes","Oct 1–15","₱21,000.00","₱2,894.50","₱18,105.50","1"],["Marco Dela Cruz","Oct 1–15","₱29,250.00","₱5,310.00","₱23,940.00","1"],["Joy Santiago","Oct 1–15","₱11,400.00","₱1,630.20","₱9,769.80","1"]])]},
+journal:{t:"Journal entries",s:"Generated from GL mapping. Entries must balance before they can be posted.",tb:[T(["Entry","Run","Debit","Credit","Status"],[["JE-2026-0042","Oct 1–15","₱4,563,420.10","₱4,563,420.10","Posted"],["JE-2026-0041","Sep 16–30","₱4,548,990.00","₱4,548,990.00","Posted"],["JE-2026-0043","Oct 16–31","₱4,590,110.40","₱4,590,110.40","Draft"]])]},
+bankfiles:{t:"Bank files",s:"Crediting files built from each bank’s template.",a:"Generate file",tb:[T(["File","Bank","Records","Total","Created"],[["BDO_payroll_2026-10-20.csv","BDO","231","₱3,702,114.30","Oct 19"],["BPI_payroll_2026-10-20.csv","BPI","15","₱249,765.90","Oct 19"]])]},
+reports:{t:"Reports",s:"Operational and statutory reports.",tb:[T(["Report","Category","Last run"],[["Payroll register","Payroll","Oct 20"],["Contributions: SSS, PhilHealth, Pag-IBIG","Statutory","Oct 20"],["Withholding tax summary","Statutory","Oct 20"],["Attendance exceptions","Timekeeping","Oct 30"],["Leave balances and liability","Timekeeping","Oct 28"],["Headcount and turnover","Personnel","Oct 1"]])]},
+rates:{t:"Statutory rates",s:"Versioned rules. Add a row with a new effective date; never edit history.",a:"Add rule",tb:[T(["Agency","Employee","Employer","Base range","Effective"],[["SSS","5%","10%","₱5,000–₱35,000","2025-01-01"],["PhilHealth","2.5%","2.5%","₱10,000–₱100,000","2024-01-01"],["Pag-IBIG","2%","2%","Up to ₱10,000","2024-02-01"]],"Contributions (verify against current circulars)"),T(["Day type","Worked","Overtime"],[["Ordinary","100%","125%"],["Rest day","130%","130%"],["Regular holiday","200%","130%"],["Regular holiday on rest day","260%","130%"]],"Premium pay")]},
+gl:{t:"GL mapping",s:"Each pay item maps to the accounts used in the journal entry.",a:"Add mapping",tb:[T(["Pay item","Debit account","Credit account"],[["BASIC","5100 Salaries and wages","—"],["OT","5110 Overtime and premium pay","—"],["SSS_EE","—","2100 SSS payable"],["WTAX","—","2130 Withholding tax payable"],["NET_PAY","—","2140 Salaries payable"]])]},
+users:{t:"Users and roles",s:"Who can see and change what.",a:"Invite user",tb:[T(["Name","Email","Role","Status"],[["Maria Santos","maria.santos@acme.example","HR admin","Active"],["Ana Reyes","ana.reyes@acme.example","Payroll officer","Active"],["Marco Dela Cruz","marco.dc@acme.example","Manager","Active"]])]},
+settings:{t:"Settings",s:"Pay groups and payroll defaults.",a:"Add pay group",tb:[T(["Pay group","Frequency","Contributions","Tax method"],[["Office staff","Semi-monthly","Last cutoff","Strict table"],["Executives","Monthly","Every cutoff","Strict table"]])]},
+profile:{t:"My profile",s:"Maria Santos, HR manager, Head office.",tb:[T(["Field","Value"],[["Employee no.","E-0003"],["Email","maria.santos@acme.example"],["Role","HR admin"],["Last sign-in","Today"]])]}
+};
+var $=function(s){return document.querySelector(s)};
+var loggedIn=true,pending=14,stage=2;
+var STAGES=["Draft","Computed","Reviewed","Approved","Locked","Paid"];
+var CHIP={Active:"ok",Approved:"ok",Paid:"ok",Posted:"ok",Pending:"warn",Flagged:"warn",Draft:"mute",Inactive:"mute",Reviewed:"info",Rejected:"bad"};
+function cell(v,h){var n=/^[₱\d.,%\-–]+$/.test(v);return"<td"+(n?' class="num"':"")+">"+(CHIP[v]?'<span class="chip '+CHIP[v]+'">'+v+"</span>":v)+"</td>"}
+function table(t){return'<div class="panel">'+(t.h?"<h2>"+t.h+"</h2>":"")+'<div class="scroll"><table><thead><tr>'+t.cols.map(function(c,i){return"<th"+(/^[₱\d.,%\-–]+$/.test(t.rows[0][i])?' class="num"':"")+">"+c+"</th>"}).join("")+"</tr></thead><tbody>"+t.rows.map(function(r){return"<tr>"+r.map(cell).join("")+"</tr>"}).join("")+"</tbody></table></div></div>"}
+function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(function(){t.classList.remove("show")},2200)}
+function buildNav(cur){$("#nav").innerHTML=NAV.map(function(n){if(typeof n[1]==="string")return'<a href="#'+n[0]+'" class="'+(cur===n[0]?"on":"")+'">'+n[1]+"</a>";
+var open=n[1].some(function(i){return i[0]===cur})||!buildNav.shut[n[0]];
+return'<button class="g'+(open?"":" shut")+'" data-g="'+n[0]+'">'+n[0]+"<span>▾</span></button><div class='items"+(open?"":" shut")+"'>"+n[1].map(function(i){return'<a href="#'+i[0]+'" class="'+(cur===i[0]?"on":"")+'">'+i[1]+"</a>"}).join("")+"</div>"}).join("")}
+buildNav.shut={};
+function dash(){var d=new Date().toLocaleDateString("en-PH",{weekday:"long",year:"numeric",month:"long",day:"numeric"});
+var days=[["Mon 26",226,9],["Tue 27",229,7],["Wed 28",231,11],["Thu 29",228,8],["Fri 30",233,6]];
+var dept=[["Operations",1.92],["Sales",.98],["Engineering",.85],["Finance",.61],["Admin",.46]];
+var ap=[["Leave","Joy Santiago","Vacation, Nov 9–10 (2 days)"],["Overtime","Paolo Navarro","Oct 29, 90 minutes"],["Adjustment","Ana Reyes","Missed overtime, ₱1,125.00"],["Correction","Liza Mendoza","Missed punch-out, Oct 28"]];
+var up=[["Oct 31","Cutoff","Attendance locks when the run is locked"],["Nov 1","All Saints’ Day","Special non-working day"],["Nov 5","Pay date","Regular run, Oct 16–31"],["Nov 30","Bonifacio Day","Regular holiday"],["Dec 24","13th month pay","Usual payment deadline"]];
+return'<h1>Hello, Maria</h1><p class="sub">'+d+'</p>'+
+'<div class="run"><div class="run-top"><div><h2>Regular run, Oct 16–31, 2026</h2><p>Pay date Nov 5 · Semi-monthly · 3 employees have warnings</p></div><button class="btn pri" id="adv"></button></div>'+
+'<div class="steps" id="steps"></div><div class="figs"><div><b>₱4,821,640</b><span>Gross pay</span></div><div><b>₱846,430</b><span>Deductions</span></div><div><b>₱3,974,210</b><span>Net pay</span></div><div><b>₱612,300</b><span>Employer cost</span></div></div></div>'+
+'<div class="strip"><div><b>248</b><span>Employees</span></div><div><b>231 of 242</b><span>Present today</span></div><div><b>9</b><span>On leave</span></div><div><b id="pc">'+pending+'</b><span>Waiting for approval</span></div></div>'+
+'<div class="cols"><div class="panel"><h2>Attendance, last five working days</h2><div class="chart">'+days.map(function(x){return'<div><i style="height:'+Math.round(x[1]/242*100)+'%"></i><b>'+x[1]+"</b>"+x[0]+"<br>Late "+x[2]+"</div>"}).join("")+'</div></div>'+
+'<div class="panel"><h2>Needs your approval</h2><ul class="list" id="ap">'+ap.map(function(x,i){return'<li data-i="'+i+'"><div class="t"><b>'+x[1]+'</b> <span class="chip mute">'+x[0]+"</span><small>"+x[2]+'</small></div><button class="btn sm" data-a="ok">Approve</button><button class="btn sm" data-a="no">Reject</button></li>'}).join("")+"</ul></div>"+
+'<div class="panel"><h2>Net pay by department, last run</h2><div class="hb">'+dept.map(function(x){return"<div><span>"+x[0]+'</span><i style="width:'+Math.round(x[1]/1.92*100)+'%"></i><span>₱'+x[1].toFixed(2)+"M</span></div>"}).join("")+"</div></div>"+
+'<div class="panel"><h2>Coming up</h2><ul class="list">'+up.map(function(x){return'<li><b style="width:52px">'+x[0]+'</b><div class="t">'+x[1]+"<small>"+x[2]+"</small></div></li>"}).join("")+"</ul></div></div>"+
+'<p class="note">All figures are sample data for the prototype.</p>'}
+function steps(){$("#steps").innerHTML=STAGES.map(function(s,i){return'<div class="step '+(i<stage?"done":i===stage?"cur":"")+'">'+s+"</div>"}).join("");
+var b=$("#adv");var L=[null,"Review run","Approve run","Lock run","Mark as paid"];b.textContent=stage>=5?"Paid":L[stage]||"Compute run";b.disabled=stage>=5;b.style.opacity=stage>=5?.5:1}
+function render(){var id=(location.hash||"#dashboard").slice(1);var p=PAGES[id];if(!p&&id!=="dashboard")id="dashboard";
+buildNav(id);$("#crumb").textContent=id==="dashboard"?"Dashboard":PAGES[id].t;$("#q").value="";
+var pg=$("#page");
+if(id==="dashboard"){pg.innerHTML=dash();steps()}
+else{p=PAGES[id];pg.innerHTML="<h1>"+p.t+'</h1><p class="sub">'+p.s+"</p>"+(p.a?'<div class="bar"><button class="btn pri" data-act="'+p.a+'">'+p.a+"</button></div>":"")+p.tb.map(table).join("")}
+document.body.classList.remove("nav");$("#menu").classList.remove("open");$(".main").scrollTop=0}
+function setOut(v){loggedIn=!v;document.body.classList.toggle("out",v);if(!v)render()}
+document.addEventListener("click",function(e){var t=e.target;
+if(t.id==="adv"&&stage<5){stage++;steps();toast(["","","Run reviewed","Run approved","Run locked, payslips issued","Run marked as paid"][stage])}
+var a=t.getAttribute&&t.getAttribute("data-a");
+if(a){var li=t.closest("li");li.remove();pending--;$("#pc").textContent=pending;toast(a==="ok"?"Approved":"Rejected")}
+if(t.getAttribute&&t.getAttribute("data-act"))toast(t.getAttribute("data-act")+" is not wired up in this prototype");
+var g=t.closest&&t.closest("[data-g]");if(g){var k=g.getAttribute("data-g");buildNav.shut[k]=!g.classList.contains("shut");g.classList.toggle("shut");g.nextElementSibling.classList.toggle("shut")}
+var go=t.getAttribute&&t.getAttribute("data-go");if(go){location.hash="#"+go;$("#menu").classList.remove("open")}
+if(!t.closest(".me"))$("#menu").classList.remove("open")});
+$("#avbtn").onclick=function(){var m=$("#menu");m.classList.toggle("open");this.setAttribute("aria-expanded",m.classList.contains("open"))};
+$("#logout").onclick=function(){setOut(true);toast("You have been signed out")};
+$("#signin").onclick=function(){setOut(false);toast("Signed in as Maria Santos")};
+$("#bell").onclick=function(){toast("3 items need attention: 1 run to approve, 2 flagged punches")};
+$("#theme").onclick=function(){var r=document.documentElement;var dark=r.getAttribute("data-theme")==="dark"||(!r.getAttribute("data-theme")&&matchMedia("(prefers-color-scheme: dark)").matches);r.setAttribute("data-theme",dark?"light":"dark")};
+$("#burger").onclick=function(){document.body.classList.add("nav")};$("#scrim").onclick=function(){document.body.classList.remove("nav")};
+$("#q").oninput=function(){var q=this.value.toLowerCase();document.querySelectorAll("tbody tr").forEach(function(r){r.style.display=r.textContent.toLowerCase().indexOf(q)<0?"none":""})};
+window.addEventListener("hashchange",function(){if(loggedIn)render()});
+render();
+</script>
+</body>
+</html>

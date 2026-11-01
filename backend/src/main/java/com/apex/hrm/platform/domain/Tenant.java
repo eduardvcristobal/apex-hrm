@@ -1,0 +1,22 @@
+package com.apex.hrm.platform.domain;
+
+import com.apex.hrm.common.GlobalEntity;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.util.UUID;
+import lombok.Getter;
+import lombok.Setter;
+
+@Entity
+@Table(name = "tenant")
+@Getter
+@Setter
+public class Tenant extends GlobalEntity {
+    private String code;
+    private String name;
+    private String status = "ACTIVE";
+}

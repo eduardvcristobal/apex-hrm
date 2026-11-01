@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Attendance · Apex HRM</title>
+<style>
+:root{--bg:#f2f4f6;--surface:#fff;--ink:#16212a;--muted:#5d6b78;--line:#dde3e8;--accent:#e0932a;--accent-ink:#2a1a02;--bar:#2b6f7c;--side:#12333a;--ok:#1f7a4d;--okbg:#e1f3ea;--warn:#9a6200;--warnbg:#fdf0d6;--bad:#b3261e;--badbg:#fbe4e2;--info:#1d5fa8;--infobg:#e2eefb;--mutebg:#eceff2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--bar:#4aa3b4;--side:#0a1f24;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0e1519;--surface:#16212a;--ink:#e6edf2;--muted:#93a3b0;--line:#2a3945;--bar:#4aa3b4;--side:#0a1f24;--ok:#6fd0a0;--okbg:#14352a;--warn:#f0b955;--warnbg:#3a2c0f;--bad:#f08a82;--badbg:#3d1c1a;--info:#7db4ee;--infobg:#142b45;--mutebg:#1f2d37;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--side);z-index:10}
+button,input,select{font:inherit;color:inherit}button{cursor:pointer}:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header{position:sticky;top:0;z-index:5;background:var(--side);color:#fff;display:flex;align-items:center;gap:14px;padding:10px 24px}
+header .sp{flex:1}.pic{width:34px;height:34px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-weight:600}
+.lo{background:none;border:1px solid #4d7279;color:#fff;border-radius:8px;padding:5px 12px}
+.wrap{max-width:1180px;margin:0 auto;padding:20px 24px}
+.top{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.crumb{color:var(--muted)}h1{font-size:22px;margin:2px 0 0}
+.per{display:flex;gap:8px;align-items:center}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:500}.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}.btn.sm{padding:3px 10px}.btn:disabled{opacity:.5;cursor:not-allowed}
+.chip{display:inline-block;padding:1px 9px;border-radius:12px;font-size:12px;font-weight:500}
+.ok{background:var(--okbg);color:var(--ok)}.warn{background:var(--warnbg);color:var(--warn)}.bad{background:var(--badbg);color:var(--bad)}.info{background:var(--infobg);color:var(--info)}.mute{background:var(--mutebg);color:var(--muted)}
+.flow{display:flex;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 8px;margin-bottom:14px}
+.fs{flex:1;min-width:130px;padding:0 8px;font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:flex-start}
+.fs span{width:22px;height:22px;border-radius:50%;background:var(--mutebg);display:grid;place-items:center;font-size:12px;font-weight:600;flex:none}
+.fs.d span{background:var(--bar);color:#fff}.fs.c{color:var(--ink);font-weight:600}.fs.c span{background:var(--accent);color:var(--accent-ink)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:14px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px}.tile b{font-size:22px;display:block}.tile span{color:var(--muted);font-size:13px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:16px}
+.card h2{font-size:15px;margin:0;padding:13px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.tabs{display:flex;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px 10px 0 0;border-bottom:0;padding:0 6px}
+.tabs button{background:none;border:0;border-bottom:3px solid transparent;padding:12px 14px;color:var(--muted);white-space:nowrap}.tabs button.on{color:var(--ink);font-weight:600;border-bottom-color:var(--accent)}
+.tabs i{font-style:normal;background:var(--bad);color:#fff;border-radius:9px;font-size:11px;padding:0 6px;margin-left:6px}
+.body{border:1px solid var(--line);border-radius:0 0 10px 10px;background:var(--bg);padding:16px}
+.sc{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;background:var(--bg)}tr:last-child td{border-bottom:0}.r{text-align:right}tr.k{cursor:pointer}tr.k:hover,tr.sel{background:var(--bg)}tr.rest td{color:var(--muted);background:var(--bg)}
+.fl{display:flex;gap:6px;flex-wrap:wrap;padding:12px 16px;border-bottom:1px solid var(--line);align-items:center}
+.fl button{border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:3px 12px}.fl button.on{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 290px;gap:16px;align-items:start}
+.phone{padding:16px;text-align:center}.phone .clk{font-size:34px;font-weight:600;margin:4px 0}.phone select{width:100%;margin:10px 0;padding:6px;border:1px solid var(--line);background:var(--bg);border-radius:8px}
+.phone .btn{width:100%;padding:12px}
+.cl{list-style:none;margin:0;padding:0}.cl li{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line)}.cl li:last-child{border-bottom:0}.cl .t{flex:1}.cl small{display:block;color:var(--muted)}
+.mk{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:700;flex:none}
+.rs{width:46px;height:30px;border:1px solid var(--line);border-radius:6px;background:var(--surface);font-weight:600}.rs.N{background:var(--infobg);color:var(--info)}.rs.M{background:var(--warnbg);color:var(--warn)}.rs.R{background:var(--mutebg);color:var(--muted)}
+.note{color:var(--muted);font-size:12px;padding:10px 16px}
+.banner{background:var(--okbg);color:var(--ok);border-radius:10px;padding:10px 16px;margin-bottom:14px;font-weight:500}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:8px;opacity:0;pointer-events:none;transition:opacity .2s;z-index:30;max-width:90vw}.toast.show{opacity:1}
+@media(max-width:860px){.wrap{padding:14px}.two{grid-template-columns:1fr}header{padding:10px 14px}}
+</style>
+</head>
+<body>
+<header><b>Apex HRM</b><span>Timekeeping</span><span class="sp"></span><span class="pic" title="Maria Santos, HR manager">MS</span><button class="lo" id="lo">Log out</button></header>
+<div class="wrap">
+<div class="top"><div><div class="crumb">Timekeeping / Attendance</div><h1>Attendance management</h1></div>
+<div class="per"><span class="chip mute" id="plabel">Open</span><b>Oct 16–31, 2026</b><button class="btn pri" id="proc">Process DTR</button></div></div>
+<div id="flow"></div><div id="ban"></div><div class="tiles" id="tiles"></div>
+<div class="tabs" id="tabs"></div><div class="body" id="body"></div>
+</div>
+<div class="toast" id="toast" role="status"></div>
+<script>
+var $=function(s){return document.querySelector(s)};
+var EM=["Ana Reyes","Marco Dela Cruz","Joy Santiago","Paolo Navarro","Liza Mendoza","Nina Garcia","Ben Uy","Tess Lim"],S0=[540,540,540,540,540,540,540,660],MON=["","","","","","","","","","Oct"];
+var OV={"1-30":{flag:1},"2-30":{late:21},"4-30":{absent:1},"0-27":{leave:"Sick"},"3-29":{ot:90,pend:1},"7-28":{ot:75,pend:1},"6-28":{missOut:1},"7-27":{missIn:1}};
+var P=[{e:"Marco Dela Cruz",d:"Oct 30",t:"08:49",ty:"IN",src:"Mobile",loc:"Outside geofence by 240 m",s:"FLAGGED"},{e:"Nina Garcia",d:"Oct 30",t:"18:02",ty:"OUT",src:"Mobile",loc:"No GPS fix",s:"FLAGGED"},{e:"Ben Uy",d:"Oct 29",t:"09:05",ty:"IN",src:"Web",loc:"New device",s:"FLAGGED"},
+{e:"Joy Santiago",d:"Oct 30",t:"09:21",ty:"IN",src:"Mobile",loc:"Inside geofence",s:"VALID"},{e:"Ana Reyes",d:"Oct 30",t:"18:04",ty:"OUT",src:"Mobile",loc:"Inside geofence",s:"VALID"},{e:"Paolo Navarro",d:"Oct 30",t:"19:10",ty:"OUT",src:"Web",loc:"Office network",s:"VALID"},{e:"Tess Lim",d:"Oct 30",t:"11:00",ty:"IN",src:"Manual",loc:"Entered by HR",s:"VALID"}];
+var C=[{e:"Liza Mendoza",d:"Oct 30",r:"09:00 IN, 18:00 OUT",why:"Phone battery died; worked on site",s:"PENDING"},{e:"Ben Uy",d:"Oct 28",r:"18:00 OUT",why:"Forgot to punch out",s:"PENDING"},{e:"Tess Lim",d:"Oct 27",r:"11:00 IN",why:"App crashed at login",s:"PENDING"}];
+var OT=[{e:"Paolo Navarro",d:"Oct 29",req:90,s:"PENDING"},{e:"Tess Lim",d:"Oct 28",req:75,s:"PENDING"}];
+var RS=[["D","D","D","D","D","R","R"],["D","D","D","D","D","R","R"],["D","D","D","D","D","R","R"],["D","D","D","D","D","R","R"],["D","D","D","D","D","R","R"],["N","N","N","N","N","R","R"],["D","D","D","D","D","R","R"],["M","M","M","M","M","R","R"]];
+var st={tab:"today",day:30,sel:-1,flt:"All",proc:false,locked:false,inside:true,clocked:false};
+function rnd(e,d){var x=Math.sin(e*127.1+d*311.7)*43758.5453;return x-Math.floor(x)}
+function pad(n){return(n<10?"0":"")+n}function tm(m){return m==null?"—":pad(Math.floor(m/60))+":"+pad(m%60)}function hrs(m){return m?Math.floor(m/60)+"h "+pad(m%60)+"m":"—"}
+function mk(e,d){var k=e+"-"+d,dw=new Date(2026,9,d).getDay(),s=S0[e],o=OV[k]||{};if(dw===0||dw===6)return{st:"Rest"};
+if(o.leave)return{st:"Leave",note:o.leave,reg:0,late:0,ut:0,od:0,oa:0};if(o.absent)return{st:"Absent",reg:0,late:0,ut:0,od:0,oa:0};
+if(o.missIn||o.missOut)return{st:"Missing punch",inM:o.missIn?null:s,outM:o.missOut?null:s+540,reg:0,late:0,ut:0,od:0,oa:0};
+var r=rnd(e,d),late=o.late||(r<.2?Math.round(rnd(e+9,d)*20)+3:0),inM=late?s+late:s-Math.floor(rnd(e+3,d)*10),od=o.ot||(r>.88?60+Math.round(rnd(e+5,d)*4)*15:0),outM=s+540+od-(!od&&r>.45&&r<.5?20:0),ut=outM<s+540?s+540-outM:0;
+var reg=Math.max(0,Math.min(outM,s+540)-Math.max(inM,s)-60);return{st:o.flag?"Flagged":late?"Late":"Present",inM:inM,outM:outM,reg:reg,late:late,ut:ut,od:od,oa:o.pend?0:od}}
+var DAYS=[];for(var d=16;d<=31;d++)DAYS.push(d);
+function sum(e){var a={w:0,ab:0,lv:0,late:0,ut:0,od:0,oa:0,reg:0};DAYS.forEach(function(d){var x=mk(e,d);if(x.st==="Rest")return;if(x.st==="Absent")a.ab++;else if(x.st==="Leave")a.lv++;else if(x.st!=="Missing punch")a.w++;a.late+=x.late;a.ut+=x.ut;a.od+=x.od;a.oa+=x.oa;a.reg+=x.reg});return a}
+var CH={Present:"ok",Late:"warn",Absent:"bad",Leave:"info",Flagged:"warn","Missing punch":"bad",Rest:"mute",VALID:"ok",FLAGGED:"warn",REJECTED:"bad",PENDING:"warn",APPROVED:"ok",ACCEPTED:"ok"};
+function chip(v){return'<span class="chip '+(CH[v]||"mute")+'">'+(v.charAt(0)+v.slice(1).toLowerCase()).replace("Valid","Valid")+"</span>"}
+function chipS(v){return CH[v]&&v===v.toUpperCase()?chip(v):'<span class="chip '+(CH[v]||"mute")+'">'+v+"</span>"}
+function cnt(){return{fl:P.filter(function(p){return p.s==="FLAGGED"}).length,co:C.filter(function(c){return c.s==="PENDING"}).length,ot:OT.filter(function(o){return o.s==="PENDING"}).length}}
+function toast(m){var t=$("#toast");t.textContent=m;t.classList.add("show");clearTimeout(toast.h);toast.h=setTimeout(function(){t.classList.remove("show")},2600)}
+function guard(){if(st.locked){toast("This period is locked. Corrections now go through a payroll adjustment.");return true}return false}
+function head(){var c=cnt(),cur=!st.proc?1:(c.fl||c.co)?2:c.ot?3:!st.locked?4:5,S=["Collect punches","Process DTR","Resolve exceptions","Approve overtime","Lock the period"];
+$("#flow").innerHTML='<div class="flow">'+S.map(function(x,i){return'<div class="fs '+(i<cur?"d":i===cur?"c":"")+'"><span>'+(i<cur?"✓":i+1)+"</span>"+x+"</div>"}).join("")+"</div>";
+$("#ban").innerHTML=st.locked?'<div class="banner">Period locked. DTR is final and ready for the payroll run.</div>':"";
+$("#plabel").textContent=st.locked?"Locked":st.proc?"Processed":"Open";$("#plabel").className="chip "+(st.locked?"ok":st.proc?"info":"mute");
+var t=DAYS.filter(function(d){return d<=st.day});var td=EM.map(function(n,e){return mk(e,st.day)}),cc=function(f){return td.filter(f).length};
+$("#tiles").innerHTML=[[cc(function(x){return x.st==="Present"||x.st==="Late"||x.st==="Flagged"}),"Present on "+("Oct "+st.day)],[cc(function(x){return x.st==="Late"}),"Late"],[cc(function(x){return x.st==="Absent"}),"Absent"],[cc(function(x){return x.st==="Leave"}),"On leave"],[c.fl,"Flagged punches"],[c.co+c.ot,"Approvals waiting"]].map(function(x){return'<div class="tile"><b>'+x[0]+"</b><span>"+x[1]+"</span></div>"}).join("");
+var T=[["today","Daily roster"],["dtr","DTR"],["punches","Punches",c.fl],["corr","Corrections and overtime",c.co+c.ot],["roster","Shift roster"],["close","Close period"]];
+$("#tabs").innerHTML=T.map(function(x){return'<button data-tab="'+x[0]+'" class="'+(st.tab===x[0]?"on":"")+'">'+x[1]+(x[2]?"<i>"+x[2]+"</i>":"")+"</button>"}).join("")}
+function dlabel(d){return new Date(2026,9,d).toLocaleDateString("en-PH",{weekday:"short",month:"short",day:"numeric"})}
+var V={};
+V.today=function(){var rows=EM.map(function(n,e){var x=mk(e,st.day);return{n:n,e:e,x:x}}),F=["All","Present","Late","Absent","Leave","Flagged","Missing punch"];
+var list=rows.filter(function(r){return st.flt==="All"||r.x.st===st.flt});
+var tb=list.map(function(r){var x=r.x;return"<tr><td><b>"+r.n+"</b></td><td>"+(r.e===7?"Mid 11:00–20:00":r.e===5?"Night 22:00–06:00":"Day 09:00–18:00")+"</td><td>"+tm(x.inM)+"</td><td>"+tm(x.outM)+"</td><td class=\"r\">"+hrs(x.reg)+"</td><td class=\"r\">"+(x.late||"—")+"</td><td>"+chipS(x.st)+(x.note?" "+x.note:"")+"</td></tr>"}).join("");
+var rest=new Date(2026,9,st.day).getDay()%6===0;
+var left='<div class="card"><h2><span><button class="btn sm" data-d="-1">Previous</button> <b style="margin:0 8px">'+dlabel(st.day)+'</b> <button class="btn sm" data-d="1">Next</button></span></h2>'+
+(rest?'<div class="note">Rest day for all shifts. Work done today is paid at the rest day rate.</div>':'<div class="fl">'+F.map(function(f){return'<button data-f="'+f+'" class="'+(st.flt===f?"on":"")+'">'+f+"</button>"}).join("")+'</div><div class="sc"><table><thead><tr><th>Employee</th><th>Shift</th><th>In</th><th>Out</th><th class="r">Worked</th><th class="r">Late (min)</th><th>Status</th></tr></thead><tbody>'+(tb||'<tr><td colspan="7">No employees match this filter.</td></tr>')+"</tbody></table></div>")+"</div>";
+var ph='<div class="card"><h2>Employee clock-in preview</h2><div class="phone"><div class="note" style="padding:0">Joy Santiago · Taguig branch</div><div class="clk" id="clk"></div><span class="chip '+(st.inside?"ok":"warn")+'">'+(st.inside?"Inside geofence, 32 m":"Outside geofence, 240 m")+'</span><select id="loc"><option value="1"'+(st.inside?" selected":"")+'>Simulate: at the branch</option><option value="0"'+(st.inside?"":" selected")+'>Simulate: away from the branch</option></select><button class="btn pri" id="clock">'+(st.clocked?"Clock out":"Clock in")+'</button><p class="note">Server time is used, never the phone clock. Outside the geofence, the punch is saved but flagged for HR.</p></div></div>';
+return'<div class="two"><div>'+left+"</div><div>"+ph+"</div></div>"}
+V.dtr=function(){var tb=EM.map(function(n,e){var a=sum(e);return'<tr class="k'+(st.sel===e?" sel":"")+'" data-sel="'+e+'"><td><b>'+n+'</b></td><td class="r">'+a.w+'</td><td class="r">'+a.ab+'</td><td class="r">'+a.lv+'</td><td class="r">'+a.late+'</td><td class="r">'+a.ut+'</td><td class="r">'+a.od+'</td><td class="r">'+a.oa+'</td></tr>'}).join("");
+var h='<div class="card"><h2>Period summary<span class="note" style="padding:0">'+(st.proc?"Processed. Select an employee for the day-by-day record.":"Not processed yet. Press Process DTR to build records from punches.")+'</span></h2><div class="sc"><table><thead><tr><th>Employee</th><th class="r">Days worked</th><th class="r">Absent</th><th class="r">Leave</th><th class="r">Late (min)</th><th class="r">Undertime (min)</th><th class="r">OT detected (min)</th><th class="r">OT approved (min)</th></tr></thead><tbody>'+tb+"</tbody></table></div></div>";
+if(st.sel>=0){var e=st.sel;h+='<div class="card"><h2>'+EM[e]+" · Daily time record</h2><div class=\"sc\"><table><thead><tr><th>Date</th><th>Day type</th><th>In</th><th>Out</th><th class=\"r\">Regular</th><th class=\"r\">Late</th><th class=\"r\">OT detected / approved</th><th>Status</th></tr></thead><tbody>"+DAYS.map(function(d){var x=mk(e,d),r=x.st==="Rest";return'<tr class="'+(r?"rest":"")+'"><td>'+dlabel(d)+"</td><td>"+(r?"Rest day":"Ordinary")+"</td><td>"+tm(x.inM)+"</td><td>"+tm(x.outM)+'</td><td class="r">'+(r?"—":hrs(x.reg))+'</td><td class="r">'+(x.late||"—")+'</td><td class="r">'+(x.od?x.od+" / "+x.oa:"—")+"</td><td>"+chipS(x.st)+"</td></tr>"}).join("")+"</tbody></table></div></div>"}return h}
+V.punches=function(){return'<div class="card"><h2>Raw punches<span class="note" style="padding:0">Flagged punches are ignored by DTR until you accept them.</span></h2><div class="sc"><table><thead><tr><th>Employee</th><th>Date</th><th>Time</th><th>Type</th><th>Source</th><th>Location check</th><th>Status</th><th></th></tr></thead><tbody>'+P.map(function(p,i){return"<tr><td><b>"+p.e+"</b></td><td>"+p.d+"</td><td>"+p.t+"</td><td>"+p.ty+"</td><td>"+p.src+"</td><td>"+p.loc+"</td><td>"+chip(p.s)+"</td><td>"+(p.s==="FLAGGED"?'<button class="btn sm" data-pp="'+i+'" data-v="VALID">Accept</button> <button class="btn sm" data-pp="'+i+'" data-v="REJECTED">Reject</button>':"")+"</td></tr>"}).join("")+"</tbody></table></div></div>"}
+V.corr=function(){var item=function(t,s,sub,k,i){return'<li><div class="t"><b>'+t+"</b> "+chip(s)+"<small>"+sub+"</small></div>"+(s==="PENDING"?'<button class="btn sm" data-'+k+'="'+i+'" data-v="APPROVED">Approve</button><button class="btn sm" data-'+k+'="'+i+'" data-v="REJECTED">Reject</button>':"")+"</li>"};
+return'<div class="card"><h2>Attendance corrections</h2><ul class="cl">'+C.map(function(c,i){return item(c.e+" · "+c.d,c.s,"Requested: "+c.r+". Reason: "+c.why,"cc",i)}).join("")+'</ul></div><div class="card"><h2>Overtime waiting for approval</h2><ul class="cl">'+OT.map(function(o,i){return item(o.e+" · "+o.d,o.s,"Requested "+o.req+" minutes. Paid only up to the approved minutes and the time detected in the DTR.","oo",i)}).join("")+"</ul></div>"}
+V.roster=function(){var D=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];return'<div class="card"><h2>Weekly shift roster<span class="note" style="padding:0">Select a cell to cycle D (day), N (night), M (mid), R (rest).</span></h2><div class="sc"><table><thead><tr><th>Employee</th>'+D.map(function(x){return"<th>"+x+"</th>"}).join("")+"</tr></thead><tbody>"+EM.map(function(n,e){return"<tr><td><b>"+n+"</b></td>"+RS[e].map(function(s,i){return'<td><button class="rs '+s+'" data-rs="'+e+"-"+i+'">'+s+"</button></td>"}).join("")+"</tr>"}).join("")+'</tbody></table></div><div class="note">D 09:00–18:00 · N 22:00–06:00 (night differential applies) · M 11:00–20:00 · R rest day</div></div>'}
+V.close=function(){var c=cnt(),ok=c.fl===0&&c.co===0&&c.ot===0&&st.proc,it=function(g,t,s){return'<li><span class="mk '+(g?"ok":"warn")+'">'+(g?"✓":"!")+'</span><div class="t"><b>'+t+"</b><small>"+s+"</small></div></li>"};
+return'<div class="card"><h2>Before you lock Oct 16–31</h2><ul class="cl">'+it(st.proc,"DTR processed",st.proc?"Daily records are built from the latest punches":"Press Process DTR")+it(c.fl===0,"Flagged punches resolved",c.fl?c.fl+" waiting. Open Punches":"None waiting")+it(c.co===0,"Corrections decided",c.co?c.co+" waiting. Open Corrections and overtime":"None waiting")+it(c.ot===0,"Overtime decided",c.ot?c.ot+" waiting":"None waiting")+'</ul><div class="note">Locking freezes every DTR day in the period so payroll uses exactly what you reviewed. After that, mistakes are fixed with an approved payroll adjustment in a later run, never by editing the record.</div><div style="padding:0 16px 16px"><button class="btn pri" id="lock"'+(ok&&!st.locked?"":" disabled")+">"+(st.locked?"Period locked":"Lock period")+"</button></div></div>"}
+function render(){head();$("#body").innerHTML=V[st.tab]();tick()}
+function tick(){var c=$("#clk");if(c){var n=new Date();c.textContent=pad(n.getHours())+":"+pad(n.getMinutes())+":"+pad(n.getSeconds())}}
+setInterval(tick,1000);
+document.addEventListener("click",function(e){var t=e.target,c,v;
+if(c=t.closest("[data-tab]")){st.tab=c.getAttribute("data-tab");render()}
+else if(c=t.closest("[data-d]")){var n=st.day+ +c.getAttribute("data-d");if(n>=16&&n<=31){st.day=n;render()}}
+else if(c=t.closest("[data-f]")){st.flt=c.getAttribute("data-f");render()}
+else if(c=t.closest("[data-sel]")){var i=+c.getAttribute("data-sel");st.sel=st.sel===i?-1:i;render()}
+else if(c=t.closest("[data-pp]")){if(!guard()){v=c.getAttribute("data-v");P[+c.getAttribute("data-pp")].s=v;render();toast(v==="VALID"?"Punch accepted. It will count when you reprocess DTR.":"Punch rejected")}}
+else if(c=t.closest("[data-cc]")){if(!guard()){v=c.getAttribute("data-v");C[+c.getAttribute("data-cc")].s=v;render();toast(v==="APPROVED"?"Correction approved. HR punches were added.":"Correction rejected")}}
+else if(c=t.closest("[data-oo]")){if(!guard()){v=c.getAttribute("data-v");OT[+c.getAttribute("data-oo")].s=v;render();toast(v==="APPROVED"?"Overtime approved":"Overtime rejected")}}
+else if(c=t.closest("[data-rs]")){var p=c.getAttribute("data-rs").split("-"),O=["D","N","M","R"],cur=RS[+p[0]][+p[1]];RS[+p[0]][+p[1]]=O[(O.indexOf(cur)+1)%4];render()}
+else if(t.id==="proc"){if(!guard()){st.proc=true;render();toast("DTR processed for 8 employees, 16 days")}}
+else if(t.id==="lock"){st.locked=true;render();toast("Period locked")}
+else if(t.id==="clock"){var n=new Date(),tmx=pad(n.getHours())+":"+pad(n.getMinutes());st.clocked=!st.clocked;P.unshift({e:"Joy Santiago",d:"Oct 31",t:tmx,ty:st.clocked?"IN":"OUT",src:"Mobile",loc:st.inside?"Inside geofence":"Outside geofence by 240 m",s:st.inside?"VALID":"FLAGGED"});render();toast(st.inside?"Punch recorded":"Punch saved but flagged for HR review")}
+else if(t.id==="lo")toast("You have been signed out (prototype)");
+});
+document.addEventListener("change",function(e){if(e.target.id==="loc"){st.inside=e.target.value==="1";render()}});
+render();
+</script>
+</body>
+</html>
