@@ -1,0 +1,74 @@
+name: M7.5 Performance Learning Certification
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ['feature/m7-5-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  performance-learning-postgresql:
+    name: PostgreSQL 16 performance, learning, role and RLS certification
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm_m75_cert
+          POSTGRES_USER: hrm
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm_m75_cert"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      HRM_TEST_DB_URL: jdbc:postgresql://localhost:5432/apex_hrm_m75_cert
+      HRM_TEST_DB_USER: hrm
+      HRM_TEST_DB_PASSWORD: ''
+      DB_URL: jdbc:postgresql://localhost:5432/apex_hrm_m75_cert
+      DB_USER: hrm
+      DB_PASSWORD: ''
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: hrm
+      PGDATABASE: apex_hrm_m75_cert
+      SMTP_HEALTH_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Assert isolated disposable CI database
+        run: |
+          test "$HRM_TEST_DB_URL" = 'jdbc:postgresql://localhost:5432/apex_hrm_m75_cert'
+          test "$HRM_TEST_DB_USER" = hrm
+          test -z "$HRM_TEST_DB_PASSWORD"
+      - name: Run restored M5/M6 unit tests and real PostgreSQL/HTTP integration tests
+        working-directory: backend
+        run: |
+          mvn -B -ntp -Dtest=PerformanceControllerTest,PerformanceEnhancementsControllerTest,PerformanceWorkflowControllerTest,LearningControllerTest,LearningPortalControllerTest,PerformanceLearningPostgresE2ETest,PerformanceLearningAuthorizationHttpTest test
+      - name: Verify integrated Flyway V58 and all performance/learning RLS policies
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+          psql -v ON_ERROR_STOP=1 -f scripts/db/m7_5_performance_learning_rls.sql
+      - name: Write non-sensitive schema history
+        if: always()
+        run: |
+          mkdir -p backend/target/m75-evidence
+          psql -X -A -F, -c 'SELECT installed_rank,version,description,success FROM flyway_schema_history ORDER BY installed_rank' > backend/target/m75-evidence/flyway.csv || true
+      - name: Upload JUnit and Flyway evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m7-5-performance-learning-evidence
+          path: |
+            backend/target/surefire-reports/
+            backend/target/m75-evidence/
+          if-no-files-found: ignore
