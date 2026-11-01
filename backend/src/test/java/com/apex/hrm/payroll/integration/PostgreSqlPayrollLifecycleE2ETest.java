@@ -14,6 +14,7 @@ import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
 import com.apex.hrm.payroll.repo.PayslipRepository;
 import com.apex.hrm.payroll.service.BankFileService;
+import com.apex.hrm.payroll.service.BankCreditResultService;
 import com.apex.hrm.payroll.service.PayrollService;
 import com.apex.hrm.payroll.service.PayrollSettlementService;
 import com.apex.hrm.timekeeping.domain.DtrDay;
@@ -66,6 +67,7 @@ class PostgreSqlPayrollLifecycleE2ETest {
     @Autowired DtrService dtr;
     @Autowired PayrollService payroll;
     @Autowired BankFileService bankFiles;
+    @Autowired BankCreditResultService bankResults;
     @Autowired PayrollSettlementService settlements;
     @Autowired PayrollRunRepository runs;
     @Autowired PayrollEmployeeRepository payrollEmployees;
@@ -184,6 +186,13 @@ class PostgreSqlPayrollLifecycleE2ETest {
         assertThrows(BusinessException.class, () -> payroll.markPaid(created.getId()));
         UUID recorder = UUID.randomUUID();
         UUID confirmer = UUID.randomUUID();
+        var imported = bankResults.importResults(bank.getId(),
+                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\nCERT-0001," +
+                        pe.getNetPay().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString() +
+                        ",ACCEPTED,BANK-CREDIT-1",
+                "VERIFIED-BANK-STATEMENT-1", recorder);
+        assertEquals(1, imported.accepted());
+        assertEquals(0, imported.rejected());
         var acknowledgment = settlements.record(created.getId(), bank.getId(), bank.getTotalAmount(),
                 "BANK-REF-" + bank.getId(), "EVIDENCE-" + bank.getId(), recorder);
         assertEquals("UNSETTLED", settlements.summary(created.getId()).status());
