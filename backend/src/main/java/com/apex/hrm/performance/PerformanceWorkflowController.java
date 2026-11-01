@@ -119,6 +119,22 @@ public class PerformanceWorkflowController {
                """,user.tenantId(),id);
         });
     }
+    @GetMapping("/my/plans")
+    public List<Map<String,Object>> myPlans(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authenticated(user);
+        return tenants.inTenant(user.tenantId(),()->{
+            UUID id=employee(user);
+            if(id==null) throw denied();
+            return jdbc.queryForList("""
+                SELECT p.id,p.review_id AS "reviewId",p.title,p.action_items AS "actionItems",
+                       p.target_date AS "targetDate",p.status
+                FROM performance_development_plan p JOIN performance_review r
+                   ON r.tenant_id=p.tenant_id AND r.id=p.review_id
+                WHERE p.tenant_id=? AND r.employee_id=?
+                ORDER BY p.created_at DESC LIMIT 100
+                """,user.tenantId(),id);
+        });
+    }
     @GetMapping("/team/assignments")
     public List<Map<String,Object>> teamAssignments(@AuthenticationPrincipal HrmUserPrincipal user) {
         authenticated(user);
@@ -160,9 +176,9 @@ public class PerformanceWorkflowController {
                 SELECT r.id,r.employee_id AS "employeeId",r.reviewer_id AS "reviewerId",r.rating,r.status
                 FROM performance_review r JOIN personnel_employee e
                 ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
-                WHERE r.tenant_id=? AND e.supervisor_id=?
+                WHERE r.tenant_id=? AND e.supervisor_id=? AND r.reviewer_id=?
                 ORDER BY r.created_at DESC LIMIT 500
-                """,user.tenantId(),manager);
+                """,user.tenantId(),manager,user.id());
         });
     }
     @GetMapping("/team/goals")
