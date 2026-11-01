@@ -89,3 +89,8 @@ jobs:
           PGPASSWORD: hrm
         run: |
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_13_schema_checks.sql
+      - name: Execute transactional final-pay lifecycle, uniqueness and restricted tenant-RLS regression
+        env:
+          PGPASSWORD: hrm
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_14_postgres_e2e.sql
