@@ -46,12 +46,20 @@ public class FinalPaySourceSnapshotService {
 
     private static final String SOURCE_SQL = """
         WITH params AS (
-            SELECT ?::uuid AS tenant_id, ?::uuid AS employee_id,
+            SELECT ?::uuid AS tenant_id, ?::uuid AS settlement_id, ?::uuid AS employee_id,
                    ?::date AS start_date, ?::date AS end_date
         )
         SELECT jsonb_build_object(
           'schema','M3.1.18-v1',
           'periodStart',p.start_date,'periodEnd',p.end_date,
+          'settlement',(
+            SELECT to_jsonb(s) FROM payroll_final_pay_settlement s
+            WHERE s.tenant_id=p.tenant_id AND s.id=p.settlement_id),
+          'separationCase',(
+            SELECT to_jsonb(c) FROM personnel_hr_case c
+            JOIN payroll_final_pay_settlement s
+              ON s.tenant_id=c.tenant_id AND s.case_id=c.id
+            WHERE s.tenant_id=p.tenant_id AND s.id=p.settlement_id),
           'payrollPeriods',(
             SELECT COALESCE(jsonb_agg(jsonb_build_object(
                 'runId',r.id,'periodId',pr.id,'from',pr.start_date,'to',pr.end_date,
@@ -185,7 +193,7 @@ public class FinalPaySourceSnapshotService {
 
     private Captured collect(UUID tenant,Scope scope){
         String json=jdbc.queryForObject(SOURCE_SQL,String.class,
-            tenant,scope.employeeId(),scope.from(),scope.to());
+            tenant,scope.settlementId(),scope.employeeId(),scope.from(),scope.to());
         try{
             JsonNode doc=mapper.readTree(json);
             int cutoff=gapDays(doc.get("payrollPeriods"),"from","to",
