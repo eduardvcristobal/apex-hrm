@@ -27,13 +27,15 @@ import org.springframework.web.server.ResponseStatusException;
 public class FinalPayDocumentVerificationService {
     private final JdbcTemplate jdbc;
     private final TenantJdbcExecutor tenants;
+    private final FinalPaySourceSnapshotService snapshots;
     private final String trustedKeyId;
     private final String trustedPublicKey;
 
     public FinalPayDocumentVerificationService(JdbcTemplate jdbc,TenantJdbcExecutor tenants,
+        FinalPaySourceSnapshotService snapshots,
         @Value("${hrm.financial.documents.issuer-key-id:}") String keyId,
         @Value("${hrm.financial.documents.issuer-public-key-base64:}") String key){
-        this.jdbc=jdbc;this.tenants=tenants;this.trustedKeyId=keyId;this.trustedPublicKey=key;
+        this.jdbc=jdbc;this.tenants=tenants;this.snapshots=snapshots;this.trustedKeyId=keyId;this.trustedPublicKey=key;
     }
     public record Request(UUID attestationId,String issuerKeyId,String signatureBase64) {}
     public record Verification(UUID id,UUID attestationId,String issuerKeyId,
@@ -41,7 +43,8 @@ public class FinalPayDocumentVerificationService {
         boolean documentBytesVerified,boolean bankConfirmed,boolean payoutCertified,
         boolean disbursementEnabled) {}
     private record Attestation(UUID id,String documentHash,String status,
-        UUID requestedBy,UUID reviewedBy,UUID sourceReviewer,UUID snapshotCapturer) {}
+        UUID requestedBy,UUID reviewedBy,UUID sourceReviewer,UUID snapshotCapturer,
+        UUID snapshotId,String sourceSha256,String sourceReviewStatus) {}
 
     static String claim(UUID tenant,UUID attestationId,String sha256,String keyId){
         return "APEX-HRM-DOCUMENT-DIGEST-V1\\n"+tenant+"\\n"+attestationId
@@ -84,7 +87,8 @@ public class FinalPayDocumentVerificationService {
             List<Attestation> rows=jdbc.query("""
                 SELECT a.id,a.declared_document_sha256,a.status,a.requested_by,
                     a.reviewed_by,s.decided_by AS source_reviewer,
-                    p.captured_by AS snapshot_capturer
+                    p.captured_by AS snapshot_capturer,
+                    p.id AS source_snapshot_id,a.source_sha256,s.status AS source_review_status
                 FROM payroll_final_pay_period_attestation a
                 JOIN payroll_final_pay_source_review s
                     ON s.tenant_id=a.tenant_id AND s.id=a.source_review_id
@@ -95,7 +99,9 @@ public class FinalPayDocumentVerificationService {
                     rs.getString("declared_document_sha256"),rs.getString("status"),
                     rs.getObject("requested_by",UUID.class),rs.getObject("reviewed_by",UUID.class),
                     rs.getObject("source_reviewer",UUID.class),
-                    rs.getObject("snapshot_capturer",UUID.class)),
+                    rs.getObject("snapshot_capturer",UUID.class),
+                    rs.getObject("source_snapshot_id",UUID.class),
+                    rs.getString("source_sha256"),rs.getString("source_review_status")),
                     user.tenantId(),input.attestationId());
             if(rows.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,
                 "Period attestation not found");
@@ -105,6 +111,13 @@ public class FinalPayDocumentVerificationService {
                     "Document signature proof requires completed independent period evidence review");
             requireIndependentVerification(user.id(),a.requestedBy(),a.reviewedBy(),
                 a.sourceReviewer(),a.snapshotCapturer());
+            FinalPaySourceSnapshotService.Freshness fresh=snapshots.verifyCurrent(user,a.snapshotId());
+            if(!"SOURCE_REVIEWED".equals(a.sourceReviewStatus())
+                || !fresh.current() || !fresh.latest()
+                || !"READY_FOR_INDEPENDENT_REVIEW".equals(fresh.reviewStatus())
+                || !a.sourceSha256().equals(fresh.capturedSha256()))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Issuer digest cannot be verified against incomplete, stale or unreviewed payroll sources");
             String message=claim(user.tenantId(),a.id(),a.documentHash(),trustedKeyId);
             if(!verifySignature(trustedPublicKey,message,input.signatureBase64()))
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
