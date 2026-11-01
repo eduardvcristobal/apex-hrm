@@ -99,6 +99,14 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/personnel/employees/*/compensation", "/api/v1/personnel/employees/*/compensation/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.compensation(authentication.get().getAuthorities())))
+                // M6 learning records: MFA-protected authoring; authorized HR and auditor read access.
+                .requestMatchers(HttpMethod.POST, "/api/v1/learning/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN"))
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/learning/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN"))
+                .requestMatchers(HttpMethod.GET, "/api/v1/learning/**")
+                    .hasAnyAuthority("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN","ROLE_AUDITOR")
+                .requestMatchers("/api/v1/learning/**").denyAll()
                 .requestMatchers("/api/v1/personnel/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.personnel(authentication.get().getAuthorities())))
