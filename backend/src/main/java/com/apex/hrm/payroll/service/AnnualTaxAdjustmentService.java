@@ -134,7 +134,8 @@ public class AnnualTaxAdjustmentService {
     }
 
     private AnnualTaxAdjustmentRequest pending(UUID id) {
-        AnnualTaxAdjustmentRequest item = read(id);
+        AnnualTaxAdjustmentRequest item = requests.lockById(id)
+                .orElseThrow(() -> new NotFoundException("Annual tax adjustment", id));
         if (!"PENDING".equals(item.getStatus()))
             throw new BusinessException("Annual tax request is already " + item.getStatus());
         return item;
