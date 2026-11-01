@@ -193,6 +193,8 @@ jobs:
           done
           if [[ "$frontend_ready" -ne 1 ]]; then tail -n 100 /tmp/m316-vite.log; exit 1; fi
           node frontend/e2e/m3_1_16_browser.cjs
+          # Mutate a CI-only ledger value and prove prior source-review fingerprints go stale.
+          bash backend/scripts/m3_1_19_stale_source_http.sh
           # Database evidence: exactly one authorized payment and one reviewed record.
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SQL'
           DO $verify$
