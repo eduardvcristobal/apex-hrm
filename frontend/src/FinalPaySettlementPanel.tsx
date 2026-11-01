@@ -89,7 +89,15 @@ export function FinalPaySettlementPanel({ employeeId, caseId, currentUserId, req
   return <div className="people-case-tasks">
     <h4>Payroll final-pay settlement</h4>
     <p className="people-muted">Approved Personnel separation and clearance are mandatory. Figures below require reconciled source records; approval does not issue a payslip or release funds.</p>
-    {!handoff && <p className="people-muted">The approved separation has no HR-to-payroll handoff. Request the handoff through Personnel administration first.</p>}
+    {!handoff && <div className="people-form-actions"><p className="people-muted">No HR-to-payroll handoff exists for this approved separation.</p>
+      <button type="button" className="session-revoke" disabled={busy} onClick={() => {
+        setBusy(true); setMessage('');
+        void request<Handoff>(`/api/v1/personnel/employees/${employeeId}/hr-cases/${caseId}/final-pay`,
+          { method: 'POST' }).then(setHandoff)
+          .catch(e => setMessage(e instanceof Error ? e.message : 'Could not create handoff'))
+          .finally(() => setBusy(false));
+      }}>Request final-pay handoff</button>
+    </div>}
     {rows.map(row => <div className="people-record" key={row.id}>
       <span><strong>{row.status} · Net {money(row.net)}</strong><small>Gross {money(row.gross)} · Deductions {money(row.deductions)}</small>
         <small>{row.settlementGate}</small></span>
