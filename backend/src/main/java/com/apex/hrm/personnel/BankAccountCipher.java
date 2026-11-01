@@ -81,6 +81,8 @@ public final class BankAccountCipher {
         } catch (Exception ex) { throw new IllegalStateException("Bank account decryption failed", ex); }
     }
 
+    public String currentKeyId() { return currentId; }
+
     public boolean needsRotation(String envelope) {
         return envelope != null && !envelope.startsWith("b1:" + currentId + ":");
     }
