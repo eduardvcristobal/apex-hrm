@@ -1,3 +1,13 @@
+## M3.2.8 — Settlement exceptions and reversal certification
+
+- Flyway V50 adds REJECTED and REVERSED to the evidence state machine and requires retained reason, supporting bank evidence, operator identity, and timestamp. Neither action deletes an original bank acknowledgment.
+- POST /api/payroll/settlements/{id}/reject: second operator rejects an unconfirmed, LOCKED-run acknowledgment, leaving its bank-file identifier consumed. Recovery requires a **new export** and review; the old file cannot be silently reused.
+- POST /api/payroll/settlements/{id}/reverse: a confirmed acknowledgment can be reversed by an operator other than its confirmer, with reason and evidence. Effective confirmed amount excludes reversed and rejected entries.
+- A reversal following PAID never rewrites the historic payroll status: GET settlement summary becomes DISPUTED with restored outstanding balance. The original bank acknowledgment and reversal trail remain visible for manual financial investigation.
+- Direct re-confirmation of REJECTED/REVERSED entries and duplicate reversals are blocked. Authorization inherits payroll MFA checks; finer role separation and bank-verifier proof remain acceptance dependencies.
+- The current application **does not** initiate a new bank transfer, split an original whole-run export into per-employee retries, reconcile provider rejection files, or automatically repair a disputed PAID run. These remain implementation/finance-acceptance gaps.
+- Human payroll/finance signoff, actual bank reconciliation, full authenticated browser E2E, M3.1 and M3.3 merge regressions are pending. Production status is **NO-GO**, regardless of green unit/CI tests.
+
 ## M3.2.7 — Manual settlement and payment reconciliation
 
 - Migration V49 creates a tenant-scoped payment acknowledgment ledger with unique bank-file and bank-reference constraints.
