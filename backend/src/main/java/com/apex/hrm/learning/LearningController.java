@@ -152,6 +152,26 @@ public class LearningController {
         return tenants.inTenant(user.tenantId(),()->jdbc.queryForList(
             "SELECT id,employee_id AS \"employeeId\",course_id AS \"courseId\",title,issuer,credential_ref AS \"credentialRef\",issued_on AS \"issuedOn\",expires_on AS \"expiresOn\" FROM ld_certification WHERE tenant_id=? ORDER BY issued_on DESC LIMIT 500",user.tenantId()));
     }
+    public record CertificationRenewal(@NotNull LocalDate issuedOn,LocalDate expiresOn,
+        @Size(max=160) String credentialRef) {}
+
+    @PatchMapping("/certifications/{id}/renew")
+    public Map<String,Object> renew(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID id,
+        @Valid @RequestBody CertificationRenewal in) {
+        return tenants.inTenant(user.tenantId(),()->{
+            if(in.expiresOn()!=null && in.expiresOn().isBefore(in.issuedOn()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Expiry must follow issue date");
+            int updated=jdbc.update("""
+                UPDATE ld_certification SET issued_on=?,expires_on=?,credential_ref=?
+                WHERE tenant_id=? AND id=? AND issued_on<=?
+                """,in.issuedOn(),in.expiresOn(),in.credentialRef(),user.tenantId(),id,in.issuedOn());
+            if(updated!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Certification not found or renewal date predates existing issue date");
+            audit(user,"LD_CERTIFICATION_RENEWED","ld_certification",id);
+            return Map.of("id",id);
+        });
+    }
+
     @PostMapping("/certifications")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String,Object> certificate(@AuthenticationPrincipal HrmUserPrincipal user,@Valid @RequestBody CertificationInput in) {
