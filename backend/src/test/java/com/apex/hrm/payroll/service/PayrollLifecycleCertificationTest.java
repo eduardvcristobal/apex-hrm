@@ -40,6 +40,7 @@ class PayrollLifecycleCertificationTest {
     private final WorkLocationRepository locations = mock(WorkLocationRepository.class);
     private final PayslipService payslips = mock(PayslipService.class);
     private final AuditService audit = mock(AuditService.class);
+    private final PayrollBankSettlementRepository settlements = mock(PayrollBankSettlementRepository.class);
     private final UUID runId = UUID.randomUUID();
     private final UUID periodId = UUID.randomUUID();
     private final UUID employeeId = UUID.randomUUID();
@@ -80,6 +81,12 @@ class PayrollLifecycleCertificationTest {
         assertEquals("LOCKED", dtr.getStatus());
         assertEquals("LOCKED", period.getStatus());
         assertNotNull(run.getLockedAt());
+        when(runs.lockForSettlement(runId)).thenReturn(Optional.of(run));
+        assertThrows(BusinessException.class, () -> service.markPaid(runId));
+        PayrollBankSettlement acknowledged = new PayrollBankSettlement();
+        acknowledged.setStatus("CONFIRMED");
+        acknowledged.setAcknowledgedAmount(new BigDecimal("12500.00"));
+        when(settlements.findByRunId(runId)).thenReturn(List.of(acknowledged));
         assertEquals("PAID", service.markPaid(runId).getStatus());
         assertNotNull(run.getPaidAt());
         verify(runs, times(4)).save(run);
@@ -90,6 +97,7 @@ class PayrollLifecycleCertificationTest {
         PayrollRun run = new PayrollRun();
         run.setStatus("COMPUTED");
         when(runs.findById(runId)).thenReturn(Optional.of(run));
+        when(runs.lockForSettlement(runId)).thenReturn(Optional.of(run));
         assertThrows(BusinessException.class, () -> service().markPaid(runId));
         assertThrows(BusinessException.class, () -> service().lock(runId));
         verify(runs, never()).save(any());
@@ -99,6 +107,6 @@ class PayrollLifecycleCertificationTest {
     private PayrollService service() {
         return new PayrollService(runs, periods, payGroups, payrollEmployees, lines, adjustments,
                 employment, employees, compensations, dtrDays, recurring, loans, premiumRules,
-                statutory, taxBrackets, wageOrders, locations, payslips, audit);
+                statutory, taxBrackets, wageOrders, locations, payslips, audit, settlements);
     }
 }
