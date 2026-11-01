@@ -21,6 +21,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [cycleId, setCycleId] = useState('');
   const [goals, setGoals] = useState<Item[]>([]);
   const [reviews, setReviews] = useState<Item[]>([]);
+  const [scores, setScores] = useState<Item[]>([]);
   const [plans, setPlans] = useState<Item[]>([]);
   const [reviewId, setReviewId] = useState('');
   const [name, setName] = useState('Annual performance review');
@@ -56,9 +57,9 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   }, [token]);
   useEffect(() => { if (companyId) void loadCompany(companyId).catch(e => setError(String(e))); }, [companyId, token]);
   useEffect(() => {
-    if (!cycleId) { setGoals([]); setReviews([]); return; }
-    void Promise.all([request<Item[]>(token, '/goals?cycleId=' + cycleId), request<Item[]>(token, '/reviews?cycleId=' + cycleId)])
-      .then(([g, r]) => { setGoals(g); setReviews(r); if (!r.some(x => x.id === reviewId)) setReviewId(String(r[0]?.id || '')); })
+    if (!cycleId) { setGoals([]); setReviews([]); setScores([]); return; }
+    void Promise.all([request<Item[]>(token, '/goals?cycleId=' + cycleId), request<Item[]>(token, '/reviews?cycleId=' + cycleId), request<Item[]>(token, '/scores?cycleId=' + cycleId)])
+      .then(([g, r, sc]) => { setGoals(g); setReviews(r); setScores(sc); if (!r.some(x => x.id === reviewId)) setReviewId(String(r[0]?.id || '')); })
       .catch(e => setError(String(e)));
   }, [cycleId, token]);
   useEffect(() => {
@@ -71,8 +72,8 @@ export function PerformanceWorkspace({ token }: { token: string }) {
       await action();
       if (companyId) await loadCompany(companyId);
       if (cycleId) {
-        const [g, r] = await Promise.all([request<Item[]>(token, '/goals?cycleId=' + cycleId), request<Item[]>(token, '/reviews?cycleId=' + cycleId)]);
-        setGoals(g); setReviews(r);
+        const [g, r, sc] = await Promise.all([request<Item[]>(token, '/goals?cycleId=' + cycleId), request<Item[]>(token, '/reviews?cycleId=' + cycleId), request<Item[]>(token, '/scores?cycleId=' + cycleId)]);
+        setGoals(g); setReviews(r); setScores(sc);
       }
       if (reviewId) setPlans(await request<Item[]>(token, '/reviews/' + reviewId + '/plans'));
       setNotice('Saved successfully.');
@@ -98,6 +99,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
         </form>
       </div>
       <div className="performance-panel"><h2>Goals & KPIs</h2>
+        <p>Weighted attainment: {scores.length ? scores.map(sc => `${employees.find(e => e.id === sc.employeeId)?.firstName || 'Employee'} ${String(sc.attainmentPercent ?? 0)}%`).join(' · ') : 'No measurements yet'}</p>
         <label>Employee <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}><option value="">Select employee</option>{employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} ({e.employeeNumber})</option>)}</select></label>
         <form onSubmit={e => { e.preventDefault(); void run(() => request(token, '/goals', 'POST', { cycleId, employeeId, title, weight: 1, metric: 'Percentage', targetValue: Number(target) })); }}>
           <input aria-label="Goal title" placeholder="Goal or KPI" required value={title} onChange={e => setTitle(e.target.value)} />
@@ -120,7 +122,10 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <button disabled={busy || !active || !employeeId}>Submit evaluation</button>
         </form>
         <button type="button" disabled={busy || !active || !employeeId} onClick={() => void run(() => request(token, '/reviews/drafts', 'POST', { cycleId, employeeId }))}>Create review draft (self-assessment workflow)</button>
-        <ul>{reviews.map(r => <li key={String(r.id)}>{employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating ?? 'Pending')} / 5 · {String(r.status)}</li>)}</ul>
+        <ul>{reviews.map(r => <li key={String(r.id)}>
+          {employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating ?? 'Pending')} / 5 · {String(r.status)}
+          {r.status === 'ACKNOWLEDGED' && <button type="button" disabled={busy} onClick={() => void run(() => request(token, '/reviews/' + String(r.id) + '/finalize', 'POST'))}>Finalize</button>}
+        </li>)}</ul>
       </div>
       <div className="performance-panel"><h2>Development plans</h2>
         <label>Review <select value={reviewId} onChange={e => setReviewId(e.target.value)}><option value="">Select review</option>{reviews.map(r => <option key={String(r.id)} value={String(r.id)}>{employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating)}/5</option>)}</select></label>
