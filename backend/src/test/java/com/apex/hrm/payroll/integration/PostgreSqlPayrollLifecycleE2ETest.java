@@ -131,6 +131,8 @@ class PostgreSqlPayrollLifecycleE2ETest {
                 .content(json.writeValueAsString(new DtrRequest(FROM, TO, employee))))
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.processedDays").value(2));
+        // TenantFilter clears request-local context after dispatch; restore it for direct service assertions.
+        TenantContext.set(tenant);
         DtrDay worked = dtrDays.findByEmployeeIdAndWorkDate(employee, FROM).orElseThrow();
         DtrDay absent = dtrDays.findByEmployeeIdAndWorkDate(employee, TO).orElseThrow();
         assertEquals(450, worked.getRegularMinutes());
@@ -181,6 +183,7 @@ class PostgreSqlPayrollLifecycleE2ETest {
                 .with(authentication(authentication)).with(csrf()))
                 .andExpect(status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("PAID"));
+        TenantContext.set(tenant);
         assertEquals("PAID", runs.findById(created.getId()).orElseThrow().getStatus());
 
         UUID otherTenant = UUID.randomUUID();
