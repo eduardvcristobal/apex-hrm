@@ -84,3 +84,8 @@ jobs:
           done
           tail -n 150 startup.log
           exit 1
+      - name: Verify final-pay identity/payment constraints and tenant RLS
+        env:
+          PGPASSWORD: hrm
+        run: |
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_13_schema_checks.sql
