@@ -28,6 +28,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [startsOn, setStartsOn] = useState(new Date().getFullYear() + '-01-01');
   const [endsOn, setEndsOn] = useState(new Date().getFullYear() + '-12-31');
   const [employeeId, setEmployeeId] = useState('');
+  const [accountId, setAccountId] = useState('');
   const [title, setTitle] = useState('');
   const [target, setTarget] = useState('100');
   const [rating, setRating] = useState('3');
@@ -114,6 +115,14 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <button disabled={busy || !active || !goalId}>Record progress</button>
         </form>
         <ul>{goals.map(g => <li key={String(g.id)}>{String(g.title)} · {String(g.actualValue ?? 0)} / {String(g.targetValue ?? '—')} · {String(g.status)}</li>)}</ul>
+      </div>
+      <div className="performance-panel"><h2>Employee account linking</h2>
+        <p>Connect an employee masterfile record to an existing active login account to enable self-service. Links must be unique.</p>
+        <form onSubmit={e => { e.preventDefault(); void run(() => request(token, '/identity-links', 'POST', { employeeId, identityId: accountId })); }}>
+          <label>Employee <select value={employeeId} onChange={e => setEmployeeId(e.target.value)}><option value="">Select employee</option>{employees.map(e => <option key={e.id} value={e.id}>{e.firstName} {e.lastName}</option>)}</select></label>
+          <label>Account UUID <input value={accountId} onChange={e => setAccountId(e.target.value)} placeholder="Existing workspace account UUID" required pattern="[a-fA-F0-9-]{36}" /></label>
+          <button disabled={busy || !employeeId}>Link login to employee</button>
+        </form>
       </div>
       <div className="performance-panel"><h2>Manager evaluations</h2>
         <form onSubmit={e => { e.preventDefault(); void run(() => request(token, '/reviews', 'POST', { cycleId, employeeId, rating: Number(rating), managerComments: comments })); }}>
