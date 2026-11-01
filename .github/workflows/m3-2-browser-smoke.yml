@@ -1,0 +1,48 @@
+name: M3.2 Browser Smoke
+
+on:
+  push:
+    branches:
+      - feature/m3-2-payroll-timekeeping-certification
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/m3-2-browser-smoke.yml'
+  pull_request:
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/m3-2-browser-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  chromium-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install pinned Playwright test runner (CI-only)
+        run: npm install --no-save --package-lock=false @playwright/test@1.56.1
+      - name: Install Chromium browser
+        run: npx playwright install --with-deps chromium
+      - name: Build frontend
+        run: npm run build
+      - name: Chromium public-route smoke
+        run: npx playwright test --config=playwright.config.ts
+      - name: Upload browser traces and JUnit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-2-browser-smoke
+          path: frontend/test-results/
+          if-no-files-found: warn

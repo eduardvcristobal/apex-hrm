@@ -3,11 +3,14 @@ package com.apex.hrm.payroll.service;
 import com.apex.hrm.common.BusinessException;
 import com.apex.hrm.common.NotFoundException;
 import com.apex.hrm.payroll.domain.BankFile;
+import com.apex.hrm.payroll.domain.BankCreditResult;
 import com.apex.hrm.payroll.domain.BankTemplate;
 import com.apex.hrm.payroll.domain.PayPeriod;
 import com.apex.hrm.payroll.domain.PayrollEmployee;
 import com.apex.hrm.payroll.domain.PayrollRun;
 import com.apex.hrm.payroll.repo.BankFileRepository;
+import com.apex.hrm.payroll.repo.BankCreditImportRepository;
+import com.apex.hrm.payroll.repo.BankCreditResultRepository;
 import com.apex.hrm.payroll.repo.BankTemplateRepository;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
@@ -45,10 +48,13 @@ public class BankFileService {
     private final EmployeeRepository employees;
     private final EmployeeBankAccountRepository accounts;
     private final AuditService audit;
+    private final BankCreditImportRepository resultImports;
+    private final BankCreditResultRepository creditResults;
 
     public BankFileService(PayrollRunRepository runs, PayPeriodRepository periods, PayrollEmployeeRepository payrollEmployees,
                            BankTemplateRepository templates, BankFileRepository files, EmployeeRepository employees,
-                           EmployeeBankAccountRepository accounts, AuditService audit) {
+                           EmployeeBankAccountRepository accounts, AuditService audit,
+                           BankCreditImportRepository resultImports, BankCreditResultRepository creditResults) {
         this.runs = runs;
         this.periods = periods;
         this.payrollEmployees = payrollEmployees;
@@ -57,10 +63,47 @@ public class BankFileService {
         this.employees = employees;
         this.accounts = accounts;
         this.audit = audit;
+        this.resultImports = resultImports;
+        this.creditResults = creditResults;
     }
 
     @Transactional
     public Result generate(UUID runId, UUID bankTemplateId) {
+        PayrollRun run = runs.lockForSettlement(runId)
+                .orElseThrow(() -> new NotFoundException("Payroll run", runId));
+        if (!Set.of("APPROVED", "LOCKED").contains(run.getStatus()))
+            throw new BusinessException("An original bank export requires approved or locked payroll");
+        if (!files.findByRunId(runId).isEmpty())
+            throw new BusinessException("This payroll run already has a bank export; use rejected-credit recovery, not a duplicate full export");
+        return build(runId, bankTemplateId, null, null);
+    }
+
+    /** Export only previously rejected employees; never replay accepted credits. */
+    @Transactional
+    public Result recoverRejected(UUID sourceFileId) {
+        BankFile source = files.findById(sourceFileId)
+                .orElseThrow(() -> new NotFoundException("Bank file", sourceFileId));
+        PayrollRun run = runs.lockForSettlement(source.getRunId())
+                .orElseThrow(() -> new NotFoundException("Payroll run", source.getRunId()));
+        if (!"LOCKED".equals(run.getStatus()))
+            throw new BusinessException("Recovery requires locked, unpaid payroll and finance review");
+        if (!resultImports.existsByBankFileId(sourceFileId))
+            throw new BusinessException("Import bank results before preparing recovery");
+        if (files.existsByRecoverySourceFileId(sourceFileId))
+            throw new BusinessException("A recovery export already exists for this bank file");
+        List<BankCreditResult> bankResults = creditResults.findByBankFileId(sourceFileId);
+        java.util.Set<UUID> rejected = new java.util.HashSet<>();
+        for (BankCreditResult row : bankResults) {
+            if (!"REJECTED".equals(row.getCreditStatus())) continue;
+            if (!creditResults.findByRunIdAndEmployeeIdAndCreditStatus(source.getRunId(), row.getEmployeeId(), "ACCEPTED").isEmpty())
+                throw new BusinessException("Employee has accepted bank credit; manual finance review required");
+            rejected.add(row.getEmployeeId());
+        }
+        if (rejected.isEmpty()) throw new BusinessException("No rejected employee credits require recovery");
+        return build(source.getRunId(), source.getBankTemplateId(), rejected, sourceFileId);
+    }
+
+    private Result build(UUID runId, UUID bankTemplateId, java.util.Set<UUID> selected, UUID sourceId) {
         PayrollRun run = runs.findById(runId).orElseThrow(() -> new NotFoundException("Payroll run", runId));
         if (!Set.of("APPROVED", "LOCKED", "PAID").contains(run.getStatus())) {
             throw new BusinessException("Bank files are generated for approved runs only (run is " + run.getStatus() + ")");
@@ -82,6 +125,7 @@ public class BankFileService {
         BigDecimal total = BigDecimal.ZERO;
         int count = 0;
         for (PayrollEmployee pe : payrollEmployees.findByRunId(runId)) {
+            if (selected != null && !selected.contains(pe.getEmployeeId())) continue;
             if (pe.getNetPay().signum() <= 0) {
                 continue;
             }
@@ -108,10 +152,14 @@ public class BankFileService {
             count++;
         }
 
+        if (selected != null && (count != selected.size() || !skipped.isEmpty()))
+            throw new BusinessException("Recovery export missing one or more rejected employee bank accounts");
         BankFile f = new BankFile();
         f.setRunId(runId);
+        f.setRecoverySourceFileId(sourceId);
         f.setBankTemplateId(bankTemplateId);
-        f.setFileName(t.getBankCode() + "_payroll_" + period.getPayDate() + ".csv");
+        f.setFileName(t.getBankCode() + "_payroll_" + period.getPayDate()
+                + (sourceId == null ? "" : "_recovery_" + sourceId.toString().substring(0, 8)) + ".csv");
         f.setContent(sb.toString());
         f.setRecordCount(count);
         f.setTotalAmount(total);

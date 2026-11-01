@@ -18,4 +18,5 @@ import org.springframework.data.repository.query.Param;
 public interface BankFileRepository extends JpaRepository<BankFile, UUID> {
 
     List<BankFile> findByRunId(UUID runId);
+    boolean existsByRecoverySourceFileId(UUID recoverySourceFileId);
 }
