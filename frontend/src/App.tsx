@@ -16,6 +16,7 @@ import { PaySetupWorkspace } from './PaySetupWorkspace';
 import { ApprovalWorkspace } from './ApprovalWorkspace';
 import { AnnouncementsWorkspace } from './AnnouncementsWorkspace';
 import { SelectField } from './SelectField';
+import { routePath, routeSlug } from './routePaths';
 import './styles.css';
 
 const TOKEN_KEY = 'apexHrm.accessToken';
@@ -23,8 +24,6 @@ const EXPIRY_KEY = 'apexHrm.expiresAt';
 
 const workspaceRouteSections = ['Overview','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Performance','Learning & development','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Payroll','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
 const platformRouteSections = ['Subscriptions','Payment requests','Plan maintenance','Payment QR','Module status','Mail settings','Backup & restore','Account security'];
-const routeSlug = (label: string) => label.toLowerCase().replaceAll('&', 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const routePath = (base: string, label: string) => `${base}/${routeSlug(label)}`;
 function sectionFromPath(pathname: string, base: string, sections: readonly string[], fallback: string) {
   const slug = pathname.replace(new RegExp(`^${base}/?`), '').split('/')[0];
   return sections.find(section => routeSlug(section) === slug) || fallback;
