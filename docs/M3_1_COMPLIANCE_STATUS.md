@@ -100,6 +100,14 @@ Branch: feature/m3-1-payroll-compliance
 - UI shows diagnostic values and unresolved tax annualization without enabling disbursement.
 - See `docs/M3_1_17_CERTIFICATION_REPORT.md` for methodology and **production NO-GO** limits.
 
+## M3.1.18 — Financial source snapshots and period completeness pre-certification
+
+- Added Flyway V56 tenant-isolated append-only final-pay source snapshots, SHA-256 document digest, forced RLS and UPDATE/DELETE trigger guard.
+- Captured source document includes approved settlement and separation, locked/paid payroll runs and lines, DTR, legacy effective-dated compensation, loans, leave and adjustments through separation date.
+- New MFA-protected capture/read APIs; duplicates conflict and other tenant's records are hidden. UI shows missing payroll cutoff days, compensation gaps, open DTR, immutable snapshot digest and **disbursement disabled**.
+- Automated checks cover cutoff/compensation gaps, snapshot hash, RLS, trigger immutability and existing authenticated API/Chromium flows.
+- Capture is an evidence checkpoint, **not** a legally approved payment calculation or banking confirmation. See `docs/M3_1_18_CERTIFICATION_REPORT.md`.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
