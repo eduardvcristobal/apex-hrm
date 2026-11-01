@@ -23,7 +23,8 @@ class PayrollSettlementServiceTest {
     private final BankFileRepository files = mock(BankFileRepository.class);
     private final PayrollBankSettlementRepository acknowledgments = mock(PayrollBankSettlementRepository.class);
     private final AuditService audit = mock(AuditService.class);
-    private final PayrollSettlementService service = new PayrollSettlementService(runs, files, acknowledgments, audit, mock(BankCreditResultService.class));
+    private final BankCreditResultService bankResults = mock(BankCreditResultService.class);
+    private final PayrollSettlementService service = new PayrollSettlementService(runs, files, acknowledgments, audit, bankResults);
     private final UUID runId = UUID.randomUUID();
     private final UUID fileId = UUID.randomUUID();
 
@@ -43,6 +44,7 @@ class PayrollSettlementServiceTest {
         f.setRunId(runId);
         f.setTotalAmount(new BigDecimal(total));
         when(files.findById(fileId)).thenReturn(Optional.of(f));
+        when(bankResults.acceptedAmount(fileId)).thenReturn(new BigDecimal(total));
         return f;
     }
 
