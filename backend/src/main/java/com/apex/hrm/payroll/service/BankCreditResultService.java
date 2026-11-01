@@ -83,6 +83,11 @@ public class BankCreditResultService {
             }
         }
 
+        // Validate the entire bank batch before making even one persistent write.
+        for (ExportRow exp : exported.values()) {
+            if (exp.amount().compareTo(response.get(exp.employeeNo()).amount()) != 0)
+                throw new BusinessException("Bank result amount differs from exported employee amount");
+        }
         BankCreditImport imported = new BankCreditImport();
         imported.setBankFileId(bankFileId);
         imported.setEvidenceReference(evidenceReference.strip());
@@ -92,8 +97,6 @@ public class BankCreditResultService {
         BigDecimal yes = BigDecimal.ZERO, no = BigDecimal.ZERO;
         for (ExportRow exp : exported.values()) {
             ResponseRow res = response.get(exp.employeeNo());
-            if (exp.amount().compareTo(res.amount()) != 0)
-                throw new BusinessException("Bank result amount differs from exported employee amount");
             BankCreditResult entry = new BankCreditResult();
             entry.setBankImportId(imported.getId());
             entry.setBankFileId(bankFileId);
