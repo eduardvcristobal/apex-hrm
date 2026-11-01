@@ -10,7 +10,8 @@ async function request<T>(token: string, path: string, method = 'GET', body?: un
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!response.ok) throw new Error(`Request failed (${response.status})`);
-  return response.status === 204 || method === 'POST' && path.endsWith('/activate') ? undefined as T : await response.json() as T;
+  const text = await response.text();
+  return text ? JSON.parse(text) as T : undefined as T;
 }
 export function PerformanceWorkspace({ token }: { token: string }) {
   const [companyId, setCompanyId] = useState('');
@@ -29,6 +30,9 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [title, setTitle] = useState('');
   const [target, setTarget] = useState('100');
   const [rating, setRating] = useState('3');
+  const [goalId, setGoalId] = useState('');
+  const [progress, setProgress] = useState('0');
+  const [progressNote, setProgressNote] = useState('');
   const [comments, setComments] = useState('');
   const [planTitle, setPlanTitle] = useState('');
   const [actions, setActions] = useState('');
@@ -103,7 +107,14 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <label>Target value <input type="number" min="0" required value={target} onChange={e => setTarget(e.target.value)} /></label>
           <button disabled={busy || !active || !employeeId}>Add goal</button>
         </form>
-        <ul>{goals.map(g => <li key={String(g.id)}>{String(g.title)} · Target {String(g.targetValue ?? '—')} · {String(g.status)}</li>)}</ul>
+        <form onSubmit={e => { e.preventDefault(); void run(() => request(token, '/goals/' + goalId + '/progress', 'POST', { actualValue: Number(progress), note: progressNote })); }}>
+          <h3>Record KPI progress</h3>
+          <label>Goal <select value={goalId} onChange={e => setGoalId(e.target.value)}><option value="">Select a goal</option>{goals.map(g => <option key={String(g.id)} value={String(g.id)}>{String(g.title)}</option>)}</select></label>
+          <label>Current value <input type="number" min="0" step=".001" value={progress} onChange={e => setProgress(e.target.value)} /></label>
+          <input aria-label="Progress notes" maxLength={2000} placeholder="Progress notes" value={progressNote} onChange={e => setProgressNote(e.target.value)} />
+          <button disabled={busy || !active || !goalId}>Record progress</button>
+        </form>
+        <ul>{goals.map(g => <li key={String(g.id)}>{String(g.title)} · {String(g.actualValue ?? 0)} / {String(g.targetValue ?? '—')} · {String(g.status)}</li>)}</ul>
       </div>
       <div className="performance-panel"><h2>Manager evaluations</h2>
         <form onSubmit={e => { e.preventDefault(); void run(() => request(token, '/reviews', 'POST', { cycleId, employeeId, rating: Number(rating), managerComments: comments })); }}>
@@ -111,7 +122,8 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <textarea aria-label="Manager comments" placeholder="Evidence and feedback" value={comments} onChange={e => setComments(e.target.value)} />
           <button disabled={busy || !active || !employeeId}>Submit evaluation</button>
         </form>
-        <ul>{reviews.map(r => <li key={String(r.id)}>{employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating)} / 5 · {String(r.status)}</li>)}</ul>
+        <button type="button" disabled={busy || !active || !employeeId} onClick={() => void run(() => request(token, '/reviews/drafts', 'POST', { cycleId, employeeId }))}>Create review draft (self-assessment workflow)</button>
+        <ul>{reviews.map(r => <li key={String(r.id)}>{employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating ?? 'Pending')} / 5 · {String(r.status)}</li>)}</ul>
       </div>
       <div className="performance-panel"><h2>Development plans</h2>
         <label>Review <select value={reviewId} onChange={e => setReviewId(e.target.value)}><option value="">Select review</option>{reviews.map(r => <option key={String(r.id)} value={String(r.id)}>{employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating)}/5</option>)}</select></label>
@@ -120,7 +132,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <textarea aria-label="Action items" required placeholder="Specific actions, coaching, training…" value={actions} onChange={e => setActions(e.target.value)} />
           <button disabled={busy || !reviewId}>Create development plan</button>
         </form>
-        <ul>{plans.map(p => <li key={String(p.id)}>{String(p.title)} · {String(p.status)}</li>)}</ul>
+        <ul>{plans.map(p => <li key={String(p.id)}>{String(p.title)} · {String(p.status)} {['PLANNED','IN_PROGRESS'].includes(String(p.status)) && <button type="button" disabled={busy} onClick={() => void run(() => request(token, '/plans/' + String(p.id) + '/status', 'POST', { status: p.status === 'PLANNED' ? 'IN_PROGRESS' : 'COMPLETED' }))}>{p.status === 'PLANNED' ? 'Start' : 'Complete'}</button>}</li>)}</ul>
       </div>
     </div>
   </section>;
