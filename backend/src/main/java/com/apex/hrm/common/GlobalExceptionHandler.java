@@ -10,6 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -46,6 +47,15 @@ public class GlobalExceptionHandler {
     ResponseEntity<ApiError> integrity(DataIntegrityViolationException e) {
         log.warn("Data integrity violation", e);
         return build(HttpStatus.CONFLICT, "Constraint violation (duplicate, missing reference, or required field)");
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<ApiError> responseStatus(ResponseStatusException e) {
+        HttpStatus status = HttpStatus.resolve(e.getStatusCode().value());
+        String reason = e.getReason();
+        if (reason == null || reason.isBlank()) reason = status == null ? "Request failed" : status.getReasonPhrase();
+        return ResponseEntity.status(e.getStatusCode()).body(new ApiError(
+            Instant.now(), e.getStatusCode().value(), status == null ? "Request failed" : status.getReasonPhrase(), reason));
     }
 
     @ExceptionHandler(Exception.class)

@@ -4,6 +4,7 @@ dist/
 .vite/
 frontend/test-results/
 frontend/playwright-report/
+frontend/.e2e-local/
 .env
 .env.*
 !.env.example
