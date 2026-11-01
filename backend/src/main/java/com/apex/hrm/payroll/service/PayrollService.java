@@ -15,6 +15,7 @@ import com.apex.hrm.payroll.domain.StatutoryContributionRule;
 import com.apex.hrm.payroll.domain.WageOrder;
 import com.apex.hrm.payroll.domain.WithholdingTaxBracket;
 import com.apex.hrm.payroll.engine.AttendancePayCalculator;
+import com.apex.hrm.payroll.engine.CutoffProrationCalculator;
 import com.apex.hrm.payroll.engine.Money;
 import com.apex.hrm.payroll.engine.PagIbigCalculator;
 import com.apex.hrm.payroll.engine.PayBasis;
@@ -66,7 +67,7 @@ import org.springframework.transaction.annotation.Transactional;
  */
 @Service
 public class PayrollService {
-    private static final Set<String> ATTENDANCE_DEDUCTIONS = Set.of("ABSENCE", "LATE_UT");
+    private static final Set<String> ATTENDANCE_DEDUCTIONS = Set.of("ABSENCE", "LATE_UT", "PRORATION");
     private static final Set<String> RUN_TYPES = Set.of("REGULAR", "OFF_CYCLE", "THIRTEENTH_MONTH");
     private static final BigDecimal THIRTEENTH_MONTH_EXEMPT_CAP = new BigDecimal("90000");
 
@@ -349,8 +350,33 @@ public class PayrollService {
             if (days.isEmpty()) {
                 warnings.add("No processed DTR for the period; run /api/dtr/process first");
             }
-            for (PayLine l : AttendancePayCalculator.compute(cfg, rules.premium(), days)) {
+            List<PayLine> calculated = AttendancePayCalculator.compute(cfg, rules.premium(), days);
+            for (PayLine l : calculated) {
                 out.add(line(run, pe, emp, cc, l, null, null));
+            }
+            if (basis == PayBasis.MONTHLY) {
+                LocalDate activeFrom = emp.getHireDate();
+                if (rec.getEffectiveFrom() != null && rec.getEffectiveFrom().isAfter(activeFrom)) {
+                    activeFrom = rec.getEffectiveFrom();
+                }
+                if (comp.getEffectiveFrom() != null && comp.getEffectiveFrom().isAfter(activeFrom)) {
+                    activeFrom = comp.getEffectiveFrom();
+                }
+                LocalDate activeThrough = emp.getSeparationDate();
+                if (rec.getEffectiveTo() != null && (activeThrough == null || rec.getEffectiveTo().isBefore(activeThrough))) {
+                    activeThrough = rec.getEffectiveTo();
+                }
+                if (comp.getEffectiveTo() != null && (activeThrough == null || comp.getEffectiveTo().isBefore(activeThrough))) {
+                    activeThrough = comp.getEffectiveTo();
+                }
+                BigDecimal basic = calculated.stream().filter(l -> "BASIC".equals(l.code()))
+                        .map(PayLine::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
+                BigDecimal proration = CutoffProrationCalculator.deduction(basic, start, end, activeFrom, activeThrough);
+                if (proration.signum() > 0) {
+                    out.add(line(run, pe, emp, cc, new PayLine("PRORATION",
+                            "Partial-cutoff basic pay adjustment (calendar days)", PayLine.DEDUCTION,
+                            null, null, proration, true), null, null));
+                }
             }
             checkMinimumWage(emp, rec, cfg, end, warnings);
             for (RecurringItem r : recurring.findActive(emp.getId(), start, end)) {
