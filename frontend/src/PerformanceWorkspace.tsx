@@ -47,8 +47,8 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   useEffect(() => {
     void fetch('/api/v1/companies', { headers: auth }).then(async r => {
       if (!r.ok) throw Error('Unable to fetch companies');
-      const raw = await r.json() as { id: string; name?: string; companyName?: string }[];
-      setCompanies(raw.map(c => ({ id: c.id, name: c.companyName || c.name || c.id })));
+      const raw = await r.json() as { id: string; name?: string; companyName?: string; legalName?: string }[];
+      setCompanies(raw.map(c => ({ id: c.id, name: c.legalName || c.companyName || c.name || c.id })));
       setCompanyId(old => old || raw[0]?.id || '');
     }).catch(e => setError(String(e)));
   }, [token]);
