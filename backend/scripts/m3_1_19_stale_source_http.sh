@@ -32,6 +32,33 @@ END $verify$;
 ROLLBACK;
 REVIEW_SQL
 echo 'PASS: decided source review resists SQL UPDATE and DELETE'
+# Bank evidence is manual, but after human review it must be immutable as well.
+psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'BANK_SQL'
+BEGIN;
+SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000001',true);
+DO $guard$
+DECLARE evidence_id uuid;
+BEGIN
+ SELECT id INTO evidence_id FROM payroll_final_pay_bank_evidence
+  WHERE tenant_id='81000000-0000-4000-8000-000000000001'
+    AND status='EVIDENCE_REVIEWED' LIMIT 1;
+ IF evidence_id IS NULL THEN RAISE EXCEPTION 'Missing reviewed bank evidence'; END IF;
+ BEGIN
+  UPDATE payroll_final_pay_bank_evidence
+    SET reported_amount=reported_amount+100 WHERE id=evidence_id;
+  RAISE EXCEPTION 'Reviewed bank amount tampering succeeded';
+ EXCEPTION WHEN check_violation THEN NULL;
+ END;
+ BEGIN
+  DELETE FROM payroll_final_pay_bank_evidence WHERE id=evidence_id;
+  RAISE EXCEPTION 'Reviewed bank evidence deletion succeeded';
+ EXCEPTION WHEN check_violation THEN NULL;
+ END;
+END $guard$;
+ROLLBACK;
+BANK_SQL
+echo 'PASS: finalized manual bank evidence resists SQL tampering and deletion'
+
 
 psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SQL'
 BEGIN;
