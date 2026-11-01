@@ -93,6 +93,26 @@ public class FinalPayPaymentAuthorizationService {
         });
     }
 
+    public record EligibleBankAccount(UUID id,String bankCode,String maskedAccount) {}
+
+    /** Never returns an account number; lists only primary accounts of an approved identity link. */
+    public List<EligibleBankAccount> eligibleAccounts(HrmUserPrincipal user,UUID personnelEmployeeId) {
+        return tenants.inTenant(user.tenantId(),()->{
+            IdentityData identity=loadIdentity(user.tenantId(),personnelEmployeeId);
+            if(!"APPROVED".equals(identity.status()))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Employee identity must be independently approved");
+            return jdbc.query("""
+                SELECT id,bank_code,right(account_no,4) AS last_four
+                FROM employee_bank_account
+                WHERE tenant_id=? AND employee_id=? AND primary_account=true
+                ORDER BY id LIMIT 20
+                """,(rs,i)->new EligibleBankAccount(rs.getObject("id",UUID.class),
+                    rs.getString("bank_code"),"••••"+rs.getString("last_four")),
+                user.tenantId(),identity.payrollId());
+        });
+    }
+
     public List<Authorization> list(HrmUserPrincipal user,UUID settlementId) {
         return tenants.inTenant(user.tenantId(),()->jdbc.query("""
             SELECT id,settlement_id,identity_link_id,bank_account_id,amount,status,prepared_by,authorized_by

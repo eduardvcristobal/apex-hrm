@@ -27,6 +27,12 @@ public class FinalPayPaymentAuthorizationController {
     @PostMapping("/{id}/cancel")
     public FinalPayPaymentAuthorizationService.Authorization cancel(@AuthenticationPrincipal HrmUserPrincipal user,
         @PathVariable UUID id){return service.decide(user,id,false);}
+    @GetMapping("/eligible-accounts")
+    public List<FinalPayPaymentAuthorizationService.EligibleBankAccount> eligible(
+            @AuthenticationPrincipal HrmUserPrincipal user,@RequestParam UUID personnelEmployeeId){
+        return service.eligibleAccounts(user,personnelEmployeeId);
+    }
+
     @GetMapping
     public List<FinalPayPaymentAuthorizationService.Authorization> list(@AuthenticationPrincipal HrmUserPrincipal user,
         @RequestParam UUID settlementId){return service.list(user,settlementId);}
