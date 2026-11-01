@@ -241,13 +241,32 @@ public class FinalPaySourceSnapshotService {
             int open=0;
             for(JsonNode d:doc.path("dtr"))
                 if(!isFinal(d.path("status").asText("")))open++;
+            int missingWeekdayDtr=missingWeekdayDtr(doc.path("dtr"),scope.from(),scope.to());
             boolean noDtr=doc.path("dtr").isEmpty();
-            String status=cutoff>0 || comp>0 || open>0 || noDtr
+            String status=cutoff>0 || comp>0 || open>0 || noDtr || missingWeekdayDtr>0
                 ? "INCOMPLETE_SOURCE" : "REVIEW_REQUIRED";
             return new Captured(json,doc,cutoff,comp,open,status,sha256(json));
         }catch(com.fasterxml.jackson.core.JsonProcessingException e){
             throw new IllegalStateException("Cannot decode canonical source snapshot",e);
         }
+    }
+    /**
+     * Conservative coverage heuristic: every Mon–Fri date requires a DTR.
+     * This intentionally over-flags holidays, approved leave and rest-day shifts.
+     * A complete count does not by itself establish an approved work schedule.
+     */
+    static int missingWeekdayDtr(JsonNode dtr,LocalDate from,LocalDate to){
+        int missing=0;
+        for(LocalDate day=from;!day.isAfter(to);day=day.plusDays(1)){
+            if(day.getDayOfWeek().getValue()>5)continue;
+            String target=day.toString();
+            boolean found=false;
+            for(JsonNode row:dtr){
+                if(target.equals(row.path("date").asText())){found=true;break;}
+            }
+            if(!found)missing++;
+        }
+        return missing;
     }
     static boolean isFinal(String status){
         return "LOCKED".equals(status)||"FINALIZED".equals(status)||"APPROVED".equals(status);
