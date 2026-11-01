@@ -40,6 +40,8 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [goalId, setGoalId] = useState('');
   const [progress, setProgress] = useState('0');
   const [progressNote, setProgressNote] = useState('');
+  const [progressHistory, setProgressHistory] = useState<Item[]>([]);
+  const [historyGoal, setHistoryGoal] = useState('');
   const [comments, setComments] = useState('');
   const [planTitle, setPlanTitle] = useState('');
   const [actions, setActions] = useState('');
@@ -128,8 +130,9 @@ export function PerformanceWorkspace({ token }: { token: string }) {
         <ul>{goals.map(g => <li key={String(g.id)}>
           {String(g.title)} · {String(g.actualValue ?? 0)} / {String(g.targetValue ?? '—')} · {String(g.status)}
           <button type="button" disabled={busy} onClick={() => {setEditGoalId(String(g.id));setEditTitle(String(g.title));setEditTarget(String(g.targetValue??100));}}>Edit</button>
-          <button type="button" disabled={busy} onClick={() => void request<Item[]>(token,'/goals/'+String(g.id)+'/progress').then(history => setNotice('Progress records: '+history.length)).catch(e=>setError(String(e)))}>History</button>
+          <button type="button" disabled={busy} onClick={() => void request<Item[]>(token,'/goals/'+String(g.id)+'/progress').then(history => {setHistoryGoal(String(g.id));setProgressHistory(history);}).catch(e=>setError(String(e)))}>History</button>
         </li>)}</ul>
+        {historyGoal && <div className="performance-history"><h3>Progress history — {goals.find(g=>g.id===historyGoal)?.title}</h3><ul>{progressHistory.map((entry,i)=><li key={i}>{String(entry.actualValue)} · {String(entry.note||'No note')} · {String(entry.recordedAt||'')}</li>)}</ul><button type="button" onClick={()=>setHistoryGoal('')}>Close history</button></div>}
         {editGoalId && <form onSubmit={e=>{e.preventDefault();void run(async()=>{await request(token,'/goals/'+editGoalId,'PUT',{title:editTitle,targetValue:Number(editTarget),weight:Number(goals.find(g=>g.id===editGoalId)?.weight??1),description:goals.find(g=>g.id===editGoalId)?.description??null,metric:goals.find(g=>g.id===editGoalId)?.metric??null,dueOn:goals.find(g=>g.id===editGoalId)?.dueOn??null});setEditGoalId('');});}}>
           <h3>Edit goal</h3>
           <input aria-label="Edit goal title" required value={editTitle} onChange={e=>setEditTitle(e.target.value)}/>
