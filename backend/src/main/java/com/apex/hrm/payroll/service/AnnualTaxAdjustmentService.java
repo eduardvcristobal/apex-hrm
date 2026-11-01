@@ -129,6 +129,11 @@ public class AnnualTaxAdjustmentService {
     }
 
     @Transactional(readOnly = true)
+    public java.util.Optional<AnnualTaxAdjustmentRequest> find(UUID employeeId, int taxYear) {
+        return requests.findByEmployeeIdAndTaxYear(employeeId, taxYear);
+    }
+
+    @Transactional(readOnly = true)
     public AnnualTaxAdjustmentRequest read(UUID id) {
         return requests.findById(id).orElseThrow(() -> new NotFoundException("Annual tax adjustment", id));
     }

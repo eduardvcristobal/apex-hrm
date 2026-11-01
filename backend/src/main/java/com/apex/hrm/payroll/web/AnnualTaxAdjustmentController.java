@@ -22,6 +22,12 @@ public class AnnualTaxAdjustmentController {
             @AuthenticationPrincipal HrmUserPrincipal user) {
         return service.request(form, user.id());
     }
+    @GetMapping
+    public java.util.Optional<AnnualTaxAdjustmentRequest> find(@RequestParam UUID employeeId,
+            @RequestParam int taxYear) {
+        return service.find(employeeId, taxYear);
+    }
+
     @GetMapping("/{id}")
     public AnnualTaxAdjustmentRequest read(@PathVariable UUID id) {
         return service.read(id);
