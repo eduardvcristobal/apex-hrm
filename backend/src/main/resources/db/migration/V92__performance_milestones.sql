@@ -1,4 +1,5 @@
 -- M5.14: action-level development-plan milestones and evidence.
+ALTER TABLE performance_development_plan ADD CONSTRAINT uq_performance_plan_tenant UNIQUE(tenant_id,id);
 CREATE TABLE performance_plan_milestone (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  tenant_id uuid NOT NULL REFERENCES tenant(id),
