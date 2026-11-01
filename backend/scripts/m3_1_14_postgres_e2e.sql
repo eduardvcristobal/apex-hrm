@@ -121,6 +121,10 @@ INSERT INTO payroll_personnel_identity_link(
 VALUES('8a000000-0000-4000-8000-000000000002','81000000-0000-4000-8000-000000000002',
  '84000000-0000-4000-8000-000000000002','85000000-0000-4000-8000-000000000002',
  'Second tenant fixture identity match','83000000-0000-4000-8000-000000000004');
+-- A fresh tenant B Personnel record avoids a uniqueness collision masking the FK test.
+INSERT INTO personnel_employee(id,tenant_id,company_id,employee_number,first_name,last_name,hire_date)
+VALUES('84000000-0000-4000-8000-000000000003','81000000-0000-4000-8000-000000000002',
+ '82000000-0000-4000-8000-000000000002','FP-003','Riley','Santos','2020-01-01');
 -- Cross-tenant IDs must fail composite foreign keys, even in privileged migration sessions.
 DO $tenant_fk$
 BEGIN
@@ -128,7 +132,7 @@ BEGIN
   INSERT INTO payroll_personnel_identity_link
    (tenant_id,personnel_employee_id,payroll_employee_id,evidence_reference,requested_by)
   VALUES('81000000-0000-4000-8000-000000000002',
-   '84000000-0000-4000-8000-000000000002',
+   '84000000-0000-4000-8000-000000000003',
    '85000000-0000-4000-8000-000000000001',
    'Cross-tenant identity must never be valid','83000000-0000-4000-8000-000000000004');
   RAISE EXCEPTION 'Cross-tenant employee FK incorrectly accepted';
