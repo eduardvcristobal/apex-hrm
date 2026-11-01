@@ -84,6 +84,14 @@ Branch: feature/m3-1-payroll-compliance
 - This is **authenticated API E2E only**; not Playwright browser E2E, live bank certification, complete source-ledger settlement or production payroll GO.
 - See `docs/M3_1_15_CERTIFICATION_REPORT.md` for evidence, explicit limitations and next gates.
 
+## M3.1.16 — Source-ledger review and real-browser E2E
+
+- Introduced read-only payroll/leave/loan source-ledger comparison against a **verified Personnel-to-Payroll employee identity**; loan balance mismatch and convertible leave days are surfaced but never auto-certified in PHP.
+- Locked/paid payroll lines for the separation year are summarized as prior 13th-month and withholding history. **Remaining earned 13th-month obligation is not inferred from historic payments alone**.
+- CI now tests real loan balance mismatches, convertible leave values, missing locked payroll sources, tenant exclusion and two-actor API approvals.
+- Added actual Chromium desktop 1440px and mobile 390px Personnel → HR lifecycle → source-ledger browser E2E through Vite/Spring Boot/PostgreSQL, plus unauthenticated user denial.
+- Production status remains **NO-GO**. No payment release, certified payslip, bank confirmation or source-verified legal accrual exists. See `docs/M3_1_16_CERTIFICATION_REPORT.md`.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
