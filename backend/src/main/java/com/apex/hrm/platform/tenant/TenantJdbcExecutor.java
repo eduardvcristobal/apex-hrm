@@ -1,5 +1,7 @@
 package com.apex.hrm.platform.tenant;
 
+import com.apex.hrm.common.TenantContext;
+
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -16,7 +18,14 @@ public class TenantJdbcExecutor {
         this.transactions = new TransactionTemplate(tx);
     }
     public <T> T inTenant(UUID tenantId, Supplier<T> work) {
-        if (tenantId == null) throw new IllegalArgumentException("Tenant is required");
+        if (tenantId == null || TenantContext.NONE.equals(tenantId)) {
+            throw new IllegalArgumentException("A real tenant is required");
+        }
+        // SQL bypasses Hibernate @TenantId: do not override an authenticated workspace.
+        UUID authenticatedTenant = TenantContext.get();
+        if (authenticatedTenant != null && !authenticatedTenant.equals(tenantId)) {
+            throw new SecurityException("Cross-tenant SQL access is forbidden");
+        }
         return transactions.execute(status -> {
             jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
             return work.get();

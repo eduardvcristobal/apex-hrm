@@ -12,10 +12,17 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface PayPeriodRepository extends JpaRepository<PayPeriod, UUID> {
+
+    /** Serialize run creation per period to avoid duplicate regular or 13th-month runs. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from PayPeriod p where p.id = :id")
+    Optional<PayPeriod> findLockedById(@Param("id") UUID id);
 
     List<PayPeriod> findByPayGroupId(UUID payGroupId);
 }
