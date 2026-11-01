@@ -25,6 +25,7 @@ public class BankFile extends BaseEntity {
     @JsonIgnore
     @Column(name = "content_ciphertext", columnDefinition = "text")
     private String contentCiphertext;
+    @Column(name = "content_sha256", columnDefinition = "char(64)")
     private String contentSha256;
     private Instant purgedAt;
     private Boolean legalHold = false;
