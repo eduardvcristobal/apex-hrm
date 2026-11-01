@@ -75,6 +75,15 @@ Branch: feature/m3-1-payroll-compliance
 - Maven and frontend builds remain mandatory. **No production banking, certified final payslip, or human financial approval is implied by green CI.**
 - See `docs/M3_1_14_CERTIFICATION_REPORT.md` for explicit coverage, evidence and NO-GO gates.
 
+## M3.1.15 — Authenticated API E2E and read-only reconciliation pre-certification
+
+- Added a real Spring Boot/PostgreSQL authenticated financial HTTP regression with synthetic multi-tenant MFA principals; CI races two separate identity approvers and two separate payment approvers, confirming one success and one state-conflict per race.
+- Fixed `GlobalExceptionHandler` mistakenly converting explicit 403/404/409 into 500. Hardened bank evidence segregation so the payment preparer cannot review its own payout evidence.
+- New payroll-MFA reconciliation preflight and Personnel display retain `bankConfirmed=false` and `disbursementEnabled=false` regardless of manual evidence review.
+- Database lifecycle and cross-tenant SQL checks remain mandatory. New `authenticated-financial-api` GitHub Actions job adds real HTTP/CSRF-bearer/MFA/tenant checks.
+- This is **authenticated API E2E only**; not Playwright browser E2E, live bank certification, complete source-ledger settlement or production payroll GO.
+- See `docs/M3_1_15_CERTIFICATION_REPORT.md` for evidence, explicit limitations and next gates.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
