@@ -61,6 +61,19 @@ class FinalPaySettlementServiceTest {
         verifyNoInteractions(tenants,jdbc);
     }
 
+    @Test void cannotApproveOwnSettlement() {
+        assertEquals(403,assertThrows(ResponseStatusException.class,() ->
+            FinalPaySettlementService.requireIndependentPendingDecision("PENDING", user.id(), user.id())
+        ).getStatusCode().value());
+    }
+
+    @Test void cannotApproveAlreadyDecidedSettlement() {
+        assertEquals(409,assertThrows(ResponseStatusException.class,() ->
+            FinalPaySettlementService.requireIndependentPendingDecision("APPROVED",
+                user.id(),UUID.randomUUID())
+        ).getStatusCode().value());
+    }
+
     @Test void previewPreservesFullGrossAndAllAuthorizedDeductions() {
         var result=FinalPayCalculator.preview(amounts("15000"));
         assertEquals(amount("17000.00"),result.gross());

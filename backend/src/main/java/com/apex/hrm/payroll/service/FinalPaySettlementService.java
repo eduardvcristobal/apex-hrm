@@ -83,10 +83,7 @@ public class FinalPaySettlementService {
                 """, (rs,i)->map(rs), user.tenantId(), settlementId);
             if (pending.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Settlement not found");
             Settlement item = pending.get(0);
-            if (!"PENDING".equals(item.status()))
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Settlement already decided");
-            if (user.id().equals(item.requestedBy()))
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Independent settlement approval required");
+            requireIndependentPendingDecision(item.status(),item.requestedBy(),user.id());
             validateCaseAndClearance(user.tenantId(), item.employeeId(), item.caseId(), item.handoffId());
             Settlement decided = jdbc.queryForObject("""
                 UPDATE payroll_final_pay_settlement SET status=?,approved_by=?,approved_at=now(),updated_at=now()
@@ -136,6 +133,13 @@ public class FinalPaySettlementService {
             FROM payroll_final_pay_settlement WHERE tenant_id=? AND employee_id=? AND case_id=?
             ORDER BY created_at DESC LIMIT 100
             """, (rs,i)->map(rs),user.tenantId(),employeeId,caseId));
+    }
+
+    static void requireIndependentPendingDecision(String status, UUID requester, UUID reviewer) {
+        if (!"PENDING".equals(status))
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Settlement already decided");
+        if (reviewer == null || reviewer.equals(requester))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,"Independent settlement approval required");
     }
 
     private void validateCaseAndClearance(UUID tenant, UUID employee, UUID caseId, UUID handoffId) {
