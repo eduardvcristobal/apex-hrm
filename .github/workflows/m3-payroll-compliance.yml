@@ -155,6 +155,30 @@ jobs:
           if [[ "$ready" -ne 1 ]]; then tail -n 120 /tmp/m315-startup.log; exit 1; fi
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_15_http_seed.sql
           bash backend/scripts/m3_1_15_authenticated_http.sh
+          # Verify actual stored snapshot rows are immutable after authenticated capture.
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SNAPSHOT_SQL'
+          BEGIN;
+          SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000001',true);
+          DO $immutable$
+          DECLARE snap uuid;
+          BEGIN
+            SELECT id INTO snap FROM payroll_final_pay_source_snapshot
+             WHERE tenant_id='81000000-0000-4000-8000-000000000001' LIMIT 1;
+            IF snap IS NULL THEN RAISE EXCEPTION 'No captured source snapshot'; END IF;
+            BEGIN
+              UPDATE payroll_final_pay_source_snapshot SET completeness_status='REVIEW_REQUIRED'
+               WHERE id=snap;
+              RAISE EXCEPTION 'Financial snapshot UPDATE unexpectedly succeeded';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+            BEGIN
+              DELETE FROM payroll_final_pay_source_snapshot WHERE id=snap;
+              RAISE EXCEPTION 'Financial snapshot DELETE unexpectedly succeeded';
+            EXCEPTION WHEN check_violation THEN NULL;
+            END;
+          END $immutable$;
+          ROLLBACK;
+          SNAPSHOT_SQL
           # Browser E2E: launch a real Chromium session at desktop and mobile viewports.
           npm ci --prefix frontend
           npm install --prefix frontend --no-save --package-lock=false playwright@1.56.1
