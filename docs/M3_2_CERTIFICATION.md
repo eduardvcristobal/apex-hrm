@@ -1,3 +1,17 @@
+## M3.2.9 — Bank rejection-file import and rejected-only recovery (2026-11-01)
+
+**Implementation in draft PR #2, not yet production certified**
+
+- Flyway V51 stores an immutable, tenant-scoped **one-import-per-export** bank result batch and per-employee ACCEPTED/REJECTED outcomes. Recoveries retain their original bank-file ID.
+- A deliberately strict canonical bank response format is required: `EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE`. Import requires an operator-provided external bank evidence reference and exactly one response for every employee in the original exported batch, with identical exact-cent amounts. Reject unknown/duplicate employees, mismatched amounts, malformed CSV, a second import, and repeated accepted credits **within the same payroll run**. Other historical pay periods remain valid.
+- Import only while the run remains LOCKED and before any acknowledgment exists on that file. No partial writes are intentionally permitted: validate the entire file before persisting; the import transaction rolls back on database failure.
+- Settlement acknowledgment now requires imported results and can only equal the sum of **ACCEPTED** employee credits on that export, never the rejected amount. Recording and confirmation remain two separate human actions.
+- Recovery export includes **only REJECTED** employees, never already-accepted employees. It requires a previously imported source, refuses duplicate recoveries, retains source-file lineage, and fails if any rejected employee's bank account cannot be resolved. Recovery results must be independently imported and reconciled before PAID can proceed.
+- API: `POST /api/payroll/bank-results/{bankFileId}/import`, `GET /api/payroll/bank-results/{bankFileId}`, `POST /api/payroll/bank-results/{bankFileId}/recover`; existing payroll MFA authorization applies. JSON import body contains `csv` and `evidenceReference`.
+- Regression includes strict import parsing and matching, duplicate controls, recovery-only export and a synthetic PostgreSQL workflow with two employees, partial acceptance, recovery, dual-control settlement and PAID.
+- **Scope limits:** This is a canonical sample response, **not** arbitrary bank-specific rejection files. It does not authenticate the bank, execute transfers, auto-correct account details, process post-PAID returns, or certify a live bank. Finance must verify bank statements externally. Historical cases already marked PAID remain governed by DISPUTED/manual exception handling.
+- **Final acceptance NO-GO** until M3.1/M3.3 are integrated, full authenticated payroll browser E2E and cross-tenant/concurrency certification are complete, bank format and settlement evidence are independently checked, and HR/Finance/Operations sign off.
+
 ## M3.2.8 — Settlement exceptions and reversal certification
 
 - Flyway V50 adds REJECTED and REVERSED to the evidence state machine and requires retained reason, supporting bank evidence, operator identity, and timestamp. Neither action deletes an original bank acknowledgment.
