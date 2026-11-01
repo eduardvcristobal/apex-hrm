@@ -12,8 +12,8 @@ INSERT INTO auth_identity_role(identity_id,role) VALUES
  ('ab000000-0000-4000-8000-000000000003','PAYROLL_OFFICER');
 INSERT INTO auth_api_token(identity_id,token_sha256,expires_at,mfa_verified) VALUES
  ('ab000000-0000-4000-8000-000000000001',encode(sha256(convert_to(repeat('f',64),'UTF8')),'hex'),now()+interval '2 hours',true),
- ('ab000000-0000-4000-8000-000000000002',encode(sha256(convert_to(repeat('g',64),'UTF8')),'hex'),now()+interval '2 hours',true),
- ('ab000000-0000-4000-8000-000000000003',encode(sha256(convert_to(repeat('h',64),'UTF8')),'hex'),now()+interval '2 hours',true);
+ ('ab000000-0000-4000-8000-000000000002',encode(sha256(convert_to(repeat('1',64),'UTF8')),'hex'),now()+interval '2 hours',true),
+ ('ab000000-0000-4000-8000-000000000003',encode(sha256(convert_to(repeat('2',64),'UTF8')),'hex'),now()+interval '2 hours',true);
 INSERT INTO personnel_employee(id,tenant_id,company_id,employee_number,first_name,last_name,hire_date,employment_status)
 VALUES ('a1000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001',
  '82000000-0000-4000-8000-000000000001','CI-FP-POSITIVE','Synthetic','Tester','2026-01-01','TERMINATED');
