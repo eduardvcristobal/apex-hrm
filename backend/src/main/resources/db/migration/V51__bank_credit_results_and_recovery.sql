@@ -20,6 +20,7 @@ CREATE TABLE bank_credit_result (
  updated_at timestamptz NOT NULL DEFAULT now(),
  version bigint NOT NULL DEFAULT 0,
  bank_import_id uuid NOT NULL REFERENCES bank_credit_import(id),
+ run_id uuid NOT NULL REFERENCES payroll_run(id),
  bank_file_id uuid NOT NULL REFERENCES bank_file(id),
  employee_id uuid NOT NULL REFERENCES employee(id),
  employee_no varchar(255) NOT NULL,
@@ -28,4 +29,4 @@ CREATE TABLE bank_credit_result (
  bank_reference varchar(120) NOT NULL,
  CONSTRAINT uq_bank_credit_result_employee UNIQUE (tenant_id,bank_file_id,employee_id)
 );
-CREATE INDEX idx_bank_credit_result_employee ON bank_credit_result(tenant_id,employee_id,credit_status);
+CREATE INDEX idx_bank_credit_result_run_employee ON bank_credit_result(tenant_id,run_id,employee_id,credit_status);
