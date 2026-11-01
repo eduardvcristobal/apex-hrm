@@ -6,12 +6,12 @@ GRANT USAGE ON SCHEMA public TO m314_restricted;
 GRANT SELECT ON payroll_personnel_identity_link,
  payroll_final_pay_settlement, payroll_final_pay_payment_authorization,
  payroll_final_pay_bank_evidence TO m314_restricted;
-INSERT INTO tenant(id,code,name) VALUES
- ('81000000-0000-4000-8000-000000000001','CI-M314-A','CI Payroll A'),
- ('81000000-0000-4000-8000-000000000002','CI-M314-B','CI Payroll B');
-INSERT INTO company(id,tenant_id,legal_name) VALUES
- ('82000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001','CI Company A'),
- ('82000000-0000-4000-8000-000000000002','81000000-0000-4000-8000-000000000002','CI Company B');
+INSERT INTO tenant(id,code,name,slug,display_name) VALUES
+ ('81000000-0000-4000-8000-000000000001','CI-M314-A','CI Payroll A','ci-m314-a','CI Payroll A'),
+ ('81000000-0000-4000-8000-000000000002','CI-M314-B','CI Payroll B','ci-m314-b','CI Payroll B');
+INSERT INTO company(id,tenant_id,legal_name,company_code) VALUES
+ ('82000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001','CI Company A','CI-A'),
+ ('82000000-0000-4000-8000-000000000002','81000000-0000-4000-8000-000000000002','CI Company B','CI-B');
 INSERT INTO auth_identity(id,tenant_id,email,password_hash) VALUES
  ('83000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001','ci314-a1@example.invalid','unused'),
  ('83000000-0000-4000-8000-000000000002','81000000-0000-4000-8000-000000000001','ci314-a2@example.invalid','unused'),
