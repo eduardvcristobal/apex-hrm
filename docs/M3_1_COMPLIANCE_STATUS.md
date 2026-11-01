@@ -40,10 +40,25 @@ Branch: feature/m3-1-payroll-compliance
 
 **Important limitations:** completeness and benefit categorization are attested by authorized payroll staff rather than auto-certified; automatic refunds, final pay, complete annual tax reporting, government file submissions and signed human acceptance remain outside this milestone. Treat any request as pending HR/BIR review until independently validated.
 
+## M3.1.12 — Separation-to-final-pay approval handoff
+
+- V52 creates a tenant-scoped `payroll_final_pay_settlement` ledger with forced RLS, composite foreign keys to the Personnel employee, approved separation case and final-pay handoff, immutable submitted monetary components, independent requester/approver identities, and one settlement per handoff.
+- Payroll/MFA endpoints:
+  - `POST /api/v1/payroll/final-pay/employees/{employeeId}/cases/{caseId}/handoffs/{handoffId}/settlements` — submit an itemized source-verified final-pay calculation.
+  - `GET /api/v1/payroll/final-pay/employees/{employeeId}/cases/{caseId}/settlements` — review the case's settlements.
+  - `GET /api/v1/payroll/final-pay/settlements/{id}/statement` — itemized financial review statement, explicitly NOT an issued payslip.
+  - `POST /api/v1/payroll/final-pay/settlements/{id}/approve|reject` — independent approval/rejection.
+- Submission requires an approved effective separation, matching personnel handoff, at least one required CLEARED clearance, no nonreturned assets or unresolved asset exceptions, and attested verified leave, loan, tax and separation entitlement sources.
+- The existing `FinalPayCalculator` derives gross, deductions and net from the submitted source amounts. Negative net is rejected for separate recovery review; no silent offset/forgiveness.
+- A different authorized payroll approver must decide; a DB row lock and state guard prevent repeated decision. All submission and decision events are appended to the audit trail.
+- Unit tests assert review attestations, negative-net fail-closed behavior, required source references and settlement arithmetic. GitHub Actions runs Maven tests, the frontend build and PostgreSQL migration/startup smoke.
+- **NO DISBURSEMENT:** `personnel_employee` (new SaaS HR model) and `employee` (legacy payroll model) cannot be assumed to share a verified ID. This milestone records an independently approved settlement snapshot only; it does NOT enqueue a legacy payroll run, deduct loans, issue a legally operative payslip, initiate a bank transfer, or mark any employee paid.
+- Sources used for leave conversion, accrued 13th month, loan/property balances and legal separation entitlements are explicitly reviewed inputs, not yet fetched and reconciled automatically. The existing Personnel exit clearance is a hard gate.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
-2. End-to-end final-pay workflow: approved leave/asset/loan clearance, separation pay eligibility, employee-year statutory reconciliation, approval, payslip settlement and payout.
+2. M3.1.12 adds the approved personnel separation-to-final-pay snapshot and independent approval, but automatic verified leave/loan/13th-month calculation, legal separation entitlement determination, personnel-to-legacy-payroll ID mapping, payslip issuance, disbursement and bank reconciliation remain outstanding.
 3. Reviewed positive annual withholding differences can be submitted and independently approved into an open future pay period; automatic refund settlement, complete benefit-code classification, automated completeness checks, and actual year-end tax adjustment release certification remain outstanding.
 4. Actual SSS/PhilHealth/Pag-IBIG agency-specific submission file layouts and BIR 1601-C, 2316 and alphalist exports, validated against official specs.
 5. PostgreSQL/Flyway integration tests, multi-tenant authorization tests, browser E2E and real payroll acceptance scenarios.
