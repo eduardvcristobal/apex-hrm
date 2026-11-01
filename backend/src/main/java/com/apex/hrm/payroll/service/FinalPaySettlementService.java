@@ -99,6 +99,37 @@ public class FinalPaySettlementService {
         });
     }
 
+    /** Itemized finance/HR review statement; no payslip or bank disbursement is generated. */
+    public record Statement(UUID settlementId, UUID employeeId, UUID caseId, String status,
+            BigDecimal unpaidBasic, BigDecimal accruedThirteenthMonth,
+            BigDecimal unusedLeaveConversion, BigDecimal separationPay,
+            BigDecimal otherEarnings, BigDecimal outstandingLoans,
+            BigDecimal accountableProperty, BigDecimal withholdingTax,
+            BigDecimal otherAuthorizedDeductions, BigDecimal gross,
+            BigDecimal deductions, BigDecimal net, String accountingReference,
+            String justification, String disbursementStatus) {}
+
+    public Statement statement(HrmUserPrincipal user, UUID id) {
+        return tenants.inTenant(user.tenantId(), () -> {
+            List<Statement> rows = jdbc.query("""
+                SELECT * FROM payroll_final_pay_settlement WHERE tenant_id=? AND id=?
+                """, (rs,i) -> new Statement(
+                    rs.getObject("id",UUID.class), rs.getObject("employee_id",UUID.class),
+                    rs.getObject("case_id",UUID.class), rs.getString("status"),
+                    rs.getBigDecimal("unpaid_basic"), rs.getBigDecimal("accrued_thirteenth_month"),
+                    rs.getBigDecimal("unused_leave_conversion"),rs.getBigDecimal("separation_pay"),
+                    rs.getBigDecimal("other_earnings"),rs.getBigDecimal("outstanding_loans"),
+                    rs.getBigDecimal("accountable_property"),rs.getBigDecimal("withholding_tax"),
+                    rs.getBigDecimal("other_authorized_deductions"),rs.getBigDecimal("gross"),
+                    rs.getBigDecimal("deductions"),rs.getBigDecimal("net"),
+                    rs.getString("accounting_reference"),rs.getString("justification"),
+                    "BLOCKED: no certified personnel-to-payroll mapping, no payslip and no disbursement"),
+                    user.tenantId(),id);
+            if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Settlement not found");
+            return rows.get(0);
+        });
+    }
+
     public List<Settlement> list(HrmUserPrincipal user, UUID employeeId, UUID caseId) {
         return tenants.inTenant(user.tenantId(), () -> jdbc.query("""
             SELECT id,handoff_id,employee_id,case_id,status,gross,deductions,net,requested_by,approved_by

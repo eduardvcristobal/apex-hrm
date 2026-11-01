@@ -28,6 +28,10 @@ public class FinalPaySettlementController {
             @PathVariable UUID employeeId,@PathVariable UUID caseId) {
         return service.list(user,employeeId,caseId);
     }
+    @GetMapping("/settlements/{id}/statement")
+    public FinalPaySettlementService.Statement statement(@AuthenticationPrincipal HrmUserPrincipal user,
+            @PathVariable UUID id) { return service.statement(user,id); }
+
     @PostMapping("/settlements/{id}/approve")
     public FinalPaySettlementService.Settlement approve(@AuthenticationPrincipal HrmUserPrincipal user,
             @PathVariable UUID id) { return service.decide(user,id,true); }
