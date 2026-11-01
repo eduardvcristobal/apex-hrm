@@ -89,6 +89,8 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/admin/invitations", "/api/v1/admin/invitations/**").access(requireAll("ROLE_TENANT_ADMIN","ROLE_MFA_VERIFIED"))
                 .requestMatchers("/api/v1/admin/users", "/api/v1/admin/users/**").access(requireAll("ROLE_TENANT_ADMIN","ROLE_MFA_VERIFIED"))
                 .requestMatchers("/api/v1/companies", "/api/v1/companies/**").access(requireAll("ROLE_TENANT_ADMIN","ROLE_MFA_VERIFIED"))
+                .requestMatchers("/api/v1/payroll/final-pay/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/v1/personnel/employees/*/hr-cases", "/api/v1/personnel/employees/*/hr-cases/**",
                     "/api/v1/personnel/employees/*/documents", "/api/v1/personnel/employees/*/documents/**")
                     .access(requireAll("ROLE_TENANT_ADMIN","ROLE_MFA_VERIFIED"))
