@@ -188,7 +188,7 @@ public class PayrollController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + f.getFileName() + "\"")
                 .contentType(MediaType.parseMediaType("text/csv"))
-                .body(f.getContent());
+                .body(bankFiles.downloadContent(id));
     }
 
     @PostMapping("/adjustments")
