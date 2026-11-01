@@ -1,0 +1,54 @@
+name: M3.2 Payroll and Timekeeping Certification
+
+on:
+  push:
+    branches:
+      - feature/m3-2-payroll-timekeeping-certification
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/m3-2-certification.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  payroll-timekeeping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm_test
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      HRM_TEST_DB_URL: jdbc:postgresql://localhost:5432/apex_hrm_test
+      HRM_TEST_DB_USER: hrm
+      HRM_TEST_DB_PASSWORD: hrm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Maven regression and PostgreSQL Flyway certification
+        working-directory: backend
+        run: mvn -B --no-transfer-progress test
+      - name: Archive JUnit reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m3-2-junit-results
+          path: backend/target/surefire-reports/
+          if-no-files-found: warn
