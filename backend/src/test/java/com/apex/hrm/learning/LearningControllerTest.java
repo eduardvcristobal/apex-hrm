@@ -67,4 +67,29 @@ class LearningControllerTest {
                 UUID.randomUUID(),null,"License","Issuer",null,LocalDate.now(),null)));
         verify(jdbc,never()).update(anyString(),any(Object[].class));
     }
+    @Test
+    void directCompletionWithoutStartingIsRejected() {
+        when(jdbc.update(startsWith("UPDATE ld_enrollment"),any(Object[].class))).thenReturn(0);
+        assertThrows(ResponseStatusException.class,() ->
+            controller.updateEnrollment(user,UUID.randomUUID(),
+                new LearningController.CompletionInput("COMPLETED",new BigDecimal("95"))));
+        verify(jdbc,never()).update(startsWith("INSERT INTO audit_event"),any(Object[].class));
+    }
+
+    @Test
+    void scoresCannotBeSetForIncompleteTraining() {
+        assertThrows(ResponseStatusException.class,() ->
+            controller.updateEnrollment(user,UUID.randomUUID(),
+                new LearningController.CompletionInput("IN_PROGRESS",new BigDecimal("70"))));
+        verifyNoInteractions(jdbc);
+    }
+
+    @Test
+    void enrollmentStatusCannotRevertToEnrolled() {
+        assertThrows(ResponseStatusException.class,() ->
+            controller.updateEnrollment(user,UUID.randomUUID(),
+                new LearningController.CompletionInput("ENROLLED",null)));
+        verifyNoInteractions(jdbc);
+    }
+
 }
