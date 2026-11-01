@@ -100,7 +100,7 @@ class BankCreditResultServiceTest {
         when(results.findByRunIdAndEmployeeIdAndCreditStatus(runId,first,"ACCEPTED")).thenReturn(List.of(accepted));
         String csv="EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\nEMP-1,100.00,ACCEPTED,A\nEMP-2,200.00,REJECTED,B";
         assertThrows(BusinessException.class,()->service.importResults(fileId,csv,"EV",actor));
-        when(results.findByEmployeeIdAndCreditStatus(first,"ACCEPTED")).thenReturn(List.of());
+        when(results.findByRunIdAndEmployeeIdAndCreditStatus(runId,first,"ACCEPTED")).thenReturn(List.of());
         when(imports.existsByBankFileId(fileId)).thenReturn(true);
         assertThrows(BusinessException.class,()->service.importResults(fileId,csv,"EV",actor));
     }
