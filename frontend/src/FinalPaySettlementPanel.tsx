@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { FinalPayReleaseReviewPanel } from './FinalPayReleaseReviewPanel';
 
 type Handoff = { id: string; status: string };
 type Settlement = { id: string; status: string; gross: number; deductions: number; net: number; requestedBy: string; decidedBy: string | null; settlementGate: string };
@@ -23,8 +24,8 @@ const zeroes = (): Record<FieldName, string> => ({
 });
 
 /** Uses the existing Personnel request helper to retain auth, MFA and error handling. */
-export function FinalPaySettlementPanel({ employeeId, caseId, currentUserId, request }: {
-  employeeId: string; caseId: string; currentUserId: string;
+export function FinalPaySettlementPanel({ employeeId, employeeNumber, caseId, currentUserId, request }: {
+  employeeId: string; employeeNumber: string; caseId: string; currentUserId: string;
   request: <T>(path: string, init?: RequestInit) => Promise<T>;
 }) {
   const [handoff, setHandoff] = useState<Handoff | null>(null);
@@ -109,6 +110,9 @@ export function FinalPaySettlementPanel({ employeeId, caseId, currentUserId, req
         </>}
       </div>
     </div>)}
+    {rows.filter(row => row.status === 'APPROVED').map(row => <FinalPayReleaseReviewPanel
+      key={row.id} personnelEmployeeId={employeeId} employeeNumber={employeeNumber}
+      settlementId={row.id} currentUserId={currentUserId} request={request} />)}
     {statement && <div className="people-subcard">
       <strong>Settlement review statement — {statement.status}</strong>
       <p className="people-muted">Reference: {statement.accountingReference}</p>
