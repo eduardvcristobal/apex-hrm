@@ -32,6 +32,11 @@ type PeriodAttestation = { id:string; snapshotId:string; sourceReviewId:string; 
   bankConfirmed:boolean; payoutCertified:boolean; disbursementEnabled:boolean };
 type SourceFreshness = { reviewStatus:string; current:boolean; latest:boolean;
     capturedSha256:string; currentSha256:string; payoutCertified:boolean };
+type ReleaseReadiness = { status:string; currentSnapshotStatus:string;
+  sourceReviewStatus:string; periodAttestationStatus:string; issuerDigestStatus:string;
+  paymentReviewStatus:string; issuerSignatureForDigestVerified:boolean;
+  actualDocumentBytesVerified:boolean; bankConfirmed:boolean; payoutCertified:boolean;
+  disbursementEnabled:boolean; blockingReasons:string[] };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -64,6 +69,7 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [sourceFreshness, setSourceFreshness] = useState<SourceFreshness | null>(null);
   const [sourceEvidenceRef, setSourceEvidenceRef] = useState('');
   const [attestations, setAttestations] = useState<PeriodAttestation[]>([]);
+  const [releaseReadiness, setReleaseReadiness] = useState<ReleaseReadiness | null>(null);
   const [periodSourceReview, setPeriodSourceReview] = useState('');
   const [documentIssuer, setDocumentIssuer] = useState('');
   const [documentReference, setDocumentReference] = useState('');
@@ -187,6 +193,16 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
     return ()=>{active=false;};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[settlementId,link?.status]);
+
+  useEffect(()=>{
+    let active=true;
+    request<ReleaseReadiness>(
+      `/api/v1/payroll/final-pay/release-readiness/settlements/${settlementId}`)
+      .then(value=>{if(active)setReleaseReadiness(value);})
+      .catch(()=>{if(active)setReleaseReadiness(null);});
+    return ()=>{active=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[settlementId,sourceDecisions,attestations,snapshots]);
 
   async function submitPeriodAttestation(event:FormEvent<HTMLFormElement>){
     event.preventDefault();
@@ -466,6 +482,18 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
             onClick={()=>void decidePeriodAttestation(item.id,'reject')}>Reject period evidence</button>
         </div>}
       </div>)}
+    </section>
+    <section className="people-subcard" aria-label="Multi-attestor release readiness">
+      <h4>Multi-attestor release readiness</h4>
+      <p className="people-muted"><strong>{releaseReadiness?.status.replaceAll('_',' ') || 'Loading release controls'}</strong></p>
+      <p className="people-muted">Source review: {releaseReadiness?.sourceReviewStatus || 'Unknown'} ·
+        Period attestation: {releaseReadiness?.periodAttestationStatus || 'Unknown'} ·
+        Issuer digest signature: {releaseReadiness?.issuerDigestStatus || 'NOT VERIFIED'}</p>
+      <p className="people-muted">A pinned trusted-issuer Ed25519 signature is evidence only of a document-digest claim.
+        Actual document bytes, bank account ownership and bank settlement remain unverified.</p>
+      <p className="people-muted">Bank confirmed: No · Financial payout certified: No · Disbursement enabled: No</p>
+      {releaseReadiness && <ul>{releaseReadiness.blockingReasons.map(reason=>
+        <li key={reason}>{reason}</li>)}</ul>}
     </section>
     <section className="people-subcard">
       <h4>Final-pay financial certification preflight</h4>
