@@ -355,19 +355,18 @@ public class PayrollService {
                 out.add(line(run, pe, emp, cc, l, null, null));
             }
             if (basis == PayBasis.MONTHLY) {
+                // Assignment transfers must not reduce an employee's contractual cutoff salary.
+                // True employment dates determine partial cutoff eligibility.
                 LocalDate activeFrom = emp.getHireDate();
-                if (rec.getEffectiveFrom() != null && rec.getEffectiveFrom().isAfter(activeFrom)) {
-                    activeFrom = rec.getEffectiveFrom();
-                }
-                if (comp.getEffectiveFrom() != null && comp.getEffectiveFrom().isAfter(activeFrom)) {
-                    activeFrom = comp.getEffectiveFrom();
-                }
                 LocalDate activeThrough = emp.getSeparationDate();
-                if (rec.getEffectiveTo() != null && (activeThrough == null || rec.getEffectiveTo().isBefore(activeThrough))) {
-                    activeThrough = rec.getEffectiveTo();
-                }
-                if (comp.getEffectiveTo() != null && (activeThrough == null || comp.getEffectiveTo().isBefore(activeThrough))) {
-                    activeThrough = comp.getEffectiveTo();
+                LocalDate firstEligible = activeFrom.isAfter(start) ? activeFrom : start;
+                // A compensation change during an active cutoff requires split-rate processing;
+                // fail closed rather than overpaying or underpaying at the last known rate.
+                if (comp.getEffectiveFrom() != null && comp.getEffectiveFrom().isAfter(firstEligible)
+                        || comp.getEffectiveTo() != null && comp.getEffectiveTo().isBefore(end)
+                        && (activeThrough == null || comp.getEffectiveTo().isBefore(activeThrough))) {
+                    throw new BusinessException("Mid-cutoff compensation change for "
+                            + emp.getEmployeeNo() + " requires split-rate reconciliation");
                 }
                 BigDecimal basic = calculated.stream().filter(l -> "BASIC".equals(l.code()))
                         .map(PayLine::amount).reduce(BigDecimal.ZERO, BigDecimal::add);
