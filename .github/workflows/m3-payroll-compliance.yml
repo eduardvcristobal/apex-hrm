@@ -106,6 +106,7 @@ jobs:
         run: |
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_14_postgres_e2e.sql
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_18_snapshot_schema.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_19_review_schema.sql
 
   authenticated-financial-api:
     runs-on: ubuntu-latest
