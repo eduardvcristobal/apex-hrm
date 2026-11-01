@@ -3,6 +3,7 @@ package com.apex.hrm.payroll.domain;
 import com.apex.hrm.common.BaseEntity;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import jakarta.persistence.Column;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -22,7 +23,11 @@ public class BankFile extends BaseEntity {
     private UUID recoverySourceFileId;
     private String fileName;
     @JsonIgnore
-    private String content;
+    @Column(name = "content_ciphertext", columnDefinition = "text")
+    private String contentCiphertext;
+    private String contentSha256;
+    private Instant purgedAt;
+    private Boolean legalHold = false;
     private Integer recordCount = 0;
     private BigDecimal totalAmount = new BigDecimal("0");
 }
