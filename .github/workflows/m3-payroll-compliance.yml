@@ -74,6 +74,17 @@ jobs:
           for attempt in $(seq 1 90); do
             if curl -fsS http://localhost:8080/actuator/health > /tmp/hrm-health.json; then
               cat /tmp/hrm-health.json
+              # Authenticated financial APIs must fail closed for anonymous clients.
+              for url in \
+                "http://localhost:8080/api/v1/payroll/identity-links?personnelEmployeeId=84000000-0000-4000-8000-000000000001" \
+                "http://localhost:8080/api/v1/payroll/final-pay/payment-authorizations?settlementId=89000000-0000-4000-8000-000000000001" \
+                "http://localhost:8080/api/v1/payroll/final-pay/bank-evidence?paymentAuthorizationId=8b000000-0000-4000-8000-000000000001"; do
+                code=$(curl -s -o /dev/null -w '%{http_code}' "$url")
+                if [[ "$code" != "401" && "$code" != "403" ]]; then
+                  echo "Anonymous financial endpoint was not denied: $url returned $code"
+                  exit 1
+                fi
+              done
               exit 0
             fi
             if ! kill -0 "$app_pid" 2>/dev/null; then
