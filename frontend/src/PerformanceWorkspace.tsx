@@ -39,20 +39,17 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
-  const auth = { Authorization: `Bearer ${token}` };
   async function loadCompany(id: string) {
     const [cy, emp] = await Promise.all([
       request<Cycle[]>(token, '/cycles?companyId=' + encodeURIComponent(id)),
-      fetch('/api/v1/personnel/employees?companyId=' + encodeURIComponent(id), { headers: auth }).then(async r => { if (!r.ok) throw Error('Unable to fetch employees'); return await r.json() as Employee[]; }),
+      request<Employee[]>(token, '/employees?companyId=' + encodeURIComponent(id)),
     ]);
     setCycles(cy); setEmployees(emp);
     if (!cy.some(c => c.id === cycleId)) setCycleId(cy[0]?.id || '');
     if (!emp.some(e => e.id === employeeId)) setEmployeeId(emp[0]?.id || '');
   }
   useEffect(() => {
-    void fetch('/api/v1/companies', { headers: auth }).then(async r => {
-      if (!r.ok) throw Error('Unable to fetch companies');
-      const raw = await r.json() as { id: string; name?: string; companyName?: string; legalName?: string }[];
+    void request<{ id: string; name?: string; companyName?: string; legalName?: string }[]>(token, '/companies').then(raw => {
       setCompanies(raw.map(c => ({ id: c.id, name: c.legalName || c.companyName || c.name || c.id })));
       setCompanyId(old => old || raw[0]?.id || '');
     }).catch(e => setError(String(e)));
