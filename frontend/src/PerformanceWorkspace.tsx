@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import './performance.css';
 
 type Item = Record<string, unknown>;
 type Cycle = { id: string; name: string; startsOn: string; endsOn: string; status: string };
