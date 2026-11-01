@@ -18,6 +18,7 @@ import com.apex.hrm.payroll.repo.BankCreditResultRepository;
 import com.apex.hrm.payroll.domain.BankCreditResult;
 import com.apex.hrm.personnel.domain.Employee;
 import com.apex.hrm.personnel.domain.EmployeeBankAccount;
+import com.apex.hrm.personnel.BankAccountCipher;
 import com.apex.hrm.personnel.repo.EmployeeBankAccountRepository;
 import com.apex.hrm.personnel.repo.EmployeeRepository;
 import com.apex.hrm.platform.service.AuditService;
@@ -59,6 +60,7 @@ public class BankFileService {
     private final BankFileRepository files;
     private final EmployeeRepository employees;
     private final EmployeeBankAccountRepository accounts;
+    private final BankAccountCipher accountCipher;
     private final AuditService audit;
     private final PayrollBankSettlementRepository settlements;
     private final BankCreditImportRepository resultImports;
@@ -66,7 +68,7 @@ public class BankFileService {
 
     public BankFileService(PayrollRunRepository runs, PayPeriodRepository periods, PayrollEmployeeRepository payrollEmployees,
                            BankTemplateRepository templates, BankFileRepository files, EmployeeRepository employees,
-                           EmployeeBankAccountRepository accounts, AuditService audit,
+                           EmployeeBankAccountRepository accounts, BankAccountCipher accountCipher, AuditService audit,
                            PayrollBankSettlementRepository settlements,
                            BankCreditImportRepository resultImports, BankCreditResultRepository creditResults) {
         this.runs = runs;
@@ -76,6 +78,7 @@ public class BankFileService {
         this.files = files;
         this.employees = employees;
         this.accounts = accounts;
+        this.accountCipher = accountCipher;
         this.audit = audit;
         this.settlements = settlements;
         this.resultImports = resultImports;
@@ -151,7 +154,7 @@ public class BankFileService {
             for (String c : columns) {
                 String name = (emp.getLastName() + ", " + emp.getFirstName()).trim();
                 row.add(csv(switch (c) {
-                    case "ACCOUNT_NO" -> acct.getAccountNo();
+                    case "ACCOUNT_NO" -> accountCipher.decrypt(acct.getAccountNoCiphertext(), acct.getTenantId(), acct.getEmployeeId());
                     case "ACCOUNT_NAME" -> acct.getAccountName() != null ? acct.getAccountName() : name;
                     case "AMOUNT" -> pe.getNetPay().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
                     case "EMPLOYEE_NO" -> emp.getEmployeeNo();
