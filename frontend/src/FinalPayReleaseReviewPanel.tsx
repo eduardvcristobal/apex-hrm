@@ -21,6 +21,9 @@ type SourceLedgerReview = { payrollStatus: string; loanStatus: string; leaveStat
     lockedBasicPay: number; simpleThirteenthAccrualCandidate: number;
     residualThirteenthCandidate: number; dtrStatus: string;
     thirteenthAccrualStatus: string; withholdingStatus: string };
+type SourceSnapshot = { id:string; sourceSha256:string; cutoffGapDays:number;
+  compensationGapDays:number; unfinalizedDtrDays:number; completenessStatus:string;
+  payoutCertified:boolean; disbursementEnabled:boolean; capturedAt:string };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -48,6 +51,7 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [reportedAmount, setReportedAmount] = useState('');
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
   const [sourceLedger, setSourceLedger] = useState<SourceLedgerReview | null>(null);
+  const [snapshots, setSnapshots] = useState<SourceSnapshot[]>([]);
   const [busy, setBusy] = useState(false);
   const identityPath = '/api/v1/payroll/identity-links';
   const paymentPath = '/api/v1/payroll/final-pay/payment-authorizations';
@@ -108,6 +112,24 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settlementId, link?.status, authorization?.status, evidenceRow?.status]);
 
+  useEffect(() => {
+    let active=true;
+    request<SourceSnapshot[]>(`/api/v1/payroll/final-pay/source-snapshots/settlements/${settlementId}`)
+      .then(rows=>{if(active)setSnapshots(rows);})
+      .catch(()=>{if(active)setSnapshots([]);});
+    return ()=>{active=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[settlementId,link?.status]);
+
+  async function captureSourceSnapshot(){
+    await execute(async()=>{
+      const saved=await request<SourceSnapshot>(
+        `/api/v1/payroll/final-pay/source-snapshots/settlements/${settlementId}`,
+        {method:'POST'});
+      setSnapshots(rows=>[saved,...rows]);
+      setNotice('Source evidence captured immutably. This is not final-pay or bank certification.');
+    });
+  }
   async function execute(operation: () => Promise<void>) {
     setBusy(true);setError('');setNotice('');
     try{await operation();}
@@ -277,6 +299,19 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
         <p className="people-muted">These values are source-ledger diagnostics only; incomplete cutoffs, applicable labor rules, DTR adjustments and annualized BIR withholding still require certification.</p>
         <ul>{sourceLedger.requiredActions.map(action => <li key={action}>{action}</li>)}</ul>
       </>}
+    </section>
+    <section className="people-subcard" aria-label="Final-pay immutable source snapshots">
+      <h4>Immutable source snapshot and cutoff completeness</h4>
+      <p className="people-muted">Captures a SHA-256 fingerprint of available payroll, DTR, compensation, loan and leave evidence. Capture is append-only; no snapshot authorizes payment.</p>
+      <button type="button" className="security-submit" disabled={busy || link?.status!=='APPROVED'}
+        onClick={()=>void captureSourceSnapshot()}>Capture financial source snapshot</button>
+      {snapshots.length===0 && <p className="people-muted">No source snapshots captured.</p>}
+      {snapshots.slice(0,5).map(item=><div className="people-record" key={item.id}><span>
+        <strong>{item.completenessStatus.replaceAll('_',' ')}</strong>
+        <small>Missing payroll cutoff days: {item.cutoffGapDays} · Missing compensation days: {item.compensationGapDays} · Open DTR: {item.unfinalizedDtrDays}</small>
+        <small>SHA-256: {item.sourceSha256}</small>
+        <small>Recorded {item.capturedAt} · Financial certification: No · Bank payout: Disabled</small>
+      </span></div>)}
     </section>
     <section className="people-subcard">
       <h4>Final-pay financial certification preflight</h4>
