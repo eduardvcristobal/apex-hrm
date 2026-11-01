@@ -27,3 +27,21 @@
 
 ## Release decision
 **NO-GO** until Flyway migration, backend/frontend build, role-level API integration, browser E2E, concurrency and privacy/security approval pass.
+
+## M5.10–M5.16 continuation (2026-11-01)
+- M5.10: Manager direct-report and active-cycle selector, review draft creation, review submission.
+- M5.11: Revalidate current manager relationship upon submission, restrict team review inbox to the assigned reviewer, prevent completing plans with outstanding milestones.
+- M5.12: Route-level MFA and tenant checks; negative authorization tests. **Live multi-tenant penetration/regression tests not yet run.**
+- M5.13: HR goal editing while active, progress history access, preserve existing weight and metadata.
+- M5.14: Individual development milestones with immutable evidence records (V92), completion lifecycle and self-service UI.
+- M5.15: Cycle-level HR reporting: goals, review statuses, average rating.
+- M5.16: GitHub Actions workflow `.github/workflows/m5-performance.yml` for Maven tests, PostgreSQL Flyway startup, and frontend TypeScript/Vite build.
+
+## Known certification gaps and limitations
+- M5.16 is **not complete** until the latest commit's GitHub Actions checks succeed and manual/automated browser scenarios are added and executed.
+- Vitest and Playwright are not installed in the existing frontend package; the CI workflow does not claim these suites pass.
+- Real authorization/tenant-isolation API tests, concurrent KPI updates, RBAC and MFA regression, and browser E2E are still required.
+- Manager UI supports draft creation and submission, but dedicated HR calibration/appeals and multi-review approval are not implemented.
+- Goal progress history UI currently indicates record count rather than exposing a detailed audit timeline.
+- M5 V90/V91/V92 ordering must be reconciled with M3 migrations before merging to `main`; never rewrite already-applied Flyway checksums.
+- Keep draft PR #5 until all full-system gates pass and HR/security approval is recorded.
