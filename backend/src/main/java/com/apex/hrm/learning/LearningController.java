@@ -44,6 +44,19 @@ public class LearningController {
     private void mustExist(boolean found) {
         if (!found) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Record not found in this workspace");
     }
+    /** Named picker endpoints keep company and employee selection within the learning boundary. */
+    @GetMapping("/companies")
+    public List<Map<String,Object>> companies(@AuthenticationPrincipal HrmUserPrincipal user) {
+        return tenants.inTenant(user.tenantId(),()->jdbc.queryForList(
+            "SELECT id,company_name AS \"name\" FROM company WHERE tenant_id=? ORDER BY company_name LIMIT 500",
+            user.tenantId()));
+    }
+    @GetMapping("/employees")
+    public List<Map<String,Object>> employees(@AuthenticationPrincipal HrmUserPrincipal user,@RequestParam UUID companyId) {
+        return tenants.inTenant(user.tenantId(),()->jdbc.queryForList(
+            "SELECT id,first_name || ' ' || last_name AS \"name\",employee_number AS \"employeeNumber\" FROM personnel_employee WHERE tenant_id=? AND company_id=? ORDER BY last_name,first_name LIMIT 500",
+            user.tenantId(),companyId));
+    }
     @GetMapping("/courses")
     public List<Map<String,Object>> courses(@AuthenticationPrincipal HrmUserPrincipal user) {
         return tenants.inTenant(user.tenantId(),()->jdbc.queryForList(
@@ -87,9 +100,20 @@ public class LearningController {
         return tenants.inTenant(user.tenantId(),()->{
             if (!List.of("ENROLLED","IN_PROGRESS","COMPLETED","CANCELLED").contains(in.status()))
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid enrollment status");
-            int changed=jdbc.update("UPDATE ld_enrollment SET status=?,completed_on=CASE WHEN ?='COMPLETED' THEN current_date ELSE NULL END,score=CASE WHEN ?='COMPLETED' THEN ? ELSE NULL END WHERE tenant_id=? AND id=?",
-                in.status(),in.status(),in.status(),in.score(),user.tenantId(),id);
-            mustExist(changed==1); audit(user,"LD_ENROLLMENT_UPDATED","ld_enrollment",id);
+            // One-way transitions: ENROLLED -> IN_PROGRESS/CANCELLED -> COMPLETED/CANCELLED.
+            // A completed or cancelled record cannot silently be reopened or overwritten.
+            if ("ENROLLED".equals(in.status()) || (!"COMPLETED".equals(in.status()) && in.score()!=null))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Invalid transition or score");
+            int changed=jdbc.update("""
+                UPDATE ld_enrollment SET status=?,
+                    completed_on=CASE WHEN ?='COMPLETED' THEN current_date ELSE NULL END,
+                    score=CASE WHEN ?='COMPLETED' THEN ? ELSE NULL END
+                WHERE tenant_id=? AND id=? AND
+                  ((status='ENROLLED' AND ? IN ('IN_PROGRESS','CANCELLED'))
+                    OR (status='IN_PROGRESS' AND ? IN ('COMPLETED','CANCELLED')))
+                """,in.status(),in.status(),in.status(),in.score(),user.tenantId(),id,in.status(),in.status());
+            if(changed!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Enrollment not found or transition not allowed");
+            audit(user,"LD_ENROLLMENT_UPDATED","ld_enrollment",id);
             return Map.of("id",id,"status",in.status());
         });
     }
