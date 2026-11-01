@@ -48,7 +48,7 @@ public class LearningController {
     @GetMapping("/companies")
     public List<Map<String,Object>> companies(@AuthenticationPrincipal HrmUserPrincipal user) {
         return tenants.inTenant(user.tenantId(),()->jdbc.queryForList(
-            "SELECT id,company_name AS \"name\" FROM company WHERE tenant_id=? ORDER BY company_name LIMIT 500",
+            "SELECT id,legal_name AS \"name\" FROM company WHERE tenant_id=? ORDER BY legal_name LIMIT 500",
             user.tenantId()));
     }
     @GetMapping("/employees")
