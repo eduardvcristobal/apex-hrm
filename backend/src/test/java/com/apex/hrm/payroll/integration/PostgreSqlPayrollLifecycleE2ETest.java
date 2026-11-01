@@ -197,6 +197,13 @@ class PostgreSqlPayrollLifecycleE2ETest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("PAID"));
         TenantContext.set(tenant);
         assertEquals("PAID", runs.findById(created.getId()).orElseThrow().getStatus());
+        assertEquals("RECONCILED", settlements.summary(created.getId()).status());
+        // A later return must not erase the historic PAID state; it creates a visible dispute.
+        settlements.reverse(acknowledgment.getId(), "Bank returned credit after settlement",
+                "BANK-RETURN-" + bank.getId(), recorder);
+        assertEquals("DISPUTED", settlements.summary(created.getId()).status());
+        assertMoney(pe.getNetPay(), settlements.summary(created.getId()).outstanding());
+        assertEquals("PAID", runs.findById(created.getId()).orElseThrow().getStatus());
 
         UUID otherTenant = UUID.randomUUID();
         boolean[] isolated = CompletableFuture.supplyAsync(() -> {
