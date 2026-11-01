@@ -162,6 +162,57 @@ public class PerformanceWorkflowController {
                 """,user.tenantId(),goalId);
         });
     }
+    public record ReviewDraftInput(@NotNull UUID cycleId,@NotNull UUID employeeId) {}
+    public record ManagerReviewInput(@NotNull @DecimalMin("1") @DecimalMax("5") BigDecimal rating,
+                                     @Size(max=5000) String strengths,@Size(max=5000) String improvements,
+                                     @Size(max=5000) String comments) {}
+    @PostMapping("/reviews/drafts")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String,Object> draftReview(@AuthenticationPrincipal HrmUserPrincipal user,
+             @Valid @RequestBody ReviewDraftInput input) {
+        authenticated(user);
+        if(!hr(user)&&!has(user,"ROLE_MANAGER")) throw denied();
+        return tenants.inTenant(user.tenantId(),()->{
+            if(!exists("""
+                SELECT EXISTS(SELECT 1 FROM performance_cycle c JOIN personnel_employee e
+                   ON e.tenant_id=c.tenant_id AND e.company_id=c.company_id
+                   WHERE c.tenant_id=? AND c.id=? AND c.status='ACTIVE' AND e.id=?)
+                """,user.tenantId(),input.cycleId(),input.employeeId()))
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Employee and active review cycle must share a company");
+            if(!hr(user)) {
+                UUID manager=employee(user);
+                if(manager==null || !exists("""
+                    SELECT EXISTS(SELECT 1 FROM personnel_employee
+                      WHERE tenant_id=? AND id=? AND supervisor_id=?)
+                    """,user.tenantId(),input.employeeId(),manager)) throw denied();
+            }
+            UUID id=jdbc.queryForObject("""
+                INSERT INTO performance_review(tenant_id,cycle_id,employee_id,reviewer_id,status)
+                VALUES(?,?,?,?,'DRAFT') RETURNING id
+                """,UUID.class,user.tenantId(),input.cycleId(),input.employeeId(),user.id());
+            audit(user,"PERFORMANCE_REVIEW_DRAFT_CREATED","performance_review",id);
+            return Map.of("id",id,"status","DRAFT");
+        });
+    }
+    @PostMapping("/reviews/{reviewId}/submit")
+    public void submitReview(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId,
+                             @Valid @RequestBody ManagerReviewInput input) {
+        authenticated(user);
+        tenants.inTenant(user.tenantId(),()->{
+            int count=jdbc.update("""
+                UPDATE performance_review SET rating=?,strengths=?,improvements=?,manager_comments=?,
+                  status='SUBMITTED',submitted_at=now(),updated_at=now()
+                WHERE tenant_id=? AND id=? AND reviewer_id=? AND status='DRAFT'
+                  AND EXISTS(SELECT 1 FROM performance_cycle c
+                    WHERE c.tenant_id=performance_review.tenant_id
+                      AND c.id=performance_review.cycle_id AND c.status='ACTIVE')
+                """,input.rating(),input.strengths(),input.improvements(),input.comments(),
+                user.tenantId(),reviewId,user.id());
+            if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only assigned reviewers can submit active drafts");
+            audit(user,"PERFORMANCE_REVIEW_SUBMITTED","performance_review",reviewId);
+            return null;
+        });
+    }
     @PostMapping("/reviews/{reviewId}/self-assessment")
     public void selfAssessment(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId,
              @Valid @RequestBody SelfAssessmentInput input) {
