@@ -15,6 +15,7 @@ import { ReportsWorkspace } from './ReportsWorkspace';
 import { PaySetupWorkspace } from './PaySetupWorkspace';
 import { ApprovalWorkspace } from './ApprovalWorkspace';
 import { AnnouncementsWorkspace } from './AnnouncementsWorkspace';
+import { LearningWorkspace } from './LearningWorkspace';
 import { SelectField } from './SelectField';
 import './styles.css';
 
@@ -436,7 +437,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
         { label: 'HR policies', icon: '⚖', available: user.roles.includes('ROLE_TENANT_ADMIN') },
         { label: 'Recruitment', icon: '⊕', available: false },
         { label: 'Performance', icon: '◇', available: false },
-        { label: 'Learning & development', icon: '▧', available: false },
+        { label: 'Learning & development', icon: '▧', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_AUDITOR'].includes(role)) },
       ],
     },
     {
