@@ -1,0 +1,70 @@
+name: M7.3 Legacy Bank Account Upgrade
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: ['feature/m7-3-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backfill:
+    name: V58 plaintext to V59 ciphertext and rotation
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/apex_hrm
+      DB_USER: hrm
+      DB_PASSWORD: hrm
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: hrm
+      PGPASSWORD: hrm
+      PGDATABASE: apex_hrm
+      SMTP_HEALTH_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Prepare PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+      - name: Apply Flyway through V58 and seed synthetic historical account
+        run: |
+          docker run --rm --network host -v "$PWD/backend/src/main/resources/db/migration:/flyway/sql:ro" flyway/flyway:10.20.1 -url=jdbc:postgresql://localhost:5432/apex_hrm -user=hrm -password=hrm -target=58 migrate
+          psql -v ON_ERROR_STOP=1 -f scripts/db/m7_3_v58_legacy_fixture.sql
+      - name: Build application
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests package
+      - name: Prepare ephemeral initial test key
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::$key"
+          echo "HRM_BANK_ACCOUNT_KEY=$key" >> "$GITHUB_ENV"
+          echo "HRM_BANK_ACCOUNT_KEY_ID=k1" >> "$GITHUB_ENV"
+      - name: Backfill and scrub V58 legacy account during V59 startup
+        run: bash scripts/db/m7_3_check_application.sh k1
+      - name: Rotate ciphertext with explicit previous key
+        run: |
+          set -euo pipefail
+          old="$HRM_BANK_ACCOUNT_KEY"
+          new="$(openssl rand -base64 32)"
+          echo "::add-mask::$new"
+          HRM_BANK_ACCOUNT_PREVIOUS_KEY="$old" HRM_BANK_ACCOUNT_PREVIOUS_KEY_ID=k1 HRM_BANK_ACCOUNT_KEY="$new" HRM_BANK_ACCOUNT_KEY_ID=k2 bash scripts/db/m7_3_check_application.sh k2
