@@ -56,6 +56,25 @@ public class PerformanceController {
         jdbc.update("INSERT INTO audit_event(tenant_id,actor_id,action,entity_type,entity_id) VALUES(?,?,?,?,?)",
             user.tenantId(),user.id(),action,kind,id);
     }
+    @GetMapping("/companies")
+    public List<Map<String,Object>> companies(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authorize(user);
+        return tenant.inTenant(user.tenantId(),()->jdbc.queryForList("""
+            SELECT id,legal_name AS "legalName" FROM company
+            WHERE tenant_id=? ORDER BY legal_name LIMIT 200
+            """,user.tenantId()));
+    }
+    @GetMapping("/employees")
+    public List<Map<String,Object>> employees(@AuthenticationPrincipal HrmUserPrincipal user,
+                                               @RequestParam UUID companyId) {
+        authorize(user);
+        return tenant.inTenant(user.tenantId(),()->jdbc.queryForList("""
+            SELECT id,employee_number AS "employeeNumber",first_name AS "firstName",
+                 last_name AS "lastName" FROM personnel_employee
+            WHERE tenant_id=? AND company_id=? AND employment_status IN ('ACTIVE','ON_LEAVE')
+            ORDER BY last_name,first_name LIMIT 1000
+            """,user.tenantId(),companyId));
+    }
     @GetMapping("/cycles")
     public List<Map<String,Object>> cycles(@AuthenticationPrincipal HrmUserPrincipal user,
                                             @RequestParam UUID companyId) {
