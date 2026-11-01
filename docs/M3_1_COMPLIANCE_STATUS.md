@@ -26,11 +26,25 @@ Branch: feature/m3-1-payroll-compliance
 - Tax & Compliance now includes an Annualization Review tab that loads employee selections and displays persisted-year tax reconciliations without posting deductions or refunds.
 - Tax sources: https://bir-cdn.bir.gov.ph/local/pdf/1701%20Jan%202018%20final%20with%20rates.pdf and https://bir-cdn.bir.gov.ph/local/pdf/RR%20No.%2011-2018.pdf
 
+## M3.1.11 — Controlled annual withholding adjustments
+
+- Flyway V51 adds `annual_tax_adjustment_request`, unique per tenant, employee, and tax year. The unique record persists even after rejection to prevent a silent duplicate request.
+- The approved payroll item `WTAX_ANNUAL` is reserved from generic adjustment creation; generic adjustment requester identity is now taken from the authenticated user instead of client-supplied JSON.
+- POST `/api/payroll/tax/adjustment-requests` requires a **completed prior year**, a positive computed shortfall, independently affirmed payroll-year completeness and benefit classifications, a written justification, and a future OPEN target period whose run has not reached approval.
+- A different authenticated payroll administrator approves through POST `.../{id}/approve` or rejects through POST `.../{id}/reject`. Requests are row-locked during decisions; the annual ledger is recalculated and checked against the request snapshot immediately before approval.
+- Approval creates one approved, non-taxable `WTAX_ANNUAL` payroll deduction in the standard adjustment queue. It **does not** issue payment, issue a refund, revise locked payroll, or claim a BIR filing.
+- GET `/api/payroll/tax/adjustment-requests?employeeId=...&taxYear=...` and GET `.../{id}` support review/approval handoff in the Tax & Compliance UI.
+- Unit regressions cover self-approval, stale ledgers, target period eligibility, duplicate requests, negative/refund exclusion, approved item creation and audit controls.
+- Explicit bearer tokens can now access existing `/api/payroll/**` POST actions without session CSRF tokens; session/cookie requests remain CSRF-protected.
+- CI now includes PostgreSQL 16 application startup and Flyway/Hibernate schema validation smoke testing.
+
+**Important limitations:** completeness and benefit categorization are attested by authorized payroll staff rather than auto-certified; automatic refunds, final pay, complete annual tax reporting, government file submissions and signed human acceptance remain outside this milestone. Treat any request as pending HR/BIR review until independently validated.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
 2. End-to-end final-pay workflow: approved leave/asset/loan clearance, separation pay eligibility, employee-year statutory reconciliation, approval, payslip settlement and payout.
-3. Ledger-based year-to-date annual reconciliation exists as a read-only preview, but automatic approved withholding/refunds, benefit-code mapping, incomplete-period handling, and year-end payroll run integration remain outstanding.
+3. Reviewed positive annual withholding differences can be submitted and independently approved into an open future pay period; automatic refund settlement, complete benefit-code classification, automated completeness checks, and actual year-end tax adjustment release certification remain outstanding.
 4. Actual SSS/PhilHealth/Pag-IBIG agency-specific submission file layouts and BIR 1601-C, 2316 and alphalist exports, validated against official specs.
 5. PostgreSQL/Flyway integration tests, multi-tenant authorization tests, browser E2E and real payroll acceptance scenarios.
 6. Review all statutory seed data with counsel/payroll, legal-effective-date rates, holidays, regional wage orders, and privacy controls for employee bank accounts.
