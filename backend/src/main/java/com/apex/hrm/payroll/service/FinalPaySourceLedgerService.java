@@ -29,13 +29,20 @@ public class FinalPaySourceLedgerService {
         BigDecimal declaredThirteenthMonth,BigDecimal declaredOutstandingLoans,
         BigDecimal declaredLeaveConversion,String payrollStatus,String loanStatus,
         String leaveStatus,String certificationStatus,boolean disbursementEnabled,
-        List<String> requiredActions) {}
+        List<String> requiredActions,
+        int finalizedDtrDays,int openDtrDays,int absentDtrDays,
+        int lateMinutes,int undertimeMinutes,int approvedOvertimeMinutes,
+        BigDecimal lockedBasicPay,BigDecimal simpleThirteenthAccrualCandidate,
+        BigDecimal residualThirteenthCandidate,String dtrStatus,
+        String thirteenthAccrualStatus,String withholdingStatus) {}
     private record Settlement(UUID id,UUID employeeId,UUID caseId,
         String status,BigDecimal thirteenth,BigDecimal loans,BigDecimal leave) {}
     private record Identity(UUID employeeId,String status) {}
     private record PayrollTotals(int count,BigDecimal thirteenth,BigDecimal withholding) {}
     private record Loans(int count,BigDecimal balance) {}
     private record Leaves(int count,BigDecimal days) {}
+    private record DtrTotals(int finalized,int open,int absent,int late,int undertime,int overtime) {}
+    private record BasicTotals(BigDecimal basic) {}
 
     public SourceReview review(HrmUserPrincipal user,UUID settlementId) {
         return tenants.inTenant(user.tenantId(),()-> {
@@ -60,7 +67,9 @@ public class FinalPaySourceLedgerService {
                     BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,0,BigDecimal.ZERO,0,
                     s.thirteenth(),s.loans(),s.leave(),"IDENTITY_UNVERIFIED",
                     "IDENTITY_UNVERIFIED","IDENTITY_UNVERIFIED",
-                    "REVIEW_REQUIRED",false,List.of("Approve the matching legacy payroll employee identity before querying financial ledgers"));
+                    "REVIEW_REQUIRED",false,List.of("Approve the matching legacy payroll employee identity before querying financial ledgers"),
+                    0,0,0,0,0,0,BigDecimal.ZERO,BigDecimal.ZERO,BigDecimal.ZERO,
+                    "IDENTITY_UNVERIFIED","IDENTITY_UNVERIFIED","IDENTITY_UNVERIFIED");
             UUID employee=links.get(0).employeeId();
             LocalDate effective=jdbc.queryForObject("""
                 SELECT effective_date FROM personnel_hr_case
@@ -96,12 +105,45 @@ public class FinalPaySourceLedgerService {
                 """,(rs,i)->new Leaves(rs.getInt(1),rs.getBigDecimal(2)),
                     user.tenantId(),employee,effective);
 
+            LocalDate start=LocalDate.of(year,1,1);
+            DtrTotals dtr=jdbc.queryForObject("""
+                SELECT
+                    count(*) FILTER (WHERE status IN ('LOCKED','FINALIZED','APPROVED'))::int,
+                    count(*) FILTER (WHERE status NOT IN ('LOCKED','FINALIZED','APPROVED'))::int,
+                    count(*) FILTER (WHERE absent)::int,
+                    COALESCE(sum(late_minutes),0)::int,
+                    COALESCE(sum(undertime_minutes),0)::int,
+                    COALESCE(sum(ot_approved_minutes),0)::int
+                FROM dtr_day WHERE tenant_id=? AND employee_id=?
+                    AND work_date BETWEEN ? AND ?
+                """,(rs,i)->new DtrTotals(rs.getInt(1),rs.getInt(2),rs.getInt(3),
+                    rs.getInt(4),rs.getInt(5),rs.getInt(6)),
+                    user.tenantId(),employee,start,effective);
+            BasicTotals basic=jdbc.queryForObject("""
+                SELECT COALESCE(sum(l.amount),0)
+                FROM payroll_line l
+                JOIN payroll_run r ON r.tenant_id=l.tenant_id AND r.id=l.run_id
+                JOIN pay_period p ON p.tenant_id=r.tenant_id AND p.id=r.pay_period_id
+                WHERE l.tenant_id=? AND l.employee_id=?
+                  AND r.status IN ('LOCKED','PAID')
+                  AND p.start_date>=? AND p.end_date<=?
+                  AND l.item_code='BASIC' AND l.category='EARNING'
+                """,(rs,i)->new BasicTotals(rs.getBigDecimal(1)),user.tenantId(),employee,start,effective);
+            BigDecimal accrualCandidate=thirteenthCandidate(basic.basic());
+            BigDecimal residualCandidate=accrualCandidate.subtract(payroll.thirteenth());
+            String dtrStatus=dtrStatus(dtr.finalized(),dtr.open());
+            String accrualStatus=accrualStatus(payroll.count(),basic.basic(),residualCandidate);
+            String withholdingStatus=payroll.count()==0?"WITHHOLDING_SOURCE_MISSING":
+                "ANNUAL_TAX_RECOMPUTATION_REQUIRED";
             String payrollStatus=payroll.count()==0?"PAYROLL_SOURCE_MISSING":"ANNUAL_COVERAGE_AND_ACCRUAL_REVIEW_REQUIRED";
             String loanStatus=loanStatus(loans.count(),loans.balance(),s.loans());
             String leaveStatus=leaveStatus(leave.count(),leave.days(),s.leave());
             List<String> actions=new java.util.ArrayList<>();
             actions.add("Recompute unpaid basic and 13th-month earned/accrued less previously paid benefits from complete locked payroll and hire/separation dates");
             actions.add("Revalidate BIR final withholding and all statutory deductions against approved government tables");
+            actions.add("Reconcile DTR finalized days, absences, lateness, undertime, overtime and unpaid cutoffs to source pay lines");
+            actions.add("Check 13th-month candidate (locked BASIC earnings / 12 minus prior paid 13th); reconcile all missing cutoffs, actual earnings and separation rules");
+            actions.add("Calculate final annualized tax from complete locked payroll, year-end statutory tables, refunds and exemptions");
             if(!"MATCHED_ACTIVE_BALANCE_REVIEW_REQUIRED".equals(loanStatus))
                 actions.add("Reconcile outstanding loan balances, deductions and recovery authorization");
             actions.add("Approve per-leave-type conversion rate, eligibility and unused days; days cannot be converted to pesos automatically");
@@ -109,10 +151,27 @@ public class FinalPaySourceLedgerService {
             return new SourceReview(s.id(),employee,year,payroll.count(),payroll.thirteenth(),
                 payroll.withholding(),loans.balance(),loans.count(),leave.days(),leave.count(),
                 s.thirteenth(),s.loans(),s.leave(),payrollStatus,loanStatus,leaveStatus,
-                "REVIEW_REQUIRED",false,List.copyOf(actions));
+                "REVIEW_REQUIRED",false,List.copyOf(actions),
+                dtr.finalized(),dtr.open(),dtr.absent(),dtr.late(),dtr.undertime(),dtr.overtime(),
+                basic.basic(),accrualCandidate,residualCandidate,dtrStatus,accrualStatus,withholdingStatus);
         });
     }
 
+    /** Diagnostic only. Locked BASIC total is not necessarily all earned basic salary. */
+    static BigDecimal thirteenthCandidate(BigDecimal lockedBasic) {
+        if(lockedBasic==null || lockedBasic.signum()<0)throw new IllegalArgumentException("Invalid locked basic");
+        return lockedBasic.divide(new BigDecimal("12"),4,java.math.RoundingMode.HALF_UP);
+    }
+    static String accrualStatus(int payrollLines,BigDecimal basic,BigDecimal residual) {
+        if(payrollLines<=0 || basic==null || basic.signum()==0)return "ACCRUAL_SOURCE_INCOMPLETE";
+        if(residual==null || residual.signum()<0)return "PRIOR_PAID_EXCEEDS_SOURCE_CANDIDATE";
+        return "ACCRUAL_CANDIDATE_REQUIRES_CUTOFF_CERTIFICATION";
+    }
+    static String dtrStatus(int finalized,int open){
+        if(finalized==0 && open==0)return "DTR_SOURCE_MISSING";
+        if(open>0)return "DTR_UNFINALIZED";
+        return "DTR_FINALIZED_DAYS_REQUIRE_PAYROLL_COVERAGE_REVIEW";
+    }
     static String loanStatus(int count,BigDecimal ledger,BigDecimal claimed) {
         if(ledger==null || claimed==null || ledger.signum()<0 || claimed.signum()<0)
             return "LOAN_INVALID";
