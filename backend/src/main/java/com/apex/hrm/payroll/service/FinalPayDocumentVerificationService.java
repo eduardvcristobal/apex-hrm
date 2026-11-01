@@ -47,8 +47,8 @@ public class FinalPayDocumentVerificationService {
         UUID snapshotId,String sourceSha256,String sourceReviewStatus) {}
 
     static String claim(UUID tenant,UUID attestationId,String sha256,String keyId){
-        return "APEX-HRM-DOCUMENT-DIGEST-V1\\n"+tenant+"\\n"+attestationId
-            +"\\n"+sha256+"\\n"+keyId+"\\n";
+        return "APEX-HRM-DOCUMENT-DIGEST-V1\n"+tenant+"\n"+attestationId
+            +"\n"+sha256+"\n"+keyId+"\n";
     }
     /** Does not accept keys from a request. Decoded X509 SubjectPublicKeyInfo, Ed25519 only. */
     static boolean verifySignature(String publicKeyBase64,String message,String signatureBase64){
