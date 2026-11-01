@@ -7,6 +7,32 @@ SETTLEMENT="89000000-0000-4000-8000-000000000001"
 ROOT="/api/v1/payroll/final-pay/source-reviews"
 SNAPS="/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
 headers=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+# Final source-review decisions must resist direct database modification.
+psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'REVIEW_SQL'
+BEGIN;
+SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000001',true);
+DO $verify$
+DECLARE source_review_id uuid;
+BEGIN
+ SELECT id INTO source_review_id FROM payroll_final_pay_source_review
+ WHERE tenant_id='81000000-0000-4000-8000-000000000001' AND status='REJECTED' LIMIT 1;
+ IF source_review_id IS NULL THEN RAISE EXCEPTION 'Missing independent rejected source review'; END IF;
+ BEGIN
+  UPDATE payroll_final_pay_source_review SET status='SOURCE_REVIEWED'
+   WHERE id=source_review_id;
+  RAISE EXCEPTION 'Source review overwrite unexpectedly succeeded';
+ EXCEPTION WHEN check_violation THEN NULL;
+ END;
+ BEGIN
+  DELETE FROM payroll_final_pay_source_review WHERE id=source_review_id;
+  RAISE EXCEPTION 'Source review removal unexpectedly succeeded';
+ EXCEPTION WHEN check_violation THEN NULL;
+ END;
+END $verify$;
+ROLLBACK;
+REVIEW_SQL
+echo 'PASS: decided source review resists SQL UPDATE and DELETE'
+
 psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SQL'
 BEGIN;
 SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000001',true);
