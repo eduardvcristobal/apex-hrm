@@ -57,6 +57,9 @@ public class PayrollController {
                                     Boolean taxable, String reason, UUID sourcePeriodId, UUID targetPeriodId, UUID requestedBy) {
     }
 
+    public record BankFileSummary(UUID id, UUID runId, UUID bankTemplateId, String fileName, UUID recoverySourceFileId,
+                                  int recordCount, BigDecimal totalAmount) {}
+
     private final PayrollService payroll;
     private final JournalService journals;
     private final BankFileService bankFiles;
@@ -172,9 +175,16 @@ public class PayrollController {
         return bankFiles.generate(id, r.bankTemplateId());
     }
 
+    @GetMapping("/runs/{id}/bank-files")
+    public List<BankFileSummary> bankFiles(@PathVariable UUID id) {
+        return bankFiles.listForRun(id).stream().map(file -> new BankFileSummary(file.getId(), file.getRunId(),
+                file.getBankTemplateId(), file.getFileName(), file.getRecoverySourceFileId(), file.getRecordCount(),
+                file.getTotalAmount())).toList();
+    }
+
     @GetMapping("/bank-files/{id}/download")
     public ResponseEntity<String> download(@PathVariable UUID id) {
-        BankFile f = bankFileRepo.findById(id).orElseThrow(() -> new NotFoundException("Bank file", id));
+        BankFile f = bankFiles.getFile(id);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + f.getFileName() + "\"")
                 .contentType(MediaType.parseMediaType("text/csv"))

@@ -31,6 +31,7 @@ import com.apex.hrm.payroll.repo.PayPeriodRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
 import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
+import com.apex.hrm.payroll.repo.PayrollBankSettlementRepository;
 import com.apex.hrm.payroll.repo.PremiumRuleRepository;
 import com.apex.hrm.payroll.repo.StatutoryContributionRuleRepository;
 import com.apex.hrm.payroll.repo.WageOrderRepository;
@@ -93,6 +94,7 @@ public class PayrollService {
     private final PayslipService payslips;
     private final AuditService audit;
     private final SettlementService settlement;
+    private final PayrollBankSettlementRepository bankSettlements;
 
     public PayrollService(PayrollRunRepository runs, PayPeriodRepository periods, PayGroupRepository payGroups,
                           PayrollEmployeeRepository payrollEmployees, PayrollLineRepository lines,
@@ -101,7 +103,8 @@ public class PayrollService {
                           RecurringItemRepository recurring, LoanRepository loans, PremiumRuleRepository premiumRules,
                           StatutoryContributionRuleRepository statutory, WithholdingTaxBracketRepository taxBrackets,
                           WageOrderRepository wageOrders, WorkLocationRepository locations, PayslipService payslips,
-                          AuditService audit, SettlementService settlement) {
+                          AuditService audit, SettlementService settlement,
+                          PayrollBankSettlementRepository bankSettlements) {
         this.runs = runs;
         this.periods = periods;
         this.payGroups = payGroups;
@@ -122,6 +125,7 @@ public class PayrollService {
         this.payslips = payslips;
         this.audit = audit;
         this.settlement = settlement;
+        this.bankSettlements = bankSettlements;
     }
 
     @Transactional
@@ -316,8 +320,16 @@ public class PayrollService {
 
     @Transactional
     public PayrollRun markPaid(UUID runId) {
-        PayrollRun run = load(runId);
+        PayrollRun run = runs.lockForSettlement(runId)
+                .orElseThrow(() -> new NotFoundException("Payroll run", runId));
         requireStatus(run, "LOCKED");
+        BigDecimal confirmed = bankSettlements.findByRunIdOrderByCreatedAtAsc(runId).stream()
+                .filter(row -> "CONFIRMED".equals(row.getStatus()))
+                .map(row -> row.getAcknowledgedAmount()).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal expected = run.getTotalNet().setScale(2, RoundingMode.HALF_UP);
+        if (expected.signum() <= 0 || confirmed.compareTo(expected) != 0) {
+            throw new BusinessException("Payroll cannot be marked PAID without fully confirmed bank settlement evidence");
+        }
         run.setStatus("PAID");
         run.setPaidAt(Instant.now());
         audit.log("PayrollRun", runId, "PAID", "marked as paid");
