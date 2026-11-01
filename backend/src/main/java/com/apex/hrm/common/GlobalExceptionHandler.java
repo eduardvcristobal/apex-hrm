@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -30,6 +31,20 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     ResponseEntity<ApiError> business(BusinessException e) {
         return build(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
+    /** Preserve explicit 400/403/404/409 responses from payroll and tenant-safe services.
+     * Without this handler the generic Exception advice incorrectly converted them into 500s.
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    ResponseEntity<ApiError> responseStatus(ResponseStatusException e) {
+        int code=e.getStatusCode().value();
+        HttpStatus status=HttpStatus.resolve(code);
+        String label=status==null ? "HTTP "+code : status.getReasonPhrase();
+        String reason=e.getReason();
+        return ResponseEntity.status(e.getStatusCode())
+            .body(new ApiError(Instant.now(),code,label,
+                reason==null || reason.isBlank() ? label : reason));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
