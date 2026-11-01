@@ -15,11 +15,21 @@ Branch: feature/m3-1-payroll-compliance
 - GET /api/payroll/runs/{id}/remittance-review?agency=SSS|PHILHEALTH|PAGIBIG produces an INTERNAL review CSV (not a government-approved upload file).
 - Unit regressions cover proration, final-pay arithmetic, annualization arithmetic, Pag-IBIG threshold and CSV formula injection.
 
+## M3.1 continuation — ledger-based annualization
+
+- Flyway V50 seeds the BIR annual compensation brackets effective January 1, 2023, with tax-boundary tests.
+- GET `/api/payroll/tax/employees/{employeeId}/annualization?year=2026` calculates a review-only annual reconciliation from LOCKED/PAID payroll lines and effective-dated ANNUAL brackets.
+- The ledger groups taxable regular earnings, deductions for absence, late/undertime, proration and statutory employee shares, plus coded `THIRTEENTH_MONTH`, `OTHER_BENEFIT`, and `WTAX` amounts.
+- Reconciliation returns an explicit REVIEW_REQUIRED status. Missing payroll records fail closed.
+- This is not automatically posted to a pay run, does not generate an official BIR form, and cannot certify an incomplete year or uncategorized fringe benefits.
+- Unit and service-level mocked ledger tests cover tax thresholds, bonus exemption handling and persisted-record lookup.
+- Tax sources: https://bir-cdn.bir.gov.ph/local/pdf/1701%20Jan%202018%20final%20with%20rates.pdf and https://bir-cdn.bir.gov.ph/local/pdf/RR%20No.%2011-2018.pdf
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
 2. End-to-end final-pay workflow: approved leave/asset/loan clearance, separation pay eligibility, employee-year statutory reconciliation, approval, payslip settlement and payout.
-3. Actual year-to-date tax accumulation and automatic annualized withholding/refunds in payroll runs, including 13th-month and all other benefits across pay periods.
+3. Ledger-based year-to-date annual reconciliation exists as a read-only preview, but automatic approved withholding/refunds, benefit-code mapping, incomplete-period handling, and year-end payroll run integration remain outstanding.
 4. Actual SSS/PhilHealth/Pag-IBIG agency-specific submission file layouts and BIR 1601-C, 2316 and alphalist exports, validated against official specs.
 5. PostgreSQL/Flyway integration tests, multi-tenant authorization tests, browser E2E and real payroll acceptance scenarios.
 6. Review all statutory seed data with counsel/payroll, legal-effective-date rates, holidays, regional wage orders, and privacy controls for employee bank accounts.
