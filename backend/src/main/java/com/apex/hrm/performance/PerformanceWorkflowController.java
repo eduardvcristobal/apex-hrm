@@ -360,6 +360,19 @@ public class PerformanceWorkflowController {
                 case "IN_PROGRESS" -> next.equals("COMPLETED") || next.equals("CANCELLED");
                 default -> false;
             }) throw new ResponseStatusException(HttpStatus.CONFLICT,"Invalid plan transition");
+            if("COMPLETED".equals(next)) {
+                Integer incomplete=jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM performance_plan_milestone
+                    WHERE tenant_id=? AND plan_id=? AND status NOT IN ('COMPLETED','CANCELLED')
+                    """,Integer.class,user.tenantId(),planId);
+                Integer completed=jdbc.queryForObject("""
+                    SELECT COUNT(*) FROM performance_plan_milestone
+                    WHERE tenant_id=? AND plan_id=? AND status='COMPLETED'
+                    """,Integer.class,user.tenantId(),planId);
+                if(incomplete==null || incomplete>0 || completed==null || completed==0)
+                    throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Complete at least one milestone and resolve remaining milestones before closing the plan");
+            }
             jdbc.update("UPDATE performance_development_plan SET status=?,updated_at=now() WHERE tenant_id=? AND id=?",
                 next,user.tenantId(),planId);
             audit(user,"PERFORMANCE_PLAN_STATUS_UPDATED","performance_development_plan",planId);
