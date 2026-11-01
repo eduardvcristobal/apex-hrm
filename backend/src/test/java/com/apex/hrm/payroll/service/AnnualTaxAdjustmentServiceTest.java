@@ -7,11 +7,13 @@ import com.apex.hrm.common.BusinessException;
 import com.apex.hrm.payroll.domain.Adjustment;
 import com.apex.hrm.payroll.domain.AnnualTaxAdjustmentRequest;
 import com.apex.hrm.payroll.domain.PayPeriod;
+import com.apex.hrm.payroll.domain.PayrollRun;
 import com.apex.hrm.payroll.engine.AnnualCompensationLedger;
 import com.apex.hrm.payroll.engine.AnnualizedTaxCalculator;
 import com.apex.hrm.payroll.repo.AdjustmentRepository;
 import com.apex.hrm.payroll.repo.AnnualTaxAdjustmentRequestRepository;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
+import com.apex.hrm.payroll.repo.PayrollRunRepository;
 import com.apex.hrm.platform.service.AuditService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -26,6 +28,7 @@ class AnnualTaxAdjustmentServiceTest {
     private AnnualTaxAdjustmentRequestRepository requests;
     private PayPeriodRepository periods;
     private AdjustmentRepository adjustments;
+    private PayrollRunRepository runs;
     private AuditService audit;
     private AnnualTaxAdjustmentService service;
     private UUID employee;
@@ -40,8 +43,9 @@ class AnnualTaxAdjustmentServiceTest {
         requests = mock(AnnualTaxAdjustmentRequestRepository.class);
         periods = mock(PayPeriodRepository.class);
         adjustments = mock(AdjustmentRepository.class);
+        runs = mock(PayrollRunRepository.class);
         audit = mock(AuditService.class);
-        service = new AnnualTaxAdjustmentService(reconciliation, requests, periods, adjustments, audit);
+        service = new AnnualTaxAdjustmentService(reconciliation, requests, periods, adjustments, runs, audit);
         employee = UUID.randomUUID();
         target = UUID.randomUUID();
         requester = UUID.randomUUID();
@@ -51,6 +55,7 @@ class AnnualTaxAdjustmentServiceTest {
         open.setStartDate(LocalDate.of(2027, 1, 1));
         open.setStatus("OPEN");
         when(periods.findById(target)).thenReturn(Optional.of(open));
+        when(runs.findByPayPeriodId(target)).thenReturn(java.util.List.of());
         when(reconciliation.preview(employee, 2025)).thenReturn(
                 new AnnualTaxReconciliationService.Reconciliation(employee, 2025, 12,
                         new AnnualCompensationLedger.Totals(
@@ -105,6 +110,14 @@ class AnnualTaxAdjustmentServiceTest {
         locked.setStartDate(LocalDate.of(2027, 1, 1));
         when(periods.findById(target)).thenReturn(Optional.of(locked));
         assertThrows(BusinessException.class, () -> service.request(submitted(true, true), requester));
+    }
+
+    @Test void disallowTaxAdjustmentAfterPayrollApproval() {
+        PayrollRun alreadyApproved = new PayrollRun();
+        alreadyApproved.setStatus("APPROVED");
+        when(runs.findByPayPeriodId(target)).thenReturn(java.util.List.of(alreadyApproved));
+        assertThrows(BusinessException.class, () -> service.request(submitted(true, true), requester));
+        verifyNoInteractions(adjustments);
     }
 
     private AnnualTaxAdjustmentRequest pending() {

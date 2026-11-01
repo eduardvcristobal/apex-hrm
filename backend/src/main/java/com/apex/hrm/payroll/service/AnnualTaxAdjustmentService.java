@@ -8,6 +8,7 @@ import com.apex.hrm.payroll.domain.PayPeriod;
 import com.apex.hrm.payroll.repo.AdjustmentRepository;
 import com.apex.hrm.payroll.repo.AnnualTaxAdjustmentRequestRepository;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
+import com.apex.hrm.payroll.repo.PayrollRunRepository;
 import com.apex.hrm.platform.service.AuditService;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -26,15 +27,17 @@ public class AnnualTaxAdjustmentService {
     private final AnnualTaxAdjustmentRequestRepository requests;
     private final PayPeriodRepository periods;
     private final AdjustmentRepository adjustments;
+    private final PayrollRunRepository runs;
     private final AuditService audit;
 
     public AnnualTaxAdjustmentService(AnnualTaxReconciliationService reconciliations,
             AnnualTaxAdjustmentRequestRepository requests, PayPeriodRepository periods,
-            AdjustmentRepository adjustments, AuditService audit) {
+            AdjustmentRepository adjustments, PayrollRunRepository runs, AuditService audit) {
         this.reconciliations = reconciliations;
         this.requests = requests;
         this.periods = periods;
         this.adjustments = adjustments;
+        this.runs = runs;
         this.audit = audit;
     }
 
@@ -158,6 +161,9 @@ public class AnnualTaxAdjustmentService {
                 period.getStartDate() == null ||
                 !period.getStartDate().isAfter(LocalDate.of(year, 12, 31)))
             throw new BusinessException("Target must be an OPEN pay period after the tax year");
+        if (runs.findByPayPeriodId(periodId).stream().anyMatch(run ->
+                !java.util.Set.of("DRAFT", "COMPUTED", "REVIEWED").contains(run.getStatus())))
+            throw new BusinessException("Target payroll has been approved or locked; choose an earlier-stage open period");
         return period;
     }
 }
