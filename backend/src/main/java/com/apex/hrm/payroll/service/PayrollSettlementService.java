@@ -102,7 +102,8 @@ public class PayrollSettlementService {
         BigDecimal confirmed = records.stream().filter(s -> "CONFIRMED".equals(s.getStatus()))
                 .map(PayrollBankSettlement::getAcknowledgedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal outstanding = run.getTotalNet().subtract(confirmed);
-        String status = confirmed.signum() == 0 ? "UNSETTLED" : outstanding.signum() == 0 ? "RECONCILED" : "PARTIAL";
+        String status = "PAID".equals(run.getStatus()) && outstanding.signum() > 0 ? "DISPUTED"
+                : confirmed.signum() == 0 ? "UNSETTLED" : outstanding.signum() == 0 ? "RECONCILED" : "PARTIAL";
         return new Summary(run.getTotalNet(), confirmed, outstanding, status, records);
     }
 
@@ -110,6 +111,72 @@ public class PayrollSettlementService {
     public BigDecimal confirmedTotal(UUID runId) {
         return settlements.findByRunId(runId).stream().filter(s -> "CONFIRMED".equals(s.getStatus()))
                 .map(PayrollBankSettlement::getAcknowledgedAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+
+    /**
+     * Reject a pending, unconfirmed bank acknowledgment. Requires a second operator;
+     * the rejected file is never silently reused, and the next recovery export must be new.
+     */
+    @Transactional
+    public PayrollBankSettlement reject(UUID settlementId, String reason, String evidence, UUID actor) {
+        PayrollBankSettlement row = settlements.findById(settlementId)
+                .orElseThrow(() -> new NotFoundException("Payroll settlement", settlementId));
+        PayrollRun run = lockedRun(row.getRunId());
+        if (!"LOCKED".equals(run.getStatus())) {
+            throw new BusinessException("Rejection requires a locked, unpaid run");
+        }
+        if (!"RECORDED".equals(row.getStatus())) throw new BusinessException("Only pending acknowledgments can be rejected");
+        if (actor == null || actor.equals(row.getRecordedBy())) {
+            throw new BusinessException("A separate operator must reject the acknowledgment");
+        }
+        validateExceptionEvidence(reason, evidence);
+        row.setStatus("REJECTED");
+        row.setExceptionReason(reason.strip());
+        row.setExceptionEvidenceReference(evidence.strip());
+        row.setExceptionBy(actor);
+        row.setExceptionAt(Instant.now());
+        row = settlements.save(row);
+        audit.log("PayrollBankSettlement", row.getId(), "REJECT",
+                "Rejected acknowledgment; evidence " + row.getExceptionEvidenceReference());
+        return row;
+    }
+
+    /**
+     * Record a bank-supported reversal of previously confirmed funds.
+     * If the run was marked PAID, leave the original status intact for historical audit;
+     * summary becomes DISPUTED, and an explicit recovery process is mandatory.
+     */
+    @Transactional
+    public PayrollBankSettlement reverse(UUID settlementId, String reason, String evidence, UUID actor) {
+        PayrollBankSettlement row = settlements.findById(settlementId)
+                .orElseThrow(() -> new NotFoundException("Payroll settlement", settlementId));
+        PayrollRun run = lockedRun(row.getRunId());
+        if (!"LOCKED".equals(run.getStatus()) && !"PAID".equals(run.getStatus())) {
+            throw new BusinessException("Only locked or paid payroll acknowledgments can be reversed");
+        }
+        if (!"CONFIRMED".equals(row.getStatus())) throw new BusinessException("Only confirmed acknowledgments can be reversed");
+        if (actor == null || actor.equals(row.getConfirmedBy())) {
+            throw new BusinessException("A different operator must authorize reversal");
+        }
+        validateExceptionEvidence(reason, evidence);
+        row.setStatus("REVERSED");
+        row.setExceptionReason(reason.strip());
+        row.setExceptionEvidenceReference(evidence.strip());
+        row.setExceptionBy(actor);
+        row.setExceptionAt(Instant.now());
+        row = settlements.save(row);
+        audit.log("PayrollBankSettlement", row.getId(), "REVERSE",
+                "Bank reversal recorded; evidence " + row.getExceptionEvidenceReference()
+                  + "; payroll status " + run.getStatus());
+        return row;
+    }
+
+    private static void validateExceptionEvidence(String reason, String evidence) {
+        if (reason == null || reason.isBlank() || evidence == null || evidence.isBlank()) {
+            throw new BusinessException("Exception reason and bank evidence reference are required");
+        }
+        if (evidence.length() > 255) throw new BusinessException("Evidence reference is too long");
     }
 
     private PayrollRun lockedRun(UUID runId) {
