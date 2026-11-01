@@ -1,3 +1,14 @@
+## M3.2.7 — Manual settlement and payment reconciliation
+
+- Migration V49 creates a tenant-scoped payment acknowledgment ledger with unique bank-file and bank-reference constraints.
+- New API endpoints: POST /api/payroll/runs/{runId}/settlements, POST /api/payroll/settlements/{id}/confirm, GET /api/payroll/runs/{runId}/settlements. Existing payroll MFA RBAC applies.
+- Recording requires an exported file and exact amount; confirmation requires a different authenticated user and evidence reference. Bank-file generation by itself is **not** payment.
+- A pessimistic run lock and confirmed-settlement sum protect LOCKED → PAID against unconfirmed, incomplete, duplicated and overpaid amounts.
+- PARTIAL is a reconciliation state, not a completed payroll payment. Zero-net runs require a separate no-payment approval pathway and remain blocked by the current PAID gate.
+- A submitted bank reference is **manual operator evidence, not independent bank verification**. Finance must check the actual bank acknowledgment. The application does not transfer money.
+- Coverage includes unit negative cases, partial outstanding amounts, and PostgreSQL end-to-end premature-pay rejection followed by dual-control reconciliation.
+- Final certification remains **NO-GO** until M3.1 regression, finance/HR signoff, authenticated browser full journey, multi-bank scenarios, and external settlement verification where applicable.
+
 # M3.2 — Payroll & Timekeeping Integration Certification
 
 ## Baseline and dependency
