@@ -99,6 +99,17 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/personnel/employees/*/compensation", "/api/v1/personnel/employees/*/compensation/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.compensation(authentication.get().getAuthorities())))
+                .requestMatchers(HttpMethod.GET, "/api/v1/learning/me")
+                    .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER", "ROLE_MANAGER", "ROLE_EMPLOYEE", "ROLE_AUDITOR")
+                .requestMatchers(HttpMethod.PUT, "/api/v1/learning/accounts")
+                    .access(requireAll("ROLE_TENANT_ADMIN", "ROLE_MFA_VERIFIED"))
+                .requestMatchers(HttpMethod.POST, "/api/v1/learning/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/learning/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
+                .requestMatchers(HttpMethod.GET, "/api/v1/learning/**")
+                    .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_AUDITOR")
+                .requestMatchers("/api/v1/learning/**").denyAll()
                 // Performance self-service has manager/employee route access, with employee
                 // and direct-report scoping enforced again by the controllers.
                 .requestMatchers("/api/v1/performance/my/**", "/api/v1/performance/team/**",

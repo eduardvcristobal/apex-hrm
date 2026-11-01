@@ -17,6 +17,8 @@ import { ApprovalWorkspace } from './ApprovalWorkspace';
 import { AnnouncementsWorkspace } from './AnnouncementsWorkspace';
 import { PerformanceWorkspace } from './PerformanceWorkspace';
 import { PerformanceSelfService } from './PerformanceSelfService';
+import { LearningWorkspace } from './LearningWorkspace';
+import { MyLearningWorkspace } from './MyLearningWorkspace';
 import { SelectField } from './SelectField';
 import { routePath, routeSlug } from './routePaths';
 import './styles.css';
@@ -24,7 +26,7 @@ import './styles.css';
 const TOKEN_KEY = 'apexHrm.accessToken';
 const EXPIRY_KEY = 'apexHrm.expiresAt';
 
-const workspaceRouteSections = ['Overview','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Performance','Learning & development','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Payroll','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
+const workspaceRouteSections = ['Overview','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Performance','Learning & development','My learning','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Payroll','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
 const platformRouteSections = ['Subscriptions','Payment requests','Plan maintenance','Payment QR','Module status','Mail settings','Backup & restore','Account security'];
 function sectionFromPath(pathname: string, base: string, sections: readonly string[], fallback: string) {
   const slug = pathname.replace(new RegExp(`^${base}/?`), '').split('/')[0];
@@ -437,7 +439,8 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
         { label: 'HR policies', icon: '⚖', available: user.roles.includes('ROLE_TENANT_ADMIN') },
         { label: 'Recruitment', icon: '⊕', available: false },
         { label: 'Performance', icon: '◇', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_MANAGER', 'ROLE_EMPLOYEE'].includes(role)) },
-        { label: 'Learning & development', icon: '▧', available: false },
+        { label: 'Learning & development', icon: '▧', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_AUDITOR'].includes(role)) },
+        { label: 'My learning', icon: '◈', available: true },
       ],
     },
     {
@@ -728,6 +731,8 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
             : activeSection === 'Reports' && (canManageTimekeeping || canManagePayroll) ? <ReportsWorkspace key={activeSection} token={token} roles={user.roles} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Performance' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) ? <PerformanceWorkspace key={activeSection} token={token} />
             : activeSection === 'Performance' && user.roles.some(role => ['ROLE_MANAGER', 'ROLE_EMPLOYEE'].includes(role)) ? <PerformanceSelfService key={activeSection} token={token} isManager={user.roles.includes('ROLE_MANAGER')} />
+            : activeSection === 'My learning' ? <MyLearningWorkspace key={activeSection} token={token} />
+            : activeSection === 'Learning & development' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_AUDITOR'].includes(role)) ? <LearningWorkspace key={activeSection} token={token} canLinkAccounts={user.roles.includes('ROLE_TENANT_ADMIN')} canManage={user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role))} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Announcements' ? <AnnouncementsWorkspace key={activeSection} token={token} canManage={user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role))} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Audit logs' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_AUDITOR'].includes(role)) ? <AuditLogsPage token={token} />
             : activeSection === 'Profile' ? <section className="account-page">
