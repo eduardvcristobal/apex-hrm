@@ -1,3 +1,4 @@
+import { LearningReports } from './LearningReports';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 type RecordRow = Record<string, unknown> & { id: string };
@@ -37,6 +38,8 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
   });
   const [employees, setEmployees] = useState<RecordRow[]>([]);
   const [companyId, setCompanyId] = useState('');
+  const [companies, setCompanies] = useState<RecordRow[]>([]);
+  const [showReports, setShowReports] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({ deliveryMode: 'ONLINE', durationHours: '0', level: '1' });
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,10 +51,11 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const responses = await Promise.all(sections.map(s => fetch(`/api/v1/learning/${s}`, { headers })));
+      const responses = await Promise.all([...sections, 'companies'].map(s => fetch(`/api/v1/learning/${s}`, { headers })));
       if (responses.some(r => !r.ok)) throw new Error('Unable to load learning data. Check your permissions.');
       const items = await Promise.all(responses.map(r => r.json() as Promise<RecordRow[]>));
       setData(Object.fromEntries(sections.map((s, index) => [s, items[index]])) as Record<Section, RecordRow[]>);
+      setCompanies(items[sections.length]);
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to load learning data.'); }
     finally { setLoading(false); }
   }, [token]);
@@ -59,7 +63,7 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
   useEffect(() => {
     if (!companyId || !canManage) { setEmployees([]); return; }
     let active = true;
-    void fetch(`/api/v1/personnel/employees?companyId=${encodeURIComponent(companyId)}`, { headers })
+    void fetch(`/api/v1/learning/employees?companyId=${encodeURIComponent(companyId)}`, { headers })
       .then(r => r.ok ? r.json() as Promise<RecordRow[]> : [])
       .then(rows => { if (active) setEmployees(rows); }).catch(() => { if (active) setEmployees([]); });
     return () => { active = false; };
@@ -101,8 +105,9 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
     const value = field.name === 'companyId' ? (form.companyId || companyId) : (form[field.name] || '');
     const options = field.name === 'courseId' ? data.courses.map(c => ({ value: String(c.id), label: String(c.title) }))
       : field.name === 'skillId' ? data.skills.map(s => ({ value: String(s.id), label: String(s.name) }))
-      : field.name === 'employeeId' ? employees.map(e => ({ value: String(e.id), label: `${e.firstName} ${e.lastName}` }))
+      : field.name === 'employeeId' ? employees.map(e => ({ value: String(e.id), label: `${e.name} (${e.employeeNumber})` }))
       : null;
+    if (field.name === 'companyId') return <select required value={value} onChange={e => { setCompanyId(e.target.value); setForm({ ...form, companyId: e.target.value }); }}><option value="">Select company</option>{companies.map(company => <option key={company.id} value={company.id}>{String(company.name)}</option>)}</select>;
     if (options || field.options) return <select required={field.required} value={value} onChange={e => setForm({ ...form, [field.name]: e.target.value })}>
       <option value="">Select {field.label.toLowerCase()}</option>
       {(options || field.options!.map(v => ({ value: v, label: v.replaceAll('_', ' ') }))).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -113,11 +118,15 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
     <header className="announcements-header"><div><p className="eyebrow">PEOPLE DEVELOPMENT</p><h1>Learning &amp; development</h1><p>Manage training, enrollment progress, skills and employee credentials.</p></div><span className="announcements-count">{data.courses.length} courses</span></header>
     {error && <div className="announcements-alert" role="alert">{error} {error.includes('Verified') && <button type="button" onClick={onOpenSecurity}>Open MFA settings</button>}</div>}
     {notice && <p className="announcements-notice" role="status">{notice}</p>}
-    <div className="account-tabs" role="tablist" aria-label="Learning sections">{sections.map(section => <button type="button" key={section} role="tab" aria-selected={tab === section} className={tab === section ? 'active' : ''} onClick={() => { setTab(section); setError(''); setQuery(''); }}>{titles[section]}</button>)}</div>
-    {canManage && <div className="announcements-editor"><label>Active company ID (for employee selection)<input value={companyId} onChange={event => { setCompanyId(event.target.value); setForm(previous => ({ ...previous, companyId: event.target.value })); }} placeholder="Select a company from the Personnel workspace, then paste its ID" /></label></div>}
+    <div className="account-tabs" role="tablist" aria-label="Learning sections">
+      {sections.map(section => <button type="button" key={section} role="tab" aria-selected={!showReports && tab === section} className={!showReports && tab === section ? 'active' : ''} onClick={() => { setShowReports(false); setTab(section); setError(''); setQuery(''); }}>{titles[section]}</button>)}
+      <button type="button" role="tab" aria-selected={showReports} className={showReports ? 'active' : ''} onClick={() => setShowReports(true)}>Reports &amp; analytics</button>
+    </div>
+    {showReports ? <LearningReports token={token} /> : <>
+    {canManage && <div className="announcements-editor"><label>Company<select value={companyId} onChange={event => { setCompanyId(event.target.value); setForm(previous => ({ ...previous, companyId: event.target.value, employeeId: '', courseId: '' })); }}><option value="">Select a company</option>{companies.map(company => <option key={company.id} value={company.id}>{String(company.name)}</option>)}</select></label></div>}
     {canManage && <form className="announcements-editor" onSubmit={event => void create(event)}>
       <h2>Add {titles[tab].toLowerCase().replace(/s$/, '')}</h2>
-      <p className="security-description">For employee selection, enter a company ID in the training form first. Enrollment and skill records must belong to your workspace.</p>
+      <p className="security-description">Select a company and choose employees or courses from the lists.</p>
       <div className="announcements-form-row" style={{ flexWrap: 'wrap' }}>
         {fields[tab].map(field => <label key={field.name} style={{ minWidth: 180, flex: 1 }}>{field.label}{fieldControl(field)}</label>)}
       </div>
@@ -134,6 +143,6 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
             <button type="button" className="announcements-secondary" disabled={busy} onClick={() => void transition(row.id, 'CANCELLED')}>Cancel</button>
           </div>}
         </article>)}</div>}
-    </section>
+    </section>}</>
   </main>;
 }
