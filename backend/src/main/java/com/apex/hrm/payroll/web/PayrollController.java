@@ -170,9 +170,9 @@ public class PayrollController {
 
     @PostMapping("/adjustments")
     @ResponseStatus(HttpStatus.CREATED)
-    public Adjustment createAdjustment(@RequestBody AdjustmentRequest r) {
+    public Adjustment createAdjustment(@RequestBody AdjustmentRequest r, @AuthenticationPrincipal HrmUserPrincipal user) {
         return adjustments.create(r.employeeId(), r.itemCode(), r.description(), r.category(), r.amount(),
-                r.taxable() == null || r.taxable(), r.reason(), r.sourcePeriodId(), r.targetPeriodId(), r.requestedBy());
+                r.taxable() == null || r.taxable(), r.reason(), r.sourcePeriodId(), r.targetPeriodId(), user.id());
     }
 
     @PostMapping("/adjustments/{id}/approve")

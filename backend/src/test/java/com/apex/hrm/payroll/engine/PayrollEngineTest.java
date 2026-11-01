@@ -72,6 +72,15 @@ class PayrollEngineTest {
     }
 
     @Test
+    void pagIbigLowIncomeThresholdUsesConfiguredEffectiveRule() {
+        PagIbigCalculator.Rule rule = new PagIbigCalculator.Rule(bd("0.02"), bd("0.02"),
+                bd("10000"), bd("1500"), bd("0.01"));
+        assertAmount("15.00", PagIbigCalculator.monthly(rule, bd("1500")).employee());
+        assertAmount("30.00", PagIbigCalculator.monthly(rule, bd("1500")).employer());
+        assertAmount("30.02", PagIbigCalculator.monthly(rule, bd("1501")).employee());
+    }
+
+    @Test
     void withholdingTaxBrackets() {
         List<WithholdingTaxCalculator.Bracket> monthly = List.of(
                 new WithholdingTaxCalculator.Bracket(bd("0"), bd("0"), bd("0")),

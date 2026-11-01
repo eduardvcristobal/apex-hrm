@@ -33,6 +33,10 @@ public class AdjustmentService {
     @Transactional
     public Adjustment create(UUID employeeId, String itemCode, String description, String category, BigDecimal amount,
                              boolean taxable, String reason, UUID sourcePeriodId, UUID targetPeriodId, UUID requestedBy) {
+        // The annual tax item may only be created by the dedicated, dual-control reconciliation workflow.
+        if ("WTAX_ANNUAL".equals(itemCode)) {
+            throw new BusinessException("Annual tax adjustments require the reconciled approval workflow");
+        }
         employees.findById(employeeId).orElseThrow(() -> new NotFoundException("Employee", employeeId));
         if (!"EARNING".equals(category) && !"DEDUCTION".equals(category)) {
             throw new BusinessException("category must be EARNING or DEDUCTION");
