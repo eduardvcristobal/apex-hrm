@@ -81,13 +81,23 @@ public class BankAccountService {
     }
 
     private EmployeeBankAccount load(UUID id) {
-        return accounts.findById(id).orElseThrow(() -> new NotFoundException("Bank account", id));
+        EmployeeBankAccount account = accounts.findById(id).orElseThrow(() -> new NotFoundException("Bank account", id));
+        verifyTenant(account);
+        return account;
     }
 
     private View view(EmployeeBankAccount a) {
+        verifyTenant(a);
         String number = cipher.decrypt(a.getAccountNoCiphertext(), a.getTenantId(), a.getEmployeeId());
         return new View(a.getId(), a.getEmployeeId(), a.getBankCode(), mask(number),
                         a.getAccountName(), a.getPrimaryAccount());
+    }
+
+    private static void verifyTenant(EmployeeBankAccount account) {
+        UUID current = com.apex.hrm.common.TenantContext.get();
+        if (current == null || !current.equals(account.getTenantId())) {
+            throw new NotFoundException("Bank account", account.getId());
+        }
     }
 
     static String mask(String number) {
