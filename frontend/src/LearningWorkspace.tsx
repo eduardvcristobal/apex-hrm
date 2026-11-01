@@ -1,8 +1,9 @@
+import { LearningAccountLinks } from './LearningAccountLinks';
 import { LearningReports } from './LearningReports';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 type RecordRow = Record<string, unknown> & { id: string };
-type Props = { token: string; canManage: boolean; onOpenSecurity: () => void };
+type Props = { token: string; canManage: boolean; canLinkAccounts: boolean; onOpenSecurity: () => void };
 const sections = ['courses', 'enrollments', 'skills', 'employee-skills', 'certifications'] as const;
 type Section = typeof sections[number];
 const titles: Record<Section, string> = {
@@ -31,7 +32,7 @@ const fields: Record<Section, { name: string; label: string; type?: string; requ
   ],
 };
 function readable(value: unknown) { return value === null || value === undefined ? '—' : String(value); }
-export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
+export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSecurity }: Props) {
   const [tab, setTab] = useState<Section>('courses');
   const [data, setData] = useState<Record<Section, RecordRow[]>>({
     courses: [], enrollments: [], skills: [], 'employee-skills': [], certifications: [],
@@ -40,6 +41,7 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
   const [companyId, setCompanyId] = useState('');
   const [companies, setCompanies] = useState<RecordRow[]>([]);
   const [showReports, setShowReports] = useState(false);
+  const [showAccountLinks, setShowAccountLinks] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({ deliveryMode: 'ONLINE', durationHours: '0', level: '1' });
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -119,10 +121,11 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
     {error && <div className="announcements-alert" role="alert">{error} {error.includes('Verified') && <button type="button" onClick={onOpenSecurity}>Open MFA settings</button>}</div>}
     {notice && <p className="announcements-notice" role="status">{notice}</p>}
     <div className="account-tabs" role="tablist" aria-label="Learning sections">
-      {sections.map(section => <button type="button" key={section} role="tab" aria-selected={!showReports && tab === section} className={!showReports && tab === section ? 'active' : ''} onClick={() => { setShowReports(false); setTab(section); setError(''); setQuery(''); }}>{titles[section]}</button>)}
-      <button type="button" role="tab" aria-selected={showReports} className={showReports ? 'active' : ''} onClick={() => setShowReports(true)}>Reports &amp; analytics</button>
+      {sections.map(section => <button type="button" key={section} role="tab" aria-selected={!showReports && !showAccountLinks && tab === section} className={!showReports && !showAccountLinks && tab === section ? 'active' : ''} onClick={() => { setShowAccountLinks(false); setShowReports(false); setTab(section); setError(''); setQuery(''); }}>{titles[section]}</button>)}
+      <button type="button" role="tab" aria-selected={showReports} className={showReports ? 'active' : ''} onClick={() => { setShowReports(true); setShowAccountLinks(false); }}>Reports &amp; analytics</button>
+      {canLinkAccounts && <button type="button" role="tab" aria-selected={showAccountLinks} className={showAccountLinks ? 'active' : ''} onClick={() => { setShowAccountLinks(true); setShowReports(false); }}>Account links</button>}
     </div>
-    {showReports ? <LearningReports token={token} /> : <>
+    {showAccountLinks ? <LearningAccountLinks token={token} /> : showReports ? <LearningReports token={token} /> : <>
     {canManage && <div className="announcements-editor"><label>Company<select value={companyId} onChange={event => { setCompanyId(event.target.value); setForm(previous => ({ ...previous, companyId: event.target.value, employeeId: '', courseId: '' })); }}><option value="">Select a company</option>{companies.map(company => <option key={company.id} value={company.id}>{String(company.name)}</option>)}</select></label></div>}
     {canManage && <form className="announcements-editor" onSubmit={event => void create(event)}>
       <h2>Add {titles[tab].toLowerCase().replace(/s$/, '')}</h2>
