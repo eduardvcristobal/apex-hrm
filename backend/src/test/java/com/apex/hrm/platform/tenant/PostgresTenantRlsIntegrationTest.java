@@ -135,4 +135,60 @@ class PostgresTenantRlsIntegrationTest {
             c.rollback();
         }
     }
+    @Test
+    void payrollPeriodRowLockSerializesConcurrentTransactions() throws SQLException {
+        UUID periodId = UUID.randomUUID();
+        try (Connection admin = migrationConnection()) {
+            UUID companyId;
+            try (PreparedStatement find = admin.prepareStatement("SELECT id FROM company WHERE tenant_id=?")) {
+                find.setObject(1, FIRST_TENANT);
+                try (ResultSet rs = find.executeQuery()) {
+                    assertTrue(rs.next());
+                    companyId = rs.getObject(1, UUID.class);
+                }
+            }
+            UUID groupId = UUID.randomUUID();
+            try (PreparedStatement insert = admin.prepareStatement(
+                    "INSERT INTO pay_group (id, tenant_id, company_id, code, name) VALUES (?, ?, ?, ?, ?)")) {
+                insert.setObject(1, groupId);
+                insert.setObject(2, FIRST_TENANT);
+                insert.setObject(3, companyId);
+                insert.setString(4, "LOCK-TEST");
+                insert.setString(5, "Lock Test");
+                insert.executeUpdate();
+            }
+            try (PreparedStatement insert = admin.prepareStatement(
+                    "INSERT INTO pay_period (id, tenant_id, pay_group_id, start_date, end_date, pay_date) "
+                  + "VALUES (?, ?, ?, DATE '2026-10-01', DATE '2026-10-15', DATE '2026-10-20')")) {
+                insert.setObject(1, periodId);
+                insert.setObject(2, FIRST_TENANT);
+                insert.setObject(3, groupId);
+                insert.executeUpdate();
+            }
+        }
+        try (Connection first = migrationConnection(); Connection second = migrationConnection()) {
+            first.setAutoCommit(false);
+            second.setAutoCommit(false);
+            try (PreparedStatement lock = first.prepareStatement("SELECT id FROM pay_period WHERE id=? FOR UPDATE")) {
+                lock.setObject(1, periodId);
+                try (ResultSet rs = lock.executeQuery()) { assertTrue(rs.next()); }
+            }
+            try (Statement timeout = second.createStatement()) {
+                timeout.execute("SET LOCAL lock_timeout = '300ms'");
+            }
+            try (PreparedStatement blocked = second.prepareStatement("SELECT id FROM pay_period WHERE id=? FOR UPDATE")) {
+                blocked.setObject(1, periodId);
+                SQLException conflict = assertThrows(SQLException.class, blocked::executeQuery);
+                assertEquals("55P03", conflict.getSQLState(), "second writer must wait for the lock");
+            }
+            first.commit();
+            second.rollback();
+            try (PreparedStatement allowed = second.prepareStatement("SELECT id FROM pay_period WHERE id=? FOR UPDATE")) {
+                allowed.setObject(1, periodId);
+                try (ResultSet rs = allowed.executeQuery()) { assertTrue(rs.next()); }
+            }
+            second.commit();
+        }
+    }
+
 }
