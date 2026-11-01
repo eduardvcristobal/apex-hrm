@@ -80,7 +80,7 @@ public class FinalPaySourceLedgerService {
                 JOIN pay_period p ON p.tenant_id=r.tenant_id AND p.id=r.pay_period_id
                 WHERE l.tenant_id=? AND l.employee_id=?
                   AND r.status IN ('LOCKED','PAID')
-                  AND p.date_from>=? AND p.date_to<=?
+                  AND p.start_date>=? AND p.end_date<=?
                 """,(rs,i)->new PayrollTotals(rs.getInt(1),rs.getBigDecimal(2),rs.getBigDecimal(3)),
                     user.tenantId(),employee,LocalDate.of(year,1,1),effective);
             Loans loans=jdbc.queryForObject("""
