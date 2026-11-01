@@ -92,6 +92,14 @@ Branch: feature/m3-1-payroll-compliance
 - Added actual Chromium desktop 1440px and mobile 390px Personnel → HR lifecycle → source-ledger browser E2E through Vite/Spring Boot/PostgreSQL, plus unauthenticated user denial.
 - Production status remains **NO-GO**. No payment release, certified payslip, bank confirmation or source-verified legal accrual exists. See `docs/M3_1_16_CERTIFICATION_REPORT.md`.
 
+## M3.1.17 — DTR, 13th-month and withholding source diagnostics
+
+- Added legacy payroll-source locked BASIC earnings, paid 13th-month and withheld WTAX summaries with a diagnostic residual = (locked BASIC / 12) - previously paid 13th month. **This is not a certified statutory accrual.**
+- Added DTR finalized/open/absent day counts, late/undertime/approved overtime minutes; pending or missing DTR and incomplete payroll cutoffs remain blocking review findings.
+- Unit and authenticated PostgreSQL/HTTP regressions include a locked payroll sample with PHP 14,400 BASIC, PHP 800 previously paid 13th, PHP 200 withheld tax, one open absent DTR and a locked late/undertime DTR.
+- UI shows diagnostic values and unresolved tax annualization without enabling disbursement.
+- See `docs/M3_1_17_CERTIFICATION_REPORT.md` for methodology and **production NO-GO** limits.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
