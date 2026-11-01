@@ -1,0 +1,79 @@
+name: M5 Performance Verification
+on:
+  push:
+    branches: [feature/m5-performance-management]
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/m5-performance.yml'
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/apex_hrm
+      DB_USER: hrm
+      DB_PASSWORD: hrm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Unit and regression tests
+        working-directory: backend
+        run: mvn --batch-mode --no-transfer-progress test
+      - name: Package backend
+        working-directory: backend
+        run: mvn --batch-mode --no-transfer-progress -DskipTests package
+      - name: PostgreSQL Flyway startup smoke
+        working-directory: backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar target/apex-hrm-0.1.0-SNAPSHOT.jar > /tmp/apex-m5-startup.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          healthy=0
+          for i in {1..45}; do
+            if curl --silent --fail http://localhost:8080/actuator/health >/dev/null; then
+              healthy=1
+              break
+            fi
+            if ! kill -0 "$pid" 2>/dev/null; then break; fi
+            sleep 2
+          done
+          if [ "$healthy" != 1 ]; then
+            tail -160 /tmp/apex-m5-startup.log
+            exit 1
+          fi
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: TypeScript and Vite production build
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
