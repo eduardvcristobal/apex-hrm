@@ -26,7 +26,7 @@ public interface PayrollLineRepository extends JpaRepository<PayrollLine, UUID> 
     @Query("select coalesce(sum(case when l.category = 'EARNING' then l.amount else -l.amount end), 0) "
          + "from PayrollLine l, PayrollRun r, PayPeriod p "
          + "where l.runId = r.id and r.payPeriodId = p.id and l.employeeId = :e "
-         + "and l.itemCode in ('BASIC', 'ABSENCE', 'LATE_UT') and r.runType = 'REGULAR' "
+         + "and l.itemCode in ('BASIC', 'ABSENCE', 'LATE_UT', 'PRORATION') and r.runType = 'REGULAR' "
          + "and r.status in ('LOCKED', 'PAID') and p.endDate between :from and :to")
     BigDecimal basicEarned(@Param("e") UUID employeeId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 }
