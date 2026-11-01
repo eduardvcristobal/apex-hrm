@@ -6,6 +6,7 @@ GRANT USAGE ON SCHEMA public TO m314_restricted;
 GRANT SELECT ON payroll_personnel_identity_link,
  payroll_final_pay_settlement, payroll_final_pay_payment_authorization,
  payroll_final_pay_bank_evidence TO m314_restricted;
+GRANT INSERT ON payroll_personnel_identity_link TO m314_restricted;
 INSERT INTO tenant(id,code,name,slug,display_name) VALUES
  ('81000000-0000-4000-8000-000000000001','CI-M314-A','CI Payroll A','ci-m314-a','CI Payroll A'),
  ('81000000-0000-4000-8000-000000000002','CI-M314-B','CI Payroll B','ci-m314-b','CI Payroll B');
@@ -102,6 +103,11 @@ BEGIN
   WHERE id='8a000000-0000-4000-8000-000000000001';
   RAISE EXCEPTION 'Self-approved identity link incorrectly allowed';
  EXCEPTION WHEN check_violation THEN NULL; END;
+ BEGIN
+  UPDATE payroll_final_pay_bank_evidence SET reviewed_by=recorded_by
+  WHERE id='8c000000-0000-4000-8000-000000000001';
+  RAISE EXCEPTION 'Self-reviewed bank evidence incorrectly allowed';
+ EXCEPTION WHEN check_violation THEN NULL; END;
 END $checks$;
 SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000002',true);
 INSERT INTO personnel_employee(id,tenant_id,company_id,employee_number,first_name,last_name,hire_date)
@@ -115,6 +121,19 @@ INSERT INTO payroll_personnel_identity_link(
 VALUES('8a000000-0000-4000-8000-000000000002','81000000-0000-4000-8000-000000000002',
  '84000000-0000-4000-8000-000000000002','85000000-0000-4000-8000-000000000002',
  'Second tenant fixture identity match','83000000-0000-4000-8000-000000000004');
+-- Cross-tenant IDs must fail composite foreign keys, even in privileged migration sessions.
+DO $tenant_fk$
+BEGIN
+ BEGIN
+  INSERT INTO payroll_personnel_identity_link
+   (tenant_id,personnel_employee_id,payroll_employee_id,evidence_reference,requested_by)
+  VALUES('81000000-0000-4000-8000-000000000002',
+   '84000000-0000-4000-8000-000000000002',
+   '85000000-0000-4000-8000-000000000001',
+   'Cross-tenant identity must never be valid','83000000-0000-4000-8000-000000000004');
+  RAISE EXCEPTION 'Cross-tenant employee FK incorrectly accepted';
+ EXCEPTION WHEN foreign_key_violation THEN NULL; END;
+END $tenant_fk$;
 -- Restricted role is NOT the DB owner or superuser: test actual RLS visibility.
 SET LOCAL ROLE m314_restricted;
 SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000001',true);
@@ -135,5 +154,19 @@ BEGIN
  SELECT count(*) INTO n FROM payroll_final_pay_bank_evidence;
  IF n<>0 THEN RAISE EXCEPTION 'Tenant B saw tenant A bank evidence'; END IF;
 END $rls$;
+-- A restricted tenant B user cannot insert a tenant A identity record.
+DO $rls_write$
+BEGIN
+ BEGIN
+  INSERT INTO payroll_personnel_identity_link
+   (id,tenant_id,personnel_employee_id,payroll_employee_id,evidence_reference,requested_by)
+  VALUES('8a000000-0000-4000-8000-000000000099',
+   '81000000-0000-4000-8000-000000000001',
+   '84000000-0000-4000-8000-000000000001',
+   '85000000-0000-4000-8000-000000000001',
+   'Cross-tenant write must be denied by RLS','83000000-0000-4000-8000-000000000001');
+  RAISE EXCEPTION 'Tenant B inserted tenant A identity';
+ EXCEPTION WHEN insufficient_privilege THEN NULL; END;
+END $rls_write$;
 RESET ROLE;
 ROLLBACK;
