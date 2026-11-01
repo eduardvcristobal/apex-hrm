@@ -52,6 +52,7 @@ class PayrollLifecycleCertificationTest {
         run.setPayPeriodId(periodId);
         run.setRunType("REGULAR");
         run.setStatus("COMPUTED");
+        run.setTotalNet(new BigDecimal("12500.00"));
         when(runs.findById(runId)).thenReturn(Optional.of(run));
         when(runs.save(any(PayrollRun.class))).thenAnswer(inv -> inv.getArgument(0));
         PayPeriod period = new PayPeriod();
