@@ -114,6 +114,37 @@ http POST "$D" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEME
 expect 404 'Another tenant cannot capture snapshot'
 http GET "$E" "/api/v1/payroll/final-pay/source-snapshots/settlements/$SETTLEMENT"
 expect 403 'MFA-less officer cannot access snapshot'
+# M3.1.19: two-person source review MUST NEVER turn incomplete cutoffs into payout.
+SREV="/api/v1/payroll/final-pay/source-reviews"
+http GET "$B" "$SREV/snapshots/$snapshotId/freshness"
+expect 200 'Snapshot source remains fresh while records unchanged'
+[[ "$(echo "$LAST_BODY" | jq -r .reviewStatus)" == "INCOMPLETE_SOURCE" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .current)" == "true" ]] || exit 1
+http POST "$A" "$SREV" "{\"snapshotId\":\"$snapshotId\",\"evidenceReference\":\"CI reviewed source and period deficiencies\"}"
+expect 201 'Create independent completeness review request'
+reviewId="$(echo "$LAST_BODY" | jq -r .id)"
+[[ "$(echo "$LAST_BODY" | jq -r .payoutCertified)" == "false" ]] || exit 1
+http POST "$A" "$SREV" "{\"snapshotId\":\"$snapshotId\",\"evidenceReference\":\"Duplicated review must be refused\"}"
+expect 409 'Duplicate source review rejected'
+http POST "$A" "$SREV/$reviewId/approve"
+expect 403 'Source review requester cannot self-approve'
+http POST "$D" "$SREV/$reviewId/approve"
+expect 404 'Other tenant cannot approve source review'
+http POST "$B" "$SREV/$reviewId/approve"
+expect 409 'Incomplete payroll and compensation periods prevent source approval'
+http POST "$B" "$SREV/$reviewId/reject"
+expect 200 'Independent reviewer rejects incomplete source evidence'
+[[ "$(echo "$LAST_BODY" | jq -r .status)" == "REJECTED" ]] || exit 1
+http POST "$C" "$SREV/$reviewId/reject"
+expect 409 'Final source review decision is immutable'
+http GET "$D" "$SREV?settlementId=$SETTLEMENT"
+expect 404 'Other tenant cannot list source reviews'
+http GET "$E" "$SREV?settlementId=$SETTLEMENT"
+expect 403 'Unverified MFA cannot access source reviews'
+http GET "$A" "$SREV?settlementId=$SETTLEMENT"
+expect 200 'Read recorded independent source decision'
+[[ "$(echo "$LAST_BODY" | jq -r '.[0].status')" == "REJECTED" ]] || exit 1
+
 http GET "$A" "$P/eligible-accounts?personnelEmployeeId=$PERSONNEL"; expect 200 'Masked primary bank account available'
 account="$(echo "$LAST_BODY"|jq -r '.[0].id')"
 [[ "$account" != "null" ]] || exit 1
