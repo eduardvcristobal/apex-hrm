@@ -11,6 +11,11 @@ type Evidence = { id: string; paymentAuthorizationId: string; bankCode: string; 
   reviewedBy: string | null; verificationType: string };
 type Reconciliation = { controlStatus: string; internallyConsistent: boolean;
   bankConfirmed: boolean; disbursementEnabled: boolean; explanation: string };
+type SourceLedgerReview = { payrollStatus: string; loanStatus: string; leaveStatus: string;
+    certificationStatus: string; disbursementEnabled: boolean; lockedPayrollLines: number;
+    paidThirteenthMonth: number; payrollWithholding: number; outstandingActiveLoans: number;
+    convertibleLeaveDays: number; declaredThirteenthMonth: number;
+    declaredOutstandingLoans: number; declaredLeaveConversion: number; requiredActions: string[] };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -37,6 +42,7 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [evidenceDocumentReference, setEvidenceDocumentReference] = useState('');
   const [reportedAmount, setReportedAmount] = useState('');
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
+  const [sourceLedger, setSourceLedger] = useState<SourceLedgerReview | null>(null);
   const [busy, setBusy] = useState(false);
   const identityPath = '/api/v1/payroll/identity-links';
   const paymentPath = '/api/v1/payroll/final-pay/payment-authorizations';
@@ -78,6 +84,15 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
     return () => {active=false;};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorization?.id, authorization?.status]);
+
+  useEffect(() => {
+    let active = true;
+    request<SourceLedgerReview>(`/api/v1/payroll/final-pay/source-ledger/settlements/${settlementId}`)
+      .then(value => {if (active) setSourceLedger(value);})
+      .catch(() => {if (active) setSourceLedger(null);});
+    return () => {active = false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settlementId, link?.status]);
 
   useEffect(() => {
     let active = true;
@@ -242,6 +257,17 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
           onClick={()=>void reviewBankEvidence('reject')}>Reject evidence</button>
       </div>}
     </div>}
+    <section className="people-subcard" aria-label="Final-pay source-ledger review">
+      <h4>Source-ledger reconciliation</h4>
+      <p className="people-muted"><strong>{sourceLedger?.certificationStatus || 'Awaiting source-ledger review'}</strong> · No automatic financial certification</p>
+      {sourceLedger && <>
+        <p className="people-muted">Locked payroll lines: {sourceLedger.lockedPayrollLines} · Previous 13th-month paid: {peso(sourceLedger.paidThirteenthMonth)} · Recorded withholding: {peso(sourceLedger.payrollWithholding)}</p>
+        <p className="people-muted">Active loan balance: {peso(sourceLedger.outstandingActiveLoans)} · Settlement loan deduction: {peso(sourceLedger.declaredOutstandingLoans)}</p>
+        <p className="people-muted">Convertible leave: {sourceLedger.convertibleLeaveDays} days · Claimed leave conversion: {peso(sourceLedger.declaredLeaveConversion)}</p>
+        <p className="people-muted">Payroll: {sourceLedger.payrollStatus.replaceAll('_',' ')} · Loan: {sourceLedger.loanStatus.replaceAll('_',' ')} · Leave: {sourceLedger.leaveStatus.replaceAll('_',' ')}</p>
+        <ul>{sourceLedger.requiredActions.map(action => <li key={action}>{action}</li>)}</ul>
+      </>}
+    </section>
     <section className="people-subcard">
       <h4>Final-pay financial certification preflight</h4>
       <p className="people-muted"><strong>{reconciliation?.controlStatus.replaceAll('_', ' ') || 'Loading certification controls'}</strong></p>
