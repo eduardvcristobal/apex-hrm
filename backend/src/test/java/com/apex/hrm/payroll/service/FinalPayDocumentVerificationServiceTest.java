@@ -30,12 +30,13 @@ class FinalPayDocumentVerificationServiceTest {
         assertFalse(FinalPayDocumentVerificationService.verifySignature(publicKey,signed,"broken"));
     }
     @Test void allPriorAttestorsAreExcludedFromSignatureVerification(){
-        UUID a=UUID.randomUUID(),b=UUID.randomUUID(),c=UUID.randomUUID(),d=UUID.randomUUID();
-        for(UUID actor:new UUID[]{a,b,c,d})
+        UUID a=UUID.randomUUID(),b=UUID.randomUUID(),c=UUID.randomUUID(),d=UUID.randomUUID(),
+            e=UUID.randomUUID();
+        for(UUID actor:new UUID[]{a,b,c,d,e})
             assertEquals(403,assertThrows(ResponseStatusException.class,
-                ()->FinalPayDocumentVerificationService.requireIndependentVerification(actor,a,b,c,d))
+                ()->FinalPayDocumentVerificationService.requireIndependentVerification(actor,a,b,c,d,e))
                 .getStatusCode().value());
         assertDoesNotThrow(()->FinalPayDocumentVerificationService.requireIndependentVerification(
-            UUID.randomUUID(),a,b,c,d));
+            UUID.randomUUID(),a,b,c,d,e));
     }
 }
