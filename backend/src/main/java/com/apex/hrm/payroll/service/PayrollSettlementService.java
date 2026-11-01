@@ -47,7 +47,7 @@ public class PayrollSettlementService {
         if (bankReference == null || bankReference.isBlank() || evidenceReference == null || evidenceReference.isBlank()) {
             throw new BusinessException("Bank confirmation reference and evidence reference are required");
         }
-        if (amount == null || amount.scale() > 2 || amount.signum() <= 0) {
+        if (amount == null || amount.stripTrailingZeros().scale() > 2 || amount.signum() <= 0) {
             throw new BusinessException("Acknowledged amount must be positive, with no more than two decimal places");
         }
         BankFile bankFile = bankFiles.findById(bankFileId).orElseThrow(() -> new NotFoundException("Bank file", bankFileId));
