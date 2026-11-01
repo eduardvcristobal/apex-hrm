@@ -50,7 +50,7 @@ public class BankAccountService {
         account.setEmployeeId(employeeId);
         account.setBankCode(bankCode.trim());
         account.setAccountNoCiphertext(cipher.encrypt(number.trim(),
-            com.apex.hrm.common.TenantContext.require(), employeeId));
+            com.apex.hrm.common.TenantContext.get(), employeeId));
         account.setAccountName(accountName);
         account.setPrimaryAccount(primary == null || primary);
         account = accounts.saveAndFlush(account);
