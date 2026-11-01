@@ -179,6 +179,33 @@ http GET "$B" "$ATTEST?settlementId=$SETTLEMENT"
 expect 200 'Internal attestation history available to authorized officer'
 echo "$LAST_BODY" | jq -e '.[0].status == "REJECTED" and .[0].bankConfirmed == false' > /dev/null || exit 1
 
+# M3.1.21: cryptographic claim proof cannot be asserted by untrusted user inputs.
+VERIFY="/api/v1/payroll/final-pay/document-verifications"
+READINESS="/api/v1/payroll/final-pay/release-readiness/settlements/$SETTLEMENT"
+http GET "$B" "$READINESS"
+expect 200 'Read multi-attestor production readiness blockers'
+echo "$LAST_BODY" | jq -e '.status == "PRODUCTION_NO_GO" and
+  .sourceReviewStatus == "REJECTED" and .periodAttestationStatus == "REJECTED" and
+  .issuerDigestStatus == "NOT_VERIFIED" and .bankConfirmed == false and
+  .actualDocumentBytesVerified == false and .payoutCertified == false and
+  .disbursementEnabled == false and (.blockingReasons | length) >= 7' > /dev/null || { echo "$LAST_BODY"; exit 1; }
+http GET "$D" "$READINESS"
+expect 404 'Readiness cross tenant is hidden'
+http GET "$E" "$READINESS"
+expect 403 'Readiness requires MFA'
+http GET "$B" "$VERIFY?settlementId=$SETTLEMENT"
+expect 200 'Read trusted signature verification history'
+echo "$LAST_BODY" | jq -e 'length == 0' > /dev/null || exit 1
+http GET "$D" "$VERIFY?settlementId=$SETTLEMENT"
+expect 404 'Cross tenant signature records forbidden'
+http GET "$E" "$VERIFY?settlementId=$SETTLEMENT"
+expect 403 'No MFA cannot view signature records'
+http POST "$C" "$VERIFY" "{\"attestationId\":\"$attestation\",\"issuerKeyId\":\"CI_FAKE_KEY\",\"signatureBase64\":\"bad\"}"
+expect 400 'Malformed detached proof rejected'
+FAKE_SIG="$(printf 'A%.0s' {1..90})"
+http POST "$C" "$VERIFY" "{\"attestationId\":\"$attestation\",\"issuerKeyId\":\"CI_FAKE_KEY\",\"signatureBase64\":\"$FAKE_SIG\"}"
+expect 409 'Without deployment-pinned issuer key, proof cannot become verified'
+
 http GET "$A" "$P/eligible-accounts?personnelEmployeeId=$PERSONNEL"; expect 200 'Masked primary bank account available'
 account="$(echo "$LAST_BODY"|jq -r '.[0].id')"
 [[ "$account" != "null" ]] || exit 1
