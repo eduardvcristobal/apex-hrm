@@ -24,6 +24,10 @@ type SourceLedgerReview = { payrollStatus: string; loanStatus: string; leaveStat
 type SourceSnapshot = { id:string; sourceSha256:string; cutoffGapDays:number;
   compensationGapDays:number; unfinalizedDtrDays:number; completenessStatus:string;
   payoutCertified:boolean; disbursementEnabled:boolean; capturedAt:string };
+type SourceDecision = { id:string; snapshotId:string; status:string; requestedBy:string;
+    decidedBy:string|null; payoutCertified:boolean; disbursementEnabled:boolean };
+type SourceFreshness = { reviewStatus:string; current:boolean; latest:boolean;
+    capturedSha256:string; currentSha256:string; payoutCertified:boolean };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -52,6 +56,9 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
   const [sourceLedger, setSourceLedger] = useState<SourceLedgerReview | null>(null);
   const [snapshots, setSnapshots] = useState<SourceSnapshot[]>([]);
+  const [sourceDecisions, setSourceDecisions] = useState<SourceDecision[]>([]);
+  const [sourceFreshness, setSourceFreshness] = useState<SourceFreshness | null>(null);
+  const [sourceEvidenceRef, setSourceEvidenceRef] = useState('');
   const [busy, setBusy] = useState(false);
   const identityPath = '/api/v1/payroll/identity-links';
   const paymentPath = '/api/v1/payroll/final-pay/payment-authorizations';
@@ -120,6 +127,46 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
     return ()=>{active=false;};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[settlementId,link?.status]);
+
+  useEffect(()=>{
+    let active=true;
+    request<SourceDecision[]>(`/api/v1/payroll/final-pay/source-reviews?settlementId=${settlementId}`)
+      .then(rows=>{if(active)setSourceDecisions(rows);})
+      .catch(()=>{if(active)setSourceDecisions([]);});
+    return ()=>{active=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[settlementId,snapshots.length,link?.status]);
+
+  useEffect(()=>{
+    let active=true;
+    if(snapshots.length===0){setSourceFreshness(null);return;}
+    request<SourceFreshness>(
+      `/api/v1/payroll/final-pay/source-reviews/snapshots/${snapshots[0].id}/freshness`)
+      .then(result=>{if(active)setSourceFreshness(result);})
+      .catch(()=>{if(active)setSourceFreshness(null);});
+    return ()=>{active=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[snapshots[0]?.id,settlementId]);
+
+  async function submitSourceReview(){
+    const latest=snapshots[0];
+    if(!latest)return;
+    await execute(async()=>{
+      const created=await request<SourceDecision>('/api/v1/payroll/final-pay/source-reviews',{
+        method:'POST',body:JSON.stringify({snapshotId:latest.id,evidenceReference:sourceEvidenceRef})
+      });
+      setSourceDecisions(rows=>[created,...rows]);
+      setNotice('Source completeness review requested. A different officer must decide; no payout is authorized.');
+    });
+  }
+  async function decideSourceReview(id:string,decision:'approve'|'reject'){
+    await execute(async()=>{
+      const updated=await request<SourceDecision>(
+        `/api/v1/payroll/final-pay/source-reviews/${id}/${decision}`,{method:'POST'});
+      setSourceDecisions(rows=>rows.map(item=>item.id===id?updated:item));
+      setNotice('Independent source-only decision recorded. Final-pay and bank approval are separate.');
+    });
+  }
 
   async function captureSourceSnapshot(){
     await execute(async()=>{
@@ -306,6 +353,31 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
       <button type="button" className="security-submit" disabled={busy || link?.status!=='APPROVED'}
         onClick={()=>void captureSourceSnapshot()}>Capture financial source snapshot</button>
       {snapshots.length===0 && <p className="people-muted">No source snapshots captured.</p>}
+      {sourceFreshness && <p className="people-muted" role="status">
+        Current source fingerprint: <strong>{sourceFreshness.reviewStatus.replaceAll('_',' ')}</strong>
+        {' · '}Matching current records: {sourceFreshness.current?'Yes':'No'}
+        {' · '}Latest capture: {sourceFreshness.latest?'Yes':'No'}
+      </p>}
+      {snapshots.length>0 && <div className="people-inline-form">
+        <label className="people-field"><span>Independent source-review evidence reference</span>
+          <input value={sourceEvidenceRef} onChange={event=>setSourceEvidenceRef(event.target.value)}
+            minLength={20} maxLength={1000} placeholder="Checked payroll periods, DTR and compensation source records"/>
+        </label>
+        <button type="button" className="security-submit"
+          disabled={busy || sourceEvidenceRef.trim().length<20 || !sourceFreshness?.current || !sourceFreshness?.latest ||
+            sourceDecisions.some(item=>item.snapshotId===snapshots[0].id)}
+          onClick={()=>void submitSourceReview()}>Request independent source review</button>
+      </div>}
+      {sourceDecisions.slice(0,5).map(item=><div className="people-record" key={item.id}><span>
+        <strong>Source review: {item.status.replaceAll('_',' ')}</strong>
+        <small>Source only · Financial certification: No · Disbursement enabled: No</small>
+        {item.status==='PENDING' && <small>Awaiting independent officer; incomplete or stale snapshots cannot be approved.</small>}
+      </span>{item.status==='PENDING' && item.requestedBy!==currentUserId && <div className="people-form-actions">
+        <button type="button" className="security-submit" disabled={busy || sourceFreshness?.reviewStatus!=='READY_FOR_INDEPENDENT_REVIEW'}
+          onClick={()=>void decideSourceReview(item.id,'approve')}>Review source completeness</button>
+        <button type="button" className="session-revoke" disabled={busy}
+          onClick={()=>void decideSourceReview(item.id,'reject')}>Reject source evidence</button>
+      </div>}</div>)}
       {snapshots.slice(0,5).map(item=><div className="people-record" key={item.id}><span>
         <strong>{item.completenessStatus.replaceAll('_',' ')}</strong>
         <small>Missing payroll cutoff days: {item.cutoffGapDays} · Missing compensation days: {item.compensationGapDays} · Open DTR: {item.unfinalizedDtrDays}</small>
