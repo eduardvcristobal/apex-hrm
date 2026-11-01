@@ -13,6 +13,10 @@ BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='ck_fp_source_review_independent') THEN
    RAISE EXCEPTION 'Independent decision database constraint is missing';
  END IF;
+ IF NOT EXISTS (SELECT 1 FROM pg_trigger
+     WHERE tgname='fp_bank_evidence_guard' AND NOT tgisinternal) THEN
+   RAISE EXCEPTION 'Bank evidence immutability/independence trigger missing';
+ END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname='uq_fp_source_review_snapshot') THEN
    RAISE EXCEPTION 'Snapshot review idempotency constraint missing';
  END IF;
