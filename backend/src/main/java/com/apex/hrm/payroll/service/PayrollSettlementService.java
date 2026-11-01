@@ -56,8 +56,11 @@ public class PayrollSettlementService {
         BankFile bankFile = bankFiles.findById(bankFileId).orElseThrow(() -> new NotFoundException("Bank file", bankFileId));
         if (!runId.equals(bankFile.getRunId())) throw new BusinessException("Bank file belongs to another payroll run");
         BigDecimal accepted = bankCreditResults.acceptedAmount(bankFileId);
-        BigDecimal eligible = accepted == null ? bankFile.getTotalAmount() : accepted;
-        if (accepted != null && accepted.signum() == 0) {
+        if (accepted == null) {
+            throw new BusinessException("Import a verified per-employee bank result before recording settlement");
+        }
+        BigDecimal eligible = accepted;
+        if (accepted.signum() == 0) {
             throw new BusinessException("All bank credits were rejected; there is nothing to acknowledge");
         }
         if (amount.compareTo(eligible) != 0) {
