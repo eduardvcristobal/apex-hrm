@@ -104,7 +104,8 @@ class BankCreditingCertificationTest {
         source.setRunId(runId);
         source.setBankTemplateId(templateId);
         when(files.findById(sourceId)).thenReturn(Optional.of(source));
-        when(runs.lockForSettlement(runId)).thenReturn(runs.findById(runId));
+        PayrollRun locked = runs.findById(runId).orElseThrow();
+        when(runs.lockForSettlement(runId)).thenReturn(Optional.of(locked));
         when(imports.existsByBankFileId(sourceId)).thenReturn(true);
         BankCreditResult accepted = new BankCreditResult();
         accepted.setEmployeeId(firstId);
