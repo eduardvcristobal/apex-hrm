@@ -1,0 +1,76 @@
+name: M7.3.31 Secure Export and Retention
+on:
+  pull_request:
+    branches: [main, 'feature/m7-3-financial-data-protection']
+  push:
+    branches: ['feature/m7-3-31-*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    name: Maven / V59-to-V60 encryption / rotation / retention
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/apex_hrm
+      DB_USER: hrm
+      DB_PASSWORD: hrm
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: hrm
+      PGPASSWORD: hrm
+      PGDATABASE: apex_hrm
+      SMTP_HEALTH_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: PostgreSQL client
+        run: |
+          if ! command -v psql >/dev/null; then
+            sudo apt-get update && sudo apt-get install -y postgresql-client
+          fi
+      - name: Apply real Flyway SQL through V59
+        run: |
+          docker run --rm --network host -v "$PWD/backend/src/main/resources/db/migration:/flyway/sql:ro" flyway/flyway:10.20.1 -url=jdbc:postgresql://localhost:5432/apex_hrm -user=hrm -password=hrm -target=59 migrate
+          psql -v ON_ERROR_STOP=1 -f scripts/db/m7_3_31_v59_export_fixture.sql
+      - name: Run Maven tests and package
+        working-directory: backend
+        run: mvn -B -ntp verify
+      - name: Install ephemeral export encryption key
+        run: |
+          key="$(openssl rand -base64 32)"
+          echo "::add-mask::$key"
+          echo "HRM_BANK_EXPORT_KEY=$key" >> "$GITHUB_ENV"
+          echo "HRM_BANK_EXPORT_KEY_ID=k1" >> "$GITHUB_ENV"
+      - name: Migrate historical CSV to encrypted V60 storage
+        run: bash scripts/db/m7_3_31_run_and_certify.sh k1
+      - name: Rotate export encryption key
+        run: |
+          set -euo pipefail
+          next="$(openssl rand -base64 32)"
+          echo "::add-mask::$next"
+          HRM_BANK_EXPORT_PREVIOUS_KEY="$HRM_BANK_EXPORT_KEY" HRM_BANK_EXPORT_PREVIOUS_KEY_ID=k1 HRM_BANK_EXPORT_KEY="$next" HRM_BANK_EXPORT_KEY_ID=k2 bash scripts/db/m7_3_31_run_and_certify.sh k2
+      - name: Store non-sensitive Maven test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m7-3-31-certification
+          path: backend/target/surefire-reports/
+          if-no-files-found: ignore
