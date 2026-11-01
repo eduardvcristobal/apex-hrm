@@ -1,5 +1,7 @@
 -- M3.1.12: HR separation handoff -> payroll-owned reviewed final-pay settlement.
 -- Preserve tenant-scoped FK integrity and force RLS (same policy as the personnel handoff).
+-- Handoff has a primary key on id but no (tenant_id,id) unique key for a composite FK.
+CREATE UNIQUE INDEX uq_personnel_fp_handoff_tenant_id ON personnel_final_pay_handoff(tenant_id,id);
 CREATE TABLE payroll_final_pay_settlement (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
  tenant_id uuid NOT NULL,
