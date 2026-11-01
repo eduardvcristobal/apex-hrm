@@ -15,6 +15,8 @@ import { ReportsWorkspace } from './ReportsWorkspace';
 import { PaySetupWorkspace } from './PaySetupWorkspace';
 import { ApprovalWorkspace } from './ApprovalWorkspace';
 import { AnnouncementsWorkspace } from './AnnouncementsWorkspace';
+import { PerformanceWorkspace } from './PerformanceWorkspace';
+import { PerformanceSelfService } from './PerformanceSelfService';
 import { SelectField } from './SelectField';
 import './styles.css';
 
@@ -435,7 +437,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
         { label: 'Documents', icon: '▤', available: isWorkspaceOwner },
         { label: 'HR policies', icon: '⚖', available: user.roles.includes('ROLE_TENANT_ADMIN') },
         { label: 'Recruitment', icon: '⊕', available: false },
-        { label: 'Performance', icon: '◇', available: false },
+        { label: 'Performance', icon: '◇', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_MANAGER', 'ROLE_EMPLOYEE'].includes(role)) },
         { label: 'Learning & development', icon: '▧', available: false },
       ],
     },
@@ -725,6 +727,8 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
             : activeSection === 'Payslips' && canManagePayroll ? <PayslipsWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Tax & compliance' && canManagePayroll ? <TaxComplianceWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Reports' && (canManageTimekeeping || canManagePayroll) ? <ReportsWorkspace key={activeSection} token={token} roles={user.roles} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
+            : activeSection === 'Performance' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) ? <PerformanceWorkspace key={activeSection} token={token} />
+            : activeSection === 'Performance' && user.roles.some(role => ['ROLE_MANAGER', 'ROLE_EMPLOYEE'].includes(role)) ? <PerformanceSelfService key={activeSection} token={token} isManager={user.roles.includes('ROLE_MANAGER')} />
             : activeSection === 'Announcements' ? <AnnouncementsWorkspace key={activeSection} token={token} canManage={user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role))} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Audit logs' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_AUDITOR'].includes(role)) ? <AuditLogsPage token={token} />
             : activeSection === 'Profile' ? <section className="account-page">
