@@ -56,6 +56,18 @@ Branch: feature/m3-1-payroll-compliance
 - **NO DISBURSEMENT:** `personnel_employee` (new SaaS HR model) and `employee` (legacy payroll model) cannot be assumed to share a verified ID. This milestone records an independently approved settlement snapshot only; it does NOT enqueue a legacy payroll run, deduct loans, issue a legally operative payslip, initiate a bank transfer, or mark any employee paid.
 - Sources used for leave conversion, accrued 13th month, loan/property balances and legal separation entitlements are explicitly reviewed inputs, not yet fetched and reconciled automatically. The existing Personnel exit clearance is a hard gate.
 
+## M3.1.13 — Identity linking and staged final-pay authorization
+
+- V53 creates a forced-RLS, tenant-scoped, one-to-one `payroll_personnel_identity_link` table. Company, employee number, legal names and hire date must all match between `personnel_employee` and legacy `employee`. A second authorized payroll officer independently confirms the link; concurrent or duplicate links fail closed.
+- `/api/v1/payroll/identity-links` supports request, approve/reject and employee-specific read; records are audited, and approval rechecks the source identity records.
+- V54 introduces `payroll_final_pay_payment_authorization` uniquely bound to an APPROVED final-pay settlement, an APPROVED identity link, and a primary `employee_bank_account` for the matched legacy payroll employee. Net must be positive; account ID and legacy employee ID must match. Authorization is two-person, immutable in decision state, audited and does not generate a bank file.
+- `/api/v1/payroll/final-pay/payment-authorizations` supports preparation, decision and review. The `eligible-accounts` endpoint returns only bank code and masked last four account digits after identity approval.
+- V55 adds forced-RLS external bank evidence with a unique tenant/bank/reference key, amount matching, submission and independent review. `/api/v1/payroll/final-pay/bank-evidence` never marks a payroll run as paid and never claims an external banking API confirmation.
+- Personnel approved-separation cases now expose the identity-link and staged payment authorization UI, with a separate bank-evidence entry and independent review step.
+- New unit tests cover identity mismatch/same-name collisions, two-person verification, approved-settlement and matched bank-account gating, duplicate decision states and bank-evidence amount/actor checks. CI includes Maven tests, React build and PostgreSQL 16 Flyway startup/migration smoke.
+
+**Strict distinction:** Payment authorization `AUTHORIZED` means a human has authorized an instruction inside Apex HRM, **not** that the bank received funds. Bank evidence `EVIDENCE_REVIEWED` means a separate officer reviewed manually supplied details, **not** that an official bank statement or payment gateway certified them. No automated disbursement, bank acknowledgement polling, actual bank settlement, payout reconciliation, legally issued final payslip, or legacy payroll PAID transition is implemented by M3.1.13. Payroll deductions, 13th-month accrual and leave balances are not yet automatically reconciled against full source ledgers; amounts remain human-attested.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
