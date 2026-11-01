@@ -15,7 +15,12 @@ type SourceLedgerReview = { payrollStatus: string; loanStatus: string; leaveStat
     certificationStatus: string; disbursementEnabled: boolean; lockedPayrollLines: number;
     paidThirteenthMonth: number; payrollWithholding: number; outstandingActiveLoans: number;
     convertibleLeaveDays: number; declaredThirteenthMonth: number;
-    declaredOutstandingLoans: number; declaredLeaveConversion: number; requiredActions: string[] };
+    declaredOutstandingLoans: number; declaredLeaveConversion: number; requiredActions: string[];
+    finalizedDtrDays: number; openDtrDays: number; absentDtrDays: number;
+    lateMinutes: number; undertimeMinutes: number; approvedOvertimeMinutes: number;
+    lockedBasicPay: number; simpleThirteenthAccrualCandidate: number;
+    residualThirteenthCandidate: number; dtrStatus: string;
+    thirteenthAccrualStatus: string; withholdingStatus: string };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -265,6 +270,11 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
         <p className="people-muted">Active loan balance: {peso(sourceLedger.outstandingActiveLoans)} · Settlement loan deduction: {peso(sourceLedger.declaredOutstandingLoans)}</p>
         <p className="people-muted">Convertible leave: {sourceLedger.convertibleLeaveDays} days · Claimed leave conversion: {peso(sourceLedger.declaredLeaveConversion)}</p>
         <p className="people-muted">Payroll: {sourceLedger.payrollStatus.replaceAll('_',' ')} · Loan: {sourceLedger.loanStatus.replaceAll('_',' ')} · Leave: {sourceLedger.leaveStatus.replaceAll('_',' ')}</p>
+        <p className="people-muted">DTR: {sourceLedger.dtrStatus.replaceAll('_',' ')} · Finalized days: {sourceLedger.finalizedDtrDays} · Open days: {sourceLedger.openDtrDays} · Absences: {sourceLedger.absentDtrDays}</p>
+        <p className="people-muted">Late: {sourceLedger.lateMinutes} min · Undertime: {sourceLedger.undertimeMinutes} min · Approved overtime: {sourceLedger.approvedOvertimeMinutes} min</p>
+        <p className="people-muted">Locked BASIC: {peso(sourceLedger.lockedBasicPay)} · 13th-month accrual diagnostic: {peso(sourceLedger.simpleThirteenthAccrualCandidate)} · Unpaid diagnostic: {peso(sourceLedger.residualThirteenthCandidate)}</p>
+        <p className="people-muted">13th-month: {sourceLedger.thirteenthAccrualStatus.replaceAll('_',' ')} · Withholding: {sourceLedger.withholdingStatus.replaceAll('_',' ')}</p>
+        <p className="people-muted">These values are source-ledger diagnostics only; incomplete cutoffs, applicable labor rules, DTR adjustments and annualized BIR withholding still require certification.</p>
         <ul>{sourceLedger.requiredActions.map(action => <li key={action}>{action}</li>)}</ul>
       </>}
     </section>
