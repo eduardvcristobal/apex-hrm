@@ -29,9 +29,11 @@ public class TenantFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest req, HttpServletResponse res, FilterChain chain)
             throws ServletException, IOException {
+        // Request threads are pooled; clear any context before examining this request.
+        TenantContext.clear();
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         Object principal = authentication == null ? null : authentication.getPrincipal();
-        UUID tenantId = principal instanceof HrmUserPrincipal user ? user.tenantId() : null;
+        UUID tenantId = principal instanceof HrmUserPrincipal user && user.active() ? user.tenantId() : null;
         if (tenantId == null) {
             res.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Sign in to a workspace before accessing HRM data");
             return;

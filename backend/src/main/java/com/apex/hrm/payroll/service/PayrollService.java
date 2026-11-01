@@ -137,7 +137,7 @@ public class PayrollService {
         if (!RUN_TYPES.contains(type)) {
             throw new BusinessException("runType must be one of " + RUN_TYPES);
         }
-        PayPeriod period = periods.findById(payPeriodId).orElseThrow(() -> new NotFoundException("Pay period", payPeriodId));
+        PayPeriod period = periods.lockForPayroll(payPeriodId).orElseThrow(() -> new NotFoundException("Pay period", payPeriodId));
         if ("LOCKED".equals(period.getStatus())) {
             throw new BusinessException("Pay period is locked");
         }
@@ -172,7 +172,7 @@ public class PayrollService {
         if (emp.getSeparationDate() == null) {
             throw new BusinessException("Set the employee's separation date first");
         }
-        PayPeriod period = periods.findById(payPeriodId).orElseThrow(() -> new NotFoundException("Pay period", payPeriodId));
+        PayPeriod period = periods.lockForPayroll(payPeriodId).orElseThrow(() -> new NotFoundException("Pay period", payPeriodId));
         if ("LOCKED".equals(period.getStatus())) {
             throw new BusinessException("Pay period is locked");
         }
@@ -651,7 +651,7 @@ public class PayrollService {
     }
 
     private PayrollRun load(UUID id) {
-        return runs.findById(id).orElseThrow(() -> new NotFoundException("Payroll run", id));
+        return runs.lockForSettlement(id).orElseThrow(() -> new NotFoundException("Payroll run", id));
     }
 
     private static void requireStatus(PayrollRun run, String... allowed) {
