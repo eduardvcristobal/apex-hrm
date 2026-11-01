@@ -78,7 +78,7 @@ public class BankCreditResultService {
         // Prevent the same employee's credit being reported as accepted in multiple imported files.
         for (ExportRow row : exported.values()) {
             if ("ACCEPTED".equals(response.get(row.employeeNo()).status())
-                    && !results.findByEmployeeIdAndCreditStatus(row.employeeId(), "ACCEPTED").isEmpty()) {
+                    && !results.findByRunIdAndEmployeeIdAndCreditStatus(run.getId(), row.employeeId(), "ACCEPTED").isEmpty()) {
                 throw new BusinessException("Employee already accepted in another bank result; resolve manually");
             }
         }
@@ -99,6 +99,7 @@ public class BankCreditResultService {
             ResponseRow res = response.get(exp.employeeNo());
             BankCreditResult entry = new BankCreditResult();
             entry.setBankImportId(imported.getId());
+            entry.setRunId(bankFile.getRunId());
             entry.setBankFileId(bankFileId);
             entry.setEmployeeId(exp.employeeId());
             entry.setEmployeeNo(exp.employeeNo());
