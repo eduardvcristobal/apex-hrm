@@ -145,6 +145,40 @@ http GET "$A" "$SREV?settlementId=$SETTLEMENT"
 expect 200 'Read recorded independent source decision'
 [[ "$(echo "$LAST_BODY" | jq -r '.[0].status')" == "REJECTED" ]] || exit 1
 
+# M3.1.20: claimed external-document provenance is NEVER authoritative bank confirmation.
+ATTEST="/api/v1/payroll/final-pay/period-attestations"
+DOC_SHA="$(printf 'f%.0s' {1..64})"
+document="{\"sourceReviewId\":\"$reviewId\",\"issuerName\":\"CI synthetic finance office\",\"documentReference\":\"CI payroll period closure review paper 2026\",\"declaredDocumentSha256\":\"$DOC_SHA\"}"
+http POST "$A" "$ATTEST" "{\"sourceReviewId\":\"$reviewId\",\"issuerName\":\"CI\",\"documentReference\":\"too short\",\"declaredDocumentSha256\":\"bad\"}"
+expect 400 'Malformed provenance cannot be accepted'
+http POST "$A" "$ATTEST" "$document"
+expect 201 'Record declared external document provenance without independent verification'
+attestation="$(echo "$LAST_BODY" | jq -r .id)"
+[[ "$attestation" != "null" ]] || exit 1
+echo "$LAST_BODY" | jq -e '.status == "PENDING" and .provenanceStatus == "USER_DECLARED_UNVERIFIED" and .issuerIndependentlyVerified == false and .bankConfirmed == false and .payoutCertified == false and .disbursementEnabled == false' > /dev/null || { echo "$LAST_BODY";exit 1; }
+http POST "$A" "$ATTEST" "$document"
+expect 409 'Duplicate period closure attestation blocked'
+http POST "$A" "$ATTEST/$attestation/review"
+expect 403 'Requesting source capturer cannot review attestation'
+http POST "$B" "$ATTEST/$attestation/review"
+expect 403 'Source reviewer cannot attest their own completeness review'
+http POST "$D" "$ATTEST/$attestation/review"
+expect 404 'Other tenant cannot approve period attestation'
+http POST "$C" "$ATTEST/$attestation/review"
+expect 409 'Rejected/incomplete source prevents positive period closure review'
+http POST "$C" "$ATTEST/$attestation/reject"
+expect 200 'Separate finance officer rejects incomplete period evidence'
+[[ "$(echo "$LAST_BODY" | jq -r .status)" == "REJECTED" ]] || exit 1
+http POST "$C" "$ATTEST/$attestation/reject"
+expect 409 'Immutable period attestation decision cannot be repeated'
+http GET "$D" "$ATTEST?settlementId=$SETTLEMENT"
+expect 404 'Tenant isolation for attestation history'
+http GET "$E" "$ATTEST?settlementId=$SETTLEMENT"
+expect 403 'MFA required for attestation history'
+http GET "$B" "$ATTEST?settlementId=$SETTLEMENT"
+expect 200 'Internal attestation history available to authorized officer'
+echo "$LAST_BODY" | jq -e '.[0].status == "REJECTED" and .[0].bankConfirmed == false' > /dev/null || exit 1
+
 http GET "$A" "$P/eligible-accounts?personnelEmployeeId=$PERSONNEL"; expect 200 'Masked primary bank account available'
 account="$(echo "$LAST_BODY"|jq -r '.[0].id')"
 [[ "$account" != "null" ]] || exit 1
