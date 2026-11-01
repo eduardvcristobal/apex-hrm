@@ -5,6 +5,7 @@
 [extend]
 useDefault = true
 
-[[allowlists]]
+[allowlist]
 description = "Literal non-secret disposable PostgreSQL test credential used solely in M7.4 CI"
+regexTarget = "match"
 regexes = ['m74-ci-disposable']
