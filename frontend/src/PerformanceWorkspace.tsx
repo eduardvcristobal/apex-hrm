@@ -130,7 +130,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <button type="button" disabled={busy} onClick={() => {setEditGoalId(String(g.id));setEditTitle(String(g.title));setEditTarget(String(g.targetValue??100));}}>Edit</button>
           <button type="button" disabled={busy} onClick={() => void request<Item[]>(token,'/goals/'+String(g.id)+'/progress').then(history => setNotice('Progress records: '+history.length)).catch(e=>setError(String(e)))}>History</button>
         </li>)}</ul>
-        {editGoalId && <form onSubmit={e=>{e.preventDefault();void run(async()=>{await request(token,'/goals/'+editGoalId,'PUT',{title:editTitle,targetValue:Number(editTarget),weight:1});setEditGoalId('');});}}>
+        {editGoalId && <form onSubmit={e=>{e.preventDefault();void run(async()=>{await request(token,'/goals/'+editGoalId,'PUT',{title:editTitle,targetValue:Number(editTarget),weight:Number(goals.find(g=>g.id===editGoalId)?.weight??1),description:goals.find(g=>g.id===editGoalId)?.description??null,metric:goals.find(g=>g.id===editGoalId)?.metric??null,dueOn:goals.find(g=>g.id===editGoalId)?.dueOn??null});setEditGoalId('');});}}>
           <h3>Edit goal</h3>
           <input aria-label="Edit goal title" required value={editTitle} onChange={e=>setEditTitle(e.target.value)}/>
           <label>Target <input type="number" step=".001" min=".001" required value={editTarget} onChange={e=>setEditTarget(e.target.value)}/></label>
