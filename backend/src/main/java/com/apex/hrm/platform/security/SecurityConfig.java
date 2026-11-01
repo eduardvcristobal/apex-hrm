@@ -99,6 +99,15 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/personnel/employees/*/compensation", "/api/v1/personnel/employees/*/compensation/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.compensation(authentication.get().getAuthorities())))
+                // M5: HR-only administration; manager and employee self-service has scoped controller checks.
+                .requestMatchers("/api/v1/performance/my/**", "/api/v1/performance/team/**",
+                    "/api/v1/performance/goals/*/progress",
+                    "/api/v1/performance/reviews/*/self-assessment",
+                    "/api/v1/performance/reviews/*/acknowledge",
+                    "/api/v1/performance/plans/*/status")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN","ROLE_MANAGER","ROLE_EMPLOYEE"))
+                .requestMatchers("/api/v1/performance/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN"))
                 .requestMatchers("/api/v1/personnel/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.personnel(authentication.get().getAuthorities())))
