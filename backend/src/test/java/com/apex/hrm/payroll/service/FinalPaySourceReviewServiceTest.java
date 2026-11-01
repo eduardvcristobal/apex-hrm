@@ -6,6 +6,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
 class FinalPaySourceReviewServiceTest {
+    @Test void sourceCapturerCannotBeIndependentReviewer(){
+        UUID capturedBy=UUID.randomUUID();
+        assertEquals(403,assertThrows(ResponseStatusException.class,()->
+            FinalPaySourceReviewService.requireIndependentCapture(capturedBy,capturedBy))
+            .getStatusCode().value());
+        assertDoesNotThrow(()->FinalPaySourceReviewService.requireIndependentCapture(
+            capturedBy,UUID.randomUUID()));
+    }
     @Test void requesterCannotIndependentlyReviewTheirOwnSnapshot(){
         UUID actor=UUID.randomUUID();
         assertEquals(403,assertThrows(ResponseStatusException.class,()->
