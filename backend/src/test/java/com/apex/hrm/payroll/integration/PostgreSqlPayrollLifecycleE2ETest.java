@@ -25,6 +25,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -156,10 +157,22 @@ class PostgreSqlPayrollLifecycleE2ETest {
         assertTrue(bank.getContent().contains("CERT-0001,0000001234,"));
         assertEquals("PAID", payroll.markPaid(created.getId()).getStatus());
 
-        TenantContext.set(UUID.randomUUID());
-        assertTrue(runs.findById(created.getId()).isEmpty(), "other tenant cannot read payroll run");
-        assertTrue(payrollEmployees.findByRunId(created.getId()).isEmpty(), "other tenant cannot read payroll employee");
-        assertTrue(dtrDays.findByEmployeeIdAndWorkDate(employee, FROM).isEmpty(), "other tenant cannot read DTR");
+        UUID otherTenant = UUID.randomUUID();
+        boolean[] isolated = CompletableFuture.supplyAsync(() -> {
+            TenantContext.set(otherTenant);
+            try {
+                return new boolean[] {
+                    runs.findById(created.getId()).isEmpty(),
+                    payrollEmployees.findByRunId(created.getId()).isEmpty(),
+                    dtrDays.findByEmployeeIdAndWorkDate(employee, FROM).isEmpty()
+                };
+            } finally {
+                TenantContext.clear();
+            }
+        }).join();
+        assertTrue(isolated[0], "other tenant cannot read payroll run");
+        assertTrue(isolated[1], "other tenant cannot read payroll employee");
+        assertTrue(isolated[2], "other tenant cannot read DTR");
         TenantContext.set(tenant);
         assertEquals("PAID", runs.findById(created.getId()).orElseThrow().getStatus());
     }
