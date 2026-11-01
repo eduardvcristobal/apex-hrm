@@ -44,6 +44,10 @@ http GET "$E" "$R"; expect 403 'Payroll officer without verified MFA denied'
 http GET "$D" "$R"; expect 404 'Cross-tenant settlement hidden'
 http GET "$D" "$I?personnelEmployeeId=$PERSONNEL"; expect 200 'Cross-tenant list returns empty'
 [[ "$(echo "$LAST_BODY" | jq length)" == "0" ]] || { echo "Tenant B read tenant A identities";exit 1; }
+http GET "$B" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
+expect 200 'Source ledger fails closed before verified Personnel-to-Payroll identity'
+[[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "IDENTITY_UNVERIFIED" ]] || exit 1
+[[ "$(echo "$LAST_BODY" | jq -r .disbursementEnabled)" == "false" ]] || exit 1
 http GET "$B" "$R"; expect 200 'MFA payroll officer can read preflight'
 [[ "$(echo "$LAST_BODY" | jq -r .controlStatus)" == "PAYMENT_NOT_PREPARED" ]] || exit 1
 [[ "$(echo "$LAST_BODY" | jq -r .bankConfirmed)" == "false" ]] || exit 1
@@ -67,6 +71,13 @@ wait "$p1";wait "$p2"
 sorted="$(printf '%s\n%s\n' "$(cat "$tmp/ident_b.code")" "$(cat "$tmp/ident_c.code")" | sort | paste -sd, -)"
 [[ "$sorted" == "200,409" ]] || { echo "Concurrent identity decisions returned $sorted";cat "$tmp/ident_b" "$tmp/ident_c";exit 1; }
 echo 'PASS: racing identity approvers produce exactly one successful decision'
+http GET "$A" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
+expect 200 'Source ledger inspects approved employee identity with payroll, loan and leave sources'
+[[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "PAYROLL_SOURCE_MISSING" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .certificationStatus)" == "REVIEW_REQUIRED" ]] || exit 1
+[[ "$(echo "$LAST_BODY" | jq -r .disbursementEnabled)" == "false" ]] || exit 1
+http GET "$D" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
+expect 404 'Source ledger is tenant isolated'
 http GET "$A" "$P/eligible-accounts?personnelEmployeeId=$PERSONNEL"; expect 200 'Masked primary bank account available'
 account="$(echo "$LAST_BODY"|jq -r '.[0].id')"
 [[ "$account" != "null" ]] || exit 1
