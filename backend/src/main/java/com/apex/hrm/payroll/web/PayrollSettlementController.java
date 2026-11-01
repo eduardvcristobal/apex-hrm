@@ -22,6 +22,8 @@ public class PayrollSettlementController {
     public record RecordRequest(UUID bankFileId, BigDecimal acknowledgedAmount,
                                 String bankReference, String evidenceReference) {}
 
+    public record ExceptionRequest(String reason, String evidenceReference) {}
+
     private final PayrollSettlementService settlements;
 
     public PayrollSettlementController(PayrollSettlementService settlements) {
@@ -39,6 +41,18 @@ public class PayrollSettlementController {
     @PostMapping("/settlements/{id}/confirm")
     public PayrollBankSettlement confirm(@PathVariable UUID id, @AuthenticationPrincipal HrmUserPrincipal actor) {
         return settlements.confirm(id, actor.id());
+    }
+
+    @PostMapping("/settlements/{id}/reject")
+    public PayrollBankSettlement reject(@PathVariable UUID id, @RequestBody ExceptionRequest request,
+                                        @AuthenticationPrincipal HrmUserPrincipal actor) {
+        return settlements.reject(id, request.reason(), request.evidenceReference(), actor.id());
+    }
+
+    @PostMapping("/settlements/{id}/reverse")
+    public PayrollBankSettlement reverse(@PathVariable UUID id, @RequestBody ExceptionRequest request,
+                                         @AuthenticationPrincipal HrmUserPrincipal actor) {
+        return settlements.reverse(id, request.reason(), request.evidenceReference(), actor.id());
     }
 
     @GetMapping("/runs/{runId}/settlements")
