@@ -73,7 +73,16 @@ sorted="$(printf '%s\n%s\n' "$(cat "$tmp/ident_b.code")" "$(cat "$tmp/ident_c.co
 echo 'PASS: racing identity approvers produce exactly one successful decision'
 http GET "$A" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
 expect 200 'Source ledger inspects approved employee identity with payroll, loan and leave sources'
-[[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "PAYROLL_SOURCE_MISSING" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "ANNUAL_COVERAGE_AND_ACCRUAL_REVIEW_REQUIRED" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .lockedPayrollLines)" == "3" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .lockedBasicPay | tonumber)" == "14400" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .simpleThirteenthAccrualCandidate | tonumber)" == "1200" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .residualThirteenthCandidate | tonumber)" == "400" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .thirteenthAccrualStatus)" == "ACCRUAL_CANDIDATE_REQUIRES_CUTOFF_CERTIFICATION" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .withholdingStatus)" == "ANNUAL_TAX_RECOMPUTATION_REQUIRED" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .dtrStatus)" == "DTR_UNFINALIZED" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .openDtrDays)" == "1" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r .absentDtrDays)" == "1" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .loanStatus)" == "LOAN_BALANCE_MISMATCH" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700.0000" || "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700.0" || "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700.00" || "$(echo "$LAST_BODY" | jq -r .outstandingActiveLoans)" == "700" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .leaveStatus)" == "CONVERSION_RATE_AND_ELIGIBILITY_REVIEW_REQUIRED" ]] || { echo "$LAST_BODY"; exit 1; }
