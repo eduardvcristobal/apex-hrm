@@ -4,7 +4,8 @@ import './performance.css';
 type Goal = { id: string; title: string; metric?: string; targetValue?: number; actualValue?: number; status: string };
 type Review = { id: string; cycleId: string; rating?: number; selfRating?: number; status: string; managerComments?: string };
 type TeamGoal = { id: string; employeeId: string; title: string; actualValue?: number; status: string };
-type TeamReview = { id: string; employeeId: string; rating?: number; status: string };
+type TeamReview = { id: string; employeeId: string; reviewerId: string; rating?: number; status: string };
+type Assignment = { employeeId: string; firstName: string; lastName: string; cycleId: string; cycleName: string };
 async function api<T>(token: string, path: string, method = 'GET', payload?: unknown): Promise<T> {
   const response = await fetch('/api/v1/performance' + path, { method,
     headers: { Authorization: `Bearer ${token}`, ...(payload ? { 'Content-Type': 'application/json' } : {}) },
@@ -18,6 +19,10 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
   const [reviews, setReviews] = useState<Review[]>([]);
   const [teamGoals, setTeamGoals] = useState<TeamGoal[]>([]);
   const [teamReviews, setTeamReviews] = useState<TeamReview[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [selectedAssignment, setSelectedAssignment] = useState('');
+  const [managerRatings, setManagerRatings] = useState<Record<string, string>>({});
+  const [managerComments, setManagerComments] = useState<Record<string, string>>({});
   const [values, setValues] = useState<Record<string,string>>({});
   const [notes, setNotes] = useState<Record<string,string>>({});
   const [error, setError] = useState('');
@@ -27,8 +32,8 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
     const [g, r] = await Promise.all([api<Goal[]>(token, '/my/goals'),api<Review[]>(token, '/my/reviews')]);
     setGoals(g);setReviews(r);
     if (isManager) {
-      const [tg, tr] = await Promise.all([api<TeamGoal[]>(token,'/team/goals'),api<TeamReview[]>(token,'/team/reviews')]);
-      setTeamGoals(tg);setTeamReviews(tr);
+      const [tg, tr, ta] = await Promise.all([api<TeamGoal[]>(token,'/team/goals'),api<TeamReview[]>(token,'/team/reviews'),api<Assignment[]>(token,'/team/assignments')]);
+      setTeamGoals(tg);setTeamReviews(tr);setAssignments(ta);
     }
   }
   useEffect(() => { void reload().catch(e => setError(String(e))); }, [token,isManager]);
@@ -68,8 +73,21 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
       {isManager && <div className="performance-panel"><h2>My direct reports</h2>
         <p>Goals: {teamGoals.length} · Evaluations: {teamReviews.length}</p>
         <ul>{teamGoals.map(g=><li key={g.id}>{g.title} · {g.status}</li>)}</ul>
-        <h3>Review queue</h3><ul>{teamReviews.map(r=><li key={r.id}>{r.employeeId.slice(0,8)} · {r.status}</li>)}</ul>
-        <p>Review drafts and submissions are currently managed in the API; HR can manage cycles and assignments.</p>
+        <h3>Create a team review</h3>
+        <form onSubmit={e=>{e.preventDefault();const assignment=assignments[Number(selectedAssignment)];if(assignment) void run(()=>api(token,'/reviews/drafts','POST',{cycleId:assignment.cycleId,employeeId:assignment.employeeId}));}}>
+          <label>Direct report and active cycle <select aria-label="Review assignment" value={selectedAssignment} onChange={e=>setSelectedAssignment(e.target.value)} required><option value="">Select employee and cycle</option>{assignments.map((a,i)=><option key={a.cycleId+':'+a.employeeId} value={i}>{a.firstName} {a.lastName} — {a.cycleName}</option>)}</select></label>
+          <button disabled={busy||!selectedAssignment}>Create draft</button>
+        </form>
+        <h3>Review queue</h3>
+        {teamReviews.length===0&&<p>No team reviews yet.</p>}
+        {teamReviews.map(r=><div key={r.id} className="performance-review-item">
+          <p>{assignments.find(a=>a.employeeId===r.employeeId)?.firstName||'Employee'} · {r.status} · Rating: {r.rating??'Pending'}</p>
+          {r.status==='DRAFT' && <form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/submit','POST',{rating:Number(managerRatings[r.id]||'3'),comments:managerComments[r.id]||''}));}}>
+            <label>Rating <input type="number" min="1" max="5" step=".5" required value={managerRatings[r.id]||'3'} onChange={e=>setManagerRatings(v=>({...v,[r.id]:e.target.value}))}/></label>
+            <textarea aria-label="Manager assessment" placeholder="Evidence, achievements and development feedback" maxLength={5000} value={managerComments[r.id]||''} onChange={e=>setManagerComments(v=>({...v,[r.id]:e.target.value}))}/>
+            <button disabled={busy}>Submit manager evaluation</button>
+          </form>}
+        </div>)}
       </div>}
     </div>
   </section>;
