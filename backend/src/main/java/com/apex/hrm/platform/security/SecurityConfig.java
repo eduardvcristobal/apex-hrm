@@ -105,7 +105,10 @@ public class SecurityConfig {
                     "/api/v1/performance/reviews/*/self-assessment",
                     "/api/v1/performance/reviews/drafts", "/api/v1/performance/reviews/*/submit",
                     "/api/v1/performance/reviews/*/acknowledge",
-                    "/api/v1/performance/plans/*/status")
+                    "/api/v1/performance/plans/*/status",
+                    "/api/v1/performance/plans/*/milestones",
+                    "/api/v1/performance/milestones/*/status",
+                    "/api/v1/performance/milestones/*/evidence")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN","ROLE_MANAGER","ROLE_EMPLOYEE"))
                 .requestMatchers("/api/v1/performance/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN"))
