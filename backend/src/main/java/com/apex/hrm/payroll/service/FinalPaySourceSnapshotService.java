@@ -167,6 +167,44 @@ public class FinalPaySourceSnapshotService {
         });
     }
 
+    public record Freshness(UUID snapshotId,UUID settlementId,String capturedSha256,
+        String currentSha256,boolean current,boolean latest,
+        String reviewStatus,boolean payoutCertified,boolean disbursementEnabled) {}
+
+    /**
+     * Re-queries all source data and checks that a recorded SHA-256 is still current.
+     * This is source-integrity preflight, never legal payment certification.
+     */
+    public Freshness verifyCurrent(HrmUserPrincipal user,UUID snapshotId){
+        return tenants.inTenant(user.tenantId(),()->{
+            List<Snapshot> snapshots=jdbc.query("""
+                SELECT id,settlement_id,payroll_employee_id,source_sha256,
+                       evidence::text AS evidence,cutoff_gap_days,compensation_gap_days,
+                       unfinalized_dtr_days,completeness_status,captured_at
+                FROM payroll_final_pay_source_snapshot
+                WHERE tenant_id=? AND id=?
+                """,(rs,i)->map(rs),user.tenantId(),snapshotId);
+            if(snapshots.isEmpty())throw new ResponseStatusException(HttpStatus.NOT_FOUND,
+                "Source snapshot not found");
+            Snapshot snapshot=snapshots.get(0);
+            Scope scope=scope(user.tenantId(),snapshot.settlementId());
+            Captured current=collect(user.tenantId(),scope);
+            UUID latest=jdbc.queryForObject("""
+                SELECT id FROM payroll_final_pay_source_snapshot
+                WHERE tenant_id=? AND settlement_id=?
+                ORDER BY captured_at DESC,id DESC LIMIT 1
+                """,UUID.class,user.tenantId(),snapshot.settlementId());
+            boolean same=snapshot.sourceSha256().equals(current.digest())
+                && snapshot.payrollEmployeeId().equals(scope.employeeId());
+            boolean newest=snapshot.id().equals(latest);
+            String status=!same?"STALE_SOURCE":!newest?"SUPERSEDED_SOURCE":
+                current.completenessStatus().equals("INCOMPLETE_SOURCE")?
+                    "INCOMPLETE_SOURCE":"READY_FOR_INDEPENDENT_REVIEW";
+            return new Freshness(snapshotId,snapshot.settlementId(),snapshot.sourceSha256(),
+                current.digest(),same,newest,status,false,false);
+        });
+    }
+
     private Scope scope(UUID tenant,UUID settlementId){
         List<Scope> scopes=jdbc.query("""
             SELECT s.id,l.payroll_employee_id,
