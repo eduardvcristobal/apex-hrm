@@ -107,7 +107,7 @@ public class LearningController {
             int changed=jdbc.update("""
                 UPDATE ld_enrollment SET status=?,
                     completed_on=CASE WHEN ?='COMPLETED' THEN current_date ELSE NULL END,
-                    score=CASE WHEN ?='COMPLETED' THEN ? ELSE NULL END
+                    score=CASE WHEN ?='COMPLETED' THEN CAST(? AS numeric(5,2)) ELSE NULL END
                 WHERE tenant_id=? AND id=? AND
                   ((status='ENROLLED' AND ? IN ('IN_PROGRESS','CANCELLED'))
                     OR (status='IN_PROGRESS' AND ? IN ('COMPLETED','CANCELLED')))
