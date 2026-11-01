@@ -34,4 +34,4 @@ BEGIN
     rejected := true;
   END;
   IF NOT rejected THEN RAISE EXCEPTION 'Plaintext insert unexpectedly succeeded'; END IF;
-END $$$;
+END $$;
