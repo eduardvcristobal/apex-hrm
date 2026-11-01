@@ -74,10 +74,11 @@ class PostgreSqlPayrollLifecycleE2ETest {
         UUID schedule = UUID.randomUUID();
         UUID bankTemplate = UUID.randomUUID();
 
-        jdbc.update("INSERT INTO tenant(id,code,name) VALUES (?,?,?)",
-                tenant, "CERT-" + tenant.toString().substring(0, 12), "Synthetic certification tenant");
-        jdbc.update("INSERT INTO company(id,tenant_id,legal_name) VALUES (?,?,?)",
-                company, tenant, "M3.2 Test Company");
+        jdbc.update("INSERT INTO tenant(id,code,name,slug,display_name) VALUES (?,?,?,?,?)",
+                tenant, "CERT-" + tenant.toString().substring(0, 12), "Synthetic certification tenant",
+                "cert-" + tenant, "Synthetic certification tenant");
+        jdbc.update("INSERT INTO company(id,tenant_id,legal_name,company_code) VALUES (?,?,?,?)",
+                company, tenant, "M3.2 Test Company", "CERT-CO");
         jdbc.update("INSERT INTO pay_group(id,tenant_id,company_id,code,name) VALUES (?,?,?,?,?)",
                 payGroup, tenant, company, "CERT-PAY", "Test Semimonthly");
         jdbc.update("INSERT INTO employee(id,tenant_id,company_id,employee_no,first_name,last_name,hire_date) " +
