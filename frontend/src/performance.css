@@ -1,0 +1,12 @@
+/* M5 workspace - isolated styles to avoid changing existing pages. */
+.performance-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px;margin-top:24px;align-items:start; }
+.performance-panel { background:var(--surface,#fff);border:1px solid var(--border,#dbe2ea);border-radius:16px;padding:22px;min-width:0;box-shadow:0 4px 16px rgba(15,23,42,.04); }
+.performance-panel h2 { font-size:1.15rem;margin:0 0 18px; }
+.performance-panel h3 { font-size:1rem;margin:18px 0 10px; }
+.performance-panel label { display:block;font-size:.9rem;font-weight:600;margin:12px 0; }
+.performance-panel input,.performance-panel select,.performance-panel textarea { box-sizing:border-box;width:100%;padding:10px 12px;margin-top:6px;border:1px solid #aeb9c7;border-radius:9px;background:var(--surface,#fff);color:inherit;font:inherit; }
+.performance-panel textarea { min-height:92px;resize:vertical; }
+.performance-panel button { border:0;background:#3445b4;color:#fff;border-radius:9px;padding:10px 14px;margin-top:10px;font-weight:650;cursor:pointer; }
+.performance-panel button:disabled { opacity:.45;cursor:not-allowed; }
+.performance-panel ul { padding-left:20px;overflow-wrap:anywhere; }
+.performance-panel li { padding:6px 0; }

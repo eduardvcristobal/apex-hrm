@@ -99,6 +99,19 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/personnel/employees/*/compensation", "/api/v1/personnel/employees/*/compensation/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.compensation(authentication.get().getAuthorities())))
+                // Performance self-service has manager/employee route access, with employee
+                // and direct-report scoping enforced again by the controllers.
+                .requestMatchers("/api/v1/performance/my/**", "/api/v1/performance/team/**",
+                    "/api/v1/performance/goals/*/progress",
+                    "/api/v1/performance/reviews/*/self-assessment",
+                    "/api/v1/performance/reviews/drafts", "/api/v1/performance/reviews/*/submit",
+                    "/api/v1/performance/reviews/*/acknowledge",
+                    "/api/v1/performance/plans/*/status",
+                    "/api/v1/performance/plans/*/milestones",
+                    "/api/v1/performance/milestones/*/status", "/api/v1/performance/milestones/*/evidence")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_MANAGER", "ROLE_EMPLOYEE"))
+                .requestMatchers("/api/v1/performance/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
                 .requestMatchers("/api/v1/personnel/**")
                     .access((authentication,context) -> new org.springframework.security.authorization.AuthorizationDecision(
                         PersonnelAccessPolicy.personnel(authentication.get().getAuthorities())))
