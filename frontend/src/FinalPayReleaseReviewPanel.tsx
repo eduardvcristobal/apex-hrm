@@ -26,6 +26,10 @@ type SourceSnapshot = { id:string; sourceSha256:string; cutoffGapDays:number;
   payoutCertified:boolean; disbursementEnabled:boolean; capturedAt:string };
 type SourceDecision = { id:string; snapshotId:string; status:string; requestedBy:string;
     decidedBy:string|null; payoutCertified:boolean; disbursementEnabled:boolean };
+type PeriodAttestation = { id:string; snapshotId:string; sourceReviewId:string; status:string;
+  issuerName:string; documentReference:string; declaredDocumentSha256:string;
+  provenanceStatus:string; requestedBy:string; issuerIndependentlyVerified:boolean;
+  bankConfirmed:boolean; payoutCertified:boolean; disbursementEnabled:boolean };
 type SourceFreshness = { reviewStatus:string; current:boolean; latest:boolean;
     capturedSha256:string; currentSha256:string; payoutCertified:boolean };
 type Page<T> = { content: T[] };
@@ -59,6 +63,12 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [sourceDecisions, setSourceDecisions] = useState<SourceDecision[]>([]);
   const [sourceFreshness, setSourceFreshness] = useState<SourceFreshness | null>(null);
   const [sourceEvidenceRef, setSourceEvidenceRef] = useState('');
+  const [attestations, setAttestations] = useState<PeriodAttestation[]>([]);
+  const [periodSourceReview, setPeriodSourceReview] = useState('');
+  const [documentIssuer, setDocumentIssuer] = useState('');
+  const [documentReference, setDocumentReference] = useState('');
+  const [documentDigest, setDocumentDigest] = useState('');
+
   const [busy, setBusy] = useState(false);
   const identityPath = '/api/v1/payroll/identity-links';
   const paymentPath = '/api/v1/payroll/final-pay/payment-authorizations';
@@ -165,6 +175,37 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
         `/api/v1/payroll/final-pay/source-reviews/${id}/${decision}`,{method:'POST'});
       setSourceDecisions(rows=>rows.map(item=>item.id===id?updated:item));
       setNotice('Independent source-only decision recorded. Final-pay and bank approval are separate.');
+    });
+  }
+
+  useEffect(()=>{
+    let active=true;
+    request<PeriodAttestation[]>(
+      `/api/v1/payroll/final-pay/period-attestations?settlementId=${settlementId}`)
+      .then(rows=>{if(active)setAttestations(rows);})
+      .catch(()=>{if(active)setAttestations([]);});
+    return ()=>{active=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[settlementId,link?.status]);
+
+  async function submitPeriodAttestation(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();
+    await execute(async()=>{
+      const item=await request<PeriodAttestation>('/api/v1/payroll/final-pay/period-attestations',{
+        method:'POST',
+        body:JSON.stringify({sourceReviewId:periodSourceReview,issuerName:documentIssuer,
+          documentReference,declaredDocumentSha256:documentDigest})
+      });
+      setAttestations(rows=>[item,...rows]);
+      setNotice('Document provenance was recorded as USER-DECLARED, NOT independently verified by its issuer.');
+    });
+  }
+  async function decidePeriodAttestation(id:string,action:'review'|'reject'){
+    await execute(async()=>{
+      const updated=await request<PeriodAttestation>(
+        `/api/v1/payroll/final-pay/period-attestations/${id}/${action}`,{method:'POST'});
+      setAttestations(rows=>rows.map(item=>item.id===id?updated:item));
+      setNotice('Internal document review recorded; no payroll close, certified bank proof or payout.');
     });
   }
 
@@ -384,6 +425,47 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
         <small>SHA-256: {item.sourceSha256}</small>
         <small>Recorded {item.capturedAt} · Financial certification: No · Bank payout: Disabled</small>
       </span></div>)}
+    </section>
+    <section className="people-subcard" aria-label="Period closure attestation">
+      <h4>Payroll period-closure evidence</h4>
+      <p className="people-muted">Issuer names, references and document fingerprints entered here are USER-DECLARED and UNVERIFIED. This is an internal evidence register, not an official bank receipt, payroll closing entry, or approval to pay.</p>
+      <form className="people-inline-form" onSubmit={event=>void submitPeriodAttestation(event)}>
+        <label className="people-field"><span>Referenced source review</span>
+          <select value={periodSourceReview} onChange={e=>setPeriodSourceReview(e.target.value)} required>
+            <option value="">Select a reviewed or pending snapshot reference</option>
+            {sourceDecisions.map(item=><option key={item.id} value={item.id}>{item.status} · {item.snapshotId.slice(0,8)}</option>)}
+          </select>
+        </label>
+        <label className="people-field"><span>Declared issuer (not verified)</span>
+          <input value={documentIssuer} onChange={e=>setDocumentIssuer(e.target.value)} required minLength={3} maxLength={200}/>
+        </label>
+        <label className="people-field"><span>Document storage/evidence reference</span>
+          <input value={documentReference} onChange={e=>setDocumentReference(e.target.value)} required minLength={20} maxLength={1000}/>
+        </label>
+        <label className="people-field"><span>Declared document SHA-256 (64 lowercase hex characters)</span>
+          <input value={documentDigest} onChange={e=>setDocumentDigest(e.target.value)} required
+            minLength={64} maxLength={64} pattern="[a-f0-9]{64}"/>
+        </label>
+        <button type="submit" className="security-submit" disabled={busy || !periodSourceReview ||
+          documentIssuer.trim().length<3 || documentReference.trim().length<20 ||
+          !/^[a-f0-9]{64}$/.test(documentDigest)}>Record unverified period evidence</button>
+      </form>
+      {attestations.length===0 && <p className="people-muted">No period-closure evidence recorded.</p>}
+      {attestations.slice(0,5).map(item=><div key={item.id} className="people-record">
+        <span><strong>{item.status.replaceAll('_',' ')}</strong>
+          <small>Declared issuer: {item.issuerName} · {item.provenanceStatus.replaceAll('_',' ')}</small>
+          <small>Document digest: {item.declaredDocumentSha256}</small>
+          <small>Bank confirmed: No · Payout certified: No · Disbursement enabled: No</small>
+        </span>
+        {item.status==='PENDING' && item.requestedBy!==currentUserId && <div className="people-form-actions">
+          <button type="button" className="security-submit"
+            disabled={busy || sourceFreshness?.reviewStatus!=='READY_FOR_INDEPENDENT_REVIEW' ||
+              !sourceDecisions.some(review=>review.id===item.sourceReviewId && review.status==='SOURCE_REVIEWED')}
+            onClick={()=>void decidePeriodAttestation(item.id,'review')}>Internally review complete source</button>
+          <button type="button" className="session-revoke" disabled={busy}
+            onClick={()=>void decidePeriodAttestation(item.id,'reject')}>Reject period evidence</button>
+        </div>}
+      </div>)}
     </section>
     <section className="people-subcard">
       <h4>Final-pay financial certification preflight</h4>
