@@ -50,7 +50,9 @@ def java_routes(root):
                 strings = LITERAL.findall(match.group(2))
                 if strings:
                     class_prefix = strings[0]
-        for match in MAPPING.finditer(source[len(header):], len(header)):
+        for match in MAPPING.finditer(source):
+            if match.start() < len(header):
+                continue
             kind, args = match.groups()
             if kind == "RequestMapping":
                 continue  # method-specific RequestMapping needs semantic parsing
