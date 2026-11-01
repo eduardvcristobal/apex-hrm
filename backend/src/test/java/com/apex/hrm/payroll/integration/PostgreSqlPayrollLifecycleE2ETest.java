@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.apex.hrm.common.BusinessException;
 import com.apex.hrm.common.TenantContext;
+import com.apex.hrm.platform.security.HrmUserPrincipal;
 import com.apex.hrm.payroll.domain.BankFile;
 import com.apex.hrm.payroll.domain.PayrollEmployee;
 import com.apex.hrm.payroll.domain.PayrollLine;
@@ -26,6 +27,15 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import org.springframework.http.MediaType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -38,6 +48,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
  * All people and accounts are synthetic. This is NOT external bank settlement certification.
  * Only enabled with a dedicated, disposable HRM_TEST_DB_URL.
  */
+@AutoConfigureMockMvc
 @SpringBootTest(properties = {
         "spring.datasource.url=${HRM_TEST_DB_URL:jdbc:postgresql://localhost:5432/apex_hrm_test}",
         "spring.datasource.username=${HRM_TEST_DB_USER:hrm}",
@@ -49,6 +60,7 @@ class PostgreSqlPayrollLifecycleE2ETest {
     private static final LocalDate TO = LocalDate.of(2026, 10, 6);
 
     @Autowired JdbcTemplate jdbc;
+    @Autowired MockMvc mockMvc;
     @Autowired AttendanceService attendance;
     @Autowired DtrService dtr;
     @Autowired PayrollService payroll;
@@ -108,7 +120,17 @@ class PostgreSqlPayrollLifecycleE2ETest {
         TenantContext.set(tenant);
         attendance.recordManual(employee, "IN", Instant.parse("2026-10-05T01:30:00Z"), "M3.2 fixture");
         attendance.recordManual(employee, "OUT", Instant.parse("2026-10-05T11:00:00Z"), "M3.2 fixture");
-        assertEquals(2, dtr.process(FROM, TO, employee));
+        var authority = List.of(new SimpleGrantedAuthority("ROLE_TENANT_ADMIN"),
+                new SimpleGrantedAuthority("ROLE_MFA_VERIFIED"));
+        var principal = new HrmUserPrincipal(UUID.randomUUID(), tenant, "cert@example.invalid",
+                "unused", true, authority);
+        var authentication = new UsernamePasswordAuthenticationToken(principal, null, authority);
+        mockMvc.perform(post("/api/dtr/process")
+                .with(authentication(authentication)).with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(new DtrRequest(FROM, TO, employee))))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.processedDays").value(2));
         DtrDay worked = dtrDays.findByEmployeeIdAndWorkDate(employee, FROM).orElseThrow();
         DtrDay absent = dtrDays.findByEmployeeIdAndWorkDate(employee, TO).orElseThrow();
         assertEquals(450, worked.getRegularMinutes());
@@ -155,7 +177,11 @@ class PostgreSqlPayrollLifecycleE2ETest {
         assertEquals(1, bank.getRecordCount());
         assertMoney(pe.getNetPay(), bank.getTotalAmount());
         assertTrue(bank.getContent().contains("CERT-0001,0000001234,"));
-        assertEquals("PAID", payroll.markPaid(created.getId()).getStatus());
+        mockMvc.perform(post("/api/payroll/runs/" + created.getId() + "/pay")
+                .with(authentication(authentication)).with(csrf()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.status").value("PAID"));
+        assertEquals("PAID", runs.findById(created.getId()).orElseThrow().getStatus());
 
         UUID otherTenant = UUID.randomUUID();
         boolean[] isolated = CompletableFuture.supplyAsync(() -> {
@@ -176,6 +202,8 @@ class PostgreSqlPayrollLifecycleE2ETest {
         TenantContext.set(tenant);
         assertEquals("PAID", runs.findById(created.getId()).orElseThrow().getStatus());
     }
+
+    private record DtrRequest(LocalDate from, LocalDate to, UUID employeeId) {}
 
     private static BigDecimal lineAmount(List<PayrollLine> lines, String code) {
         return lines.stream().filter(l -> code.equals(l.getItemCode())).map(PayrollLine::getAmount)
