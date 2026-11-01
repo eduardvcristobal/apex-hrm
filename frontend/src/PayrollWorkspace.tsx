@@ -116,6 +116,24 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
     finally { setBusy(''); }
   }
 
+  async function downloadRemittance(agency: 'SSS' | 'PHILHEALTH' | 'PAGIBIG') {
+    if (!selected) return;
+    setBusy(`remittance-${agency}`); setError(''); setNotice('');
+    try {
+      const response = await fetch(`/api/payroll/runs/${selected.id}/remittance-review?agency=${agency}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error(`Could not download review register (${response.status}).`);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url; link.download = `${agency.toLowerCase()}-review.csv`; link.click();
+      URL.revokeObjectURL(url);
+      setNotice(`${agency} internal review register downloaded. It is not an agency submission file.`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not download remittance review.'); }
+    finally { setBusy(''); }
+  }
+
   const lifecycleAction: Record<string, { action: string; label: string; confirm?: string }> = {
     DRAFT: { action: 'compute', label: 'Compute payroll' },
     COMPUTED: { action: 'review', label: 'Mark reviewed' },
@@ -150,7 +168,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
         {loading ? <div className="timekeeping-empty">Loading payroll records…</div> : runs.length ? <div className="timekeeping-table-wrap"><table className="timekeeping-table payroll-table"><thead><tr><th>PAY PERIOD</th><th>PAY GROUP</th><th>TYPE</th><th>STATUS</th><th>EMPLOYEES</th><th>NET PAY</th></tr></thead><tbody>{runs.map(run => { const period = periodById.get(run.payPeriodId); return <tr key={run.id} className={selected?.id === run.id ? 'payroll-selected-row' : ''}><td><button type="button" className="payroll-run-link" onClick={() => void selectRun(run)}>{period ? `${date(period.startDate)} – ${date(period.endDate)}` : 'Period details unavailable'}<small>Pay date {period ? date(period.payDate) : '—'}</small></button></td><td>{groupById.get(run.payGroupId)?.name || '—'}</td><td>{run.runType.replaceAll('_', ' ')}</td><td><span className={`timekeeping-status ${run.status === 'PAID' ? 'open' : run.status === 'DRAFT' ? 'warning' : run.status === 'LOCKED' ? 'locked' : 'open'}`}>{run.status}</span></td><td>{run.employeeCount}</td><td><strong>{money(run.totalNet)}</strong></td></tr>; })}</tbody></table></div> : <div className="timekeeping-empty">No payroll runs yet. Select an open pay period to get started.</div>}
       </section>
     </div>
-    {selected && <section className="payroll-panel payroll-detail-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">RUN DETAILS</p><h2>{selected.runType.replaceAll('_', ' ')} payroll</h2><p>{selectedPeriod ? `${date(selectedPeriod.startDate)} – ${date(selectedPeriod.endDate)} · Pay date ${date(selectedPeriod.payDate)}` : 'Pay period'}</p></div><div className="payroll-detail-actions">{action && <button type="button" className="security-submit" onClick={() => void transition(selected, action.action, action.confirm)} disabled={!!busy || mfaVerified === false}>{busy === action.action ? 'Saving…' : action.label}</button>}</div></div>
+    {selected && <section className="payroll-panel payroll-detail-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">RUN DETAILS</p><h2>{selected.runType.replaceAll('_', ' ')} payroll</h2><p>{selectedPeriod ? `${date(selectedPeriod.startDate)} – ${date(selectedPeriod.endDate)} · Pay date ${date(selectedPeriod.payDate)}` : 'Pay period'}</p></div><div className="payroll-detail-actions">{action && <button type="button" className="security-submit" onClick={() => void transition(selected, action.action, action.confirm)} disabled={!!busy || mfaVerified === false}>{busy === action.action ? 'Saving…' : action.label}</button>}{['SSS', 'PHILHEALTH', 'PAGIBIG'].map(agency => <button key={agency} type="button" className="security-submit" onClick={() => void downloadRemittance(agency as 'SSS' | 'PHILHEALTH' | 'PAGIBIG')} disabled={!!busy || mfaVerified === false}>{busy === `remittance-${agency}` ? 'Downloading…' : `${agency} review CSV`}</button>)}</div></div>
       {selected.remarks && <div className="payroll-warning">{selected.remarks}</div>}
       <div className="payroll-lifecycle">{stages.map((stage, index) => <div key={stage} className={stages.indexOf(selected.status) >= index ? 'complete' : ''}><i>{stages.indexOf(selected.status) >= index ? '✓' : index + 1}</i><span>{stage.replaceAll('_', ' ')}</span></div>)}</div>
       <div className="timekeeping-metrics payroll-totals"><article><span>GROSS PAY</span><strong>{money(selected.totalGross)}</strong></article><article><span>DEDUCTIONS</span><strong>{money(selected.totalDeductions)}</strong></article><article><span>NET PAY</span><strong>{money(selected.totalNet)}</strong></article><article><span>EMPLOYER COST</span><strong>{money(selected.totalEmployerCost)}</strong></article></div>

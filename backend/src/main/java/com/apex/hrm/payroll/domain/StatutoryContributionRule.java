@@ -28,4 +28,6 @@ public class StatutoryContributionRule extends GlobalEntity {
     private BigDecimal ecHigh;
     private BigDecimal ecThreshold;
     private BigDecimal mpfThreshold;
+    private BigDecimal lowIncomeThreshold;
+    private BigDecimal lowIncomeEmployeeRate;
 }

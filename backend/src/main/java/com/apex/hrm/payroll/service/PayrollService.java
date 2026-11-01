@@ -355,7 +355,8 @@ public class PayrollService {
                 new SssCalculator.Rule(sss.getEmployeeRate(), sss.getEmployerRate(), sss.getMinBase(), sss.getMaxBase(),
                         sss.getMscStep(), sss.getEcLow(), sss.getEcHigh(), sss.getEcThreshold()),
                 new PhilHealthCalculator.Rule(phic.getEmployeeRate(), phic.getEmployerRate(), phic.getMinBase(), phic.getMaxBase()),
-                new PagIbigCalculator.Rule(hdmf.getEmployeeRate(), hdmf.getEmployerRate(), hdmf.getMaxBase()),
+                new PagIbigCalculator.Rule(hdmf.getEmployeeRate(), hdmf.getEmployerRate(), hdmf.getMaxBase(),
+                        hdmf.getLowIncomeThreshold(), hdmf.getLowIncomeEmployeeRate()),
                 brackets);
     }
 
