@@ -143,6 +143,6 @@ export function LearningWorkspace({ token, canManage, onOpenSecurity }: Props) {
             <button type="button" className="announcements-secondary" disabled={busy} onClick={() => void transition(row.id, 'CANCELLED')}>Cancel</button>
           </div>}
         </article>)}</div>}
-    </section>}</>
+    </section></>}
   </main>;
 }
