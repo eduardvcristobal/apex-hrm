@@ -34,12 +34,13 @@ public class BankCreditResultService {
     private final BankCreditResultRepository results;
     private final PayrollBankSettlementRepository settlements;
     private final AuditService audit;
+    private final BankExportCipher exportCipher;
 
     public BankCreditResultService(PayrollRunRepository runs, BankFileRepository files,
             BankTemplateRepository templates, PayrollEmployeeRepository payrollEmployees,
             EmployeeRepository employees, BankCreditImportRepository imports,
             BankCreditResultRepository results, PayrollBankSettlementRepository settlements,
-            AuditService audit) {
+            AuditService audit, BankExportCipher exportCipher) {
         this.runs = runs;
         this.files = files;
         this.templates = templates;
@@ -49,6 +50,7 @@ public class BankCreditResultService {
         this.results = results;
         this.settlements = settlements;
         this.audit = audit;
+        this.exportCipher = exportCipher;
     }
 
     @Transactional
@@ -151,7 +153,7 @@ public class BankCreditResultService {
                 throw new BusinessException("Duplicate employee number in payroll run");
         }
         Map<String, ExportRow> exported = new LinkedHashMap<>();
-        String[] lines = bankFile.getContent().split("\\r?\\n");
+        String[] lines = verifiedExport(bankFile).split("\\r?\\n");
         int start = Boolean.TRUE.equals(template.getIncludeHeader()) ? 1 : 0;
         if (start == 1 && (lines.length == 0 || !splitCsvLine(lines[0], delimiter.charAt(0)).equals(cols)))
             throw new BusinessException("Bank export header differs from stored template");
@@ -173,6 +175,19 @@ public class BankCreditResultService {
         if (exported.size() != bankFile.getRecordCount() || total.compareTo(bankFile.getTotalAmount()) != 0)
             throw new BusinessException("Bank export totals or record count do not reconcile");
         return exported;
+    }
+
+    private String verifiedExport(BankFile bankFile) {
+        UUID tenant = com.apex.hrm.common.TenantContext.get();
+        if (tenant == null || !tenant.equals(bankFile.getTenantId()))
+            throw new NotFoundException("Bank file", bankFile.getId());
+        if (bankFile.getPurgedAt() != null || bankFile.getContentCiphertext() == null)
+            throw new BusinessException("Bank file payload is no longer available for reconciliation");
+        String clear = exportCipher.decrypt(bankFile.getContentCiphertext(),
+                bankFile.getTenantId(), bankFile.getRunId(), bankFile.getFileName());
+        if (!BankExportCipher.sha256(clear).equals(bankFile.getContentSha256()))
+            throw new IllegalStateException("Stored bank export failed digest verification");
+        return clear;
     }
 
     private static Map<String, ResponseRow> parseResponse(String csv) {
