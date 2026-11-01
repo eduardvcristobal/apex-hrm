@@ -89,7 +89,7 @@ public class BankFileService {
         java.util.Set<UUID> rejected = new java.util.HashSet<>();
         for (BankCreditResult row : bankResults) {
             if (!"REJECTED".equals(row.getCreditStatus())) continue;
-            if (!creditResults.findByEmployeeIdAndCreditStatus(row.getEmployeeId(), "ACCEPTED").isEmpty())
+            if (!creditResults.findByRunIdAndEmployeeIdAndCreditStatus(source.getRunId(), row.getEmployeeId(), "ACCEPTED").isEmpty())
                 throw new BusinessException("Employee has accepted bank credit; manual finance review required");
             rejected.add(row.getEmployeeId());
         }
