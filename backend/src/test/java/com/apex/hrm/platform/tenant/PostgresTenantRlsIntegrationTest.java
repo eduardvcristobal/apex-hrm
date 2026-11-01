@@ -111,12 +111,6 @@ class PostgresTenantRlsIntegrationTest {
             c.setAutoCommit(false);
             setLocalTenant(c, SECOND_TENANT);
             assertEquals(1, countBranches(c));
-            try (PreparedStatement insert = c.prepareStatement(
-                    "INSERT INTO branch (tenant_id, company_id, branch_code, branch_name) "
-                  + "SELECT ?, id, 'INJECT', 'cross tenant' FROM company WHERE tenant_id=? LIMIT 1")) {
-                // The restricted account has no access to company: use a fixture's UUID instead.
-                // Denied reads are established independently by the branch SELECT assertion.
-            }
             c.rollback();
         }
         UUID foreignCompany;
