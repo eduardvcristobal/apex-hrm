@@ -119,6 +119,32 @@ public class PerformanceWorkflowController {
                """,user.tenantId(),id);
         });
     }
+    @GetMapping("/team/assignments")
+    public List<Map<String,Object>> teamAssignments(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authenticated(user);
+        if(!hr(user)&&!has(user,"ROLE_MANAGER")) throw denied();
+        return tenants.inTenant(user.tenantId(),()->{
+            UUID manager=employee(user);
+            if(!hr(user)&&manager==null) throw denied();
+            if(hr(user)) return jdbc.queryForList("""
+                SELECT e.id AS "employeeId",e.first_name AS "firstName",e.last_name AS "lastName",
+                       c.id AS "cycleId",c.name AS "cycleName"
+                FROM personnel_employee e JOIN performance_cycle c
+                  ON c.tenant_id=e.tenant_id AND c.company_id=e.company_id
+                WHERE e.tenant_id=? AND e.employment_status='ACTIVE' AND c.status='ACTIVE'
+                ORDER BY e.last_name,e.first_name,c.starts_on DESC LIMIT 500
+                """,user.tenantId());
+            return jdbc.queryForList("""
+                SELECT e.id AS "employeeId",e.first_name AS "firstName",e.last_name AS "lastName",
+                       c.id AS "cycleId",c.name AS "cycleName"
+                FROM personnel_employee e JOIN performance_cycle c
+                  ON c.tenant_id=e.tenant_id AND c.company_id=e.company_id
+                WHERE e.tenant_id=? AND e.supervisor_id=? AND e.employment_status='ACTIVE'
+                  AND c.status='ACTIVE'
+                ORDER BY e.last_name,e.first_name,c.starts_on DESC LIMIT 500
+                """,user.tenantId(),manager);
+        });
+    }
     @GetMapping("/team/reviews")
     public List<Map<String,Object>> teamReviews(@AuthenticationPrincipal HrmUserPrincipal user) {
         authenticated(user);
@@ -127,11 +153,11 @@ public class PerformanceWorkflowController {
             UUID manager=employee(user);
             if(!hr(user)&&manager==null) throw denied();
             if(hr(user)) return jdbc.queryForList("""
-                SELECT id,employee_id AS "employeeId",rating,status FROM performance_review
+                SELECT id,employee_id AS "employeeId",reviewer_id AS "reviewerId",rating,status FROM performance_review
                 WHERE tenant_id=? ORDER BY created_at DESC LIMIT 500
                 """,user.tenantId());
             return jdbc.queryForList("""
-                SELECT r.id,r.employee_id AS "employeeId",r.rating,r.status
+                SELECT r.id,r.employee_id AS "employeeId",r.reviewer_id AS "reviewerId",r.rating,r.status
                 FROM performance_review r JOIN personnel_employee e
                 ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
                 WHERE r.tenant_id=? AND e.supervisor_id=?
@@ -239,11 +265,18 @@ public class PerformanceWorkflowController {
                 UPDATE performance_review SET rating=?,strengths=?,improvements=?,manager_comments=?,
                   status='SUBMITTED',submitted_at=now(),updated_at=now()
                 WHERE tenant_id=? AND id=? AND reviewer_id=? AND status='DRAFT'
+                  AND (EXISTS(SELECT 1 FROM auth_identity_role role
+                       WHERE role.identity_id=? AND role.role IN ('TENANT_ADMIN','HR_ADMIN'))
+                    OR EXISTS(SELECT 1 FROM performance_employee_identity link
+                       JOIN personnel_employee e
+                         ON e.tenant_id=link.tenant_id AND e.id=performance_review.employee_id
+                       WHERE link.tenant_id=performance_review.tenant_id AND link.identity_id=?
+                         AND e.supervisor_id=link.employee_id))
                   AND EXISTS(SELECT 1 FROM performance_cycle c
                     WHERE c.tenant_id=performance_review.tenant_id
                       AND c.id=performance_review.cycle_id AND c.status='ACTIVE')
                 """,input.rating(),input.strengths(),input.improvements(),input.comments(),
-                user.tenantId(),reviewId,user.id());
+                user.tenantId(),reviewId,user.id(),user.id(),user.id());
             if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only assigned reviewers can submit active drafts");
             audit(user,"PERFORMANCE_REVIEW_SUBMITTED","performance_review",reviewId);
             return null;
