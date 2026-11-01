@@ -5,6 +5,15 @@
 - M3.1 Payroll Compliance Completion is being implemented separately. Do not merge M3.2 until M3.1 is merged, M3.2 is rebased, and all tests are rerun against the merged payroll rules.
 - Current coverage is **service-level with mocked repositories**, not a real-PostgreSQL or browser E2E certification.
 
+## Additional M3.2.2–M3.2.5 coverage (committed, not yet executed)
+- `AttendanceDtrCertificationTest`: attendance punches become DTR minutes; locked DTR is not recomputed.
+- `DtrPayrollReconciliationTest`: DTR minute-to-pay amount arithmetic; approved vs unapproved overtime.
+- `PayrollLifecycleCertificationTest`: review → approve → lock → paid; payslip issuance and DTR freeze; invalid order rejected.
+- `PostgreSqlPayrollSchemaCertificationTest`: opt-in isolated PostgreSQL Flyway migrate/validate and tenant-column/schema assertions.
+- `.github/workflows/m3-2-certification.yml`: Maven tests with PostgreSQL 16 service and JUnit evidence upload.
+
+These tests are an incremental certification scaffold. They are **not** a production end-to-end run through real application endpoints or proof of bank settlement. GitHub Actions status must be verified; at last check no run was reported for the branch.
+
 ## Tests introduced
 1. `PayslipSnapshotCertificationTest`: the generated payslip retains employee number, pay dates, earning/deduction lines, totals and net-pay arithmetic; subsequent employee-record edits do not change the serialized snapshot.
 2. `BankCreditingCertificationTest`: approved/locked payroll bank export uses net pay, reports employees without matching bank accounts, and rejects draft runs.
@@ -32,7 +41,7 @@ cd backend
 mvn -Dtest=PayslipSnapshotCertificationTest,BankCreditingCertificationTest test
 mvn test
 ```
-These commands are instructions; **no passing test claim** is made from this branch yet. The execution environment used for these GitHub edits could not clone GitHub via network and has no Maven executable.
+These commands are instructions; **no passing test claim** is made from this branch yet. The execution environment used for these GitHub edits could not clone GitHub via network and has no Maven executable. CI is configured, but no successful run has yet been verified. For a local isolated PostgreSQL test, set HRM_TEST_DB_URL, HRM_TEST_DB_USER and HRM_TEST_DB_PASSWORD before running `mvn test`.
 
 ## Certification decision
 **NOT CERTIFIED / NO-GO** until the real PostgreSQL lifecycle, payroll compliance integration, payment evidence, CI checks and security isolation gates pass.
