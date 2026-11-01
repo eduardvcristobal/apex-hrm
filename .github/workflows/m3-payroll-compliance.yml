@@ -34,3 +34,53 @@ jobs:
         working-directory: frontend
       - run: npm run build
         working-directory: frontend
+
+  postgres-migration-smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Verify Spring startup, Flyway migrations and schema validation
+        working-directory: backend
+        env:
+          DB_URL: jdbc:postgresql://localhost:5432/apex_hrm
+          DB_USER: hrm
+          DB_PASSWORD: hrm
+        run: |
+          set -euo pipefail
+          timeout 180s mvn -B -ntp spring-boot:run > startup.log 2>&1 &
+          app_pid=$!
+          trap 'kill $app_pid 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 90); do
+            if curl -fsS http://localhost:8080/actuator/health > /tmp/hrm-health.json; then
+              cat /tmp/hrm-health.json
+              exit 0
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              echo "Application stopped unexpectedly"
+              break
+            fi
+            sleep 2
+          done
+          tail -n 150 startup.log
+          exit 1
