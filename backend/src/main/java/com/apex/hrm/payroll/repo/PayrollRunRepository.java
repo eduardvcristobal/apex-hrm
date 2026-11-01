@@ -17,5 +17,10 @@ import org.springframework.data.repository.query.Param;
 
 public interface PayrollRunRepository extends JpaRepository<PayrollRun, UUID> {
 
+    /** Explicit tenant guard: Hibernate identifier lookups must not expose other workspace runs. */
+    @Override
+    @Query("select r from PayrollRun r where r.id = :id and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()}")
+    Optional<PayrollRun> findById(@Param("id") UUID id);
+
     List<PayrollRun> findByPayPeriodIdAndRunType(UUID payPeriodId, String runType);
 }
