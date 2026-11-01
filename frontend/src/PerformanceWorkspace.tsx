@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import './performance.css';
+import { MilestonePanel } from './PerformanceMilestones';
 
 type Item = Record<string, unknown>;
 type Cycle = { id: string; name: string; startsOn: string; endsOn: string; status: string };
@@ -22,6 +23,10 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [goals, setGoals] = useState<Item[]>([]);
   const [reviews, setReviews] = useState<Item[]>([]);
   const [scores, setScores] = useState<Item[]>([]);
+  const [reports, setReports] = useState<Item[]>([]);
+  const [editGoalId, setEditGoalId] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editTarget, setEditTarget] = useState('100');
   const [plans, setPlans] = useState<Item[]>([]);
   const [reviewId, setReviewId] = useState('');
   const [name, setName] = useState('Annual performance review');
@@ -47,6 +52,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
       request<Employee[]>(token, '/employees?companyId=' + encodeURIComponent(id)),
     ]);
     setCycles(cy); setEmployees(emp);
+    setReports(await request<Item[]>(token,'/reports/summary?companyId='+encodeURIComponent(id)));
     if (!cy.some(c => c.id === cycleId)) setCycleId(cy[0]?.id || '');
     if (!emp.some(e => e.id === employeeId)) setEmployeeId(emp[0]?.id || '');
   }
@@ -87,6 +93,11 @@ export function PerformanceWorkspace({ token }: { token: string }) {
     <p className="account-page-intro">Manage review cycles, measurable goals, manager evaluations and employee development plans.</p>
     {error && <p role="alert" className="form-message" data-kind="error">{error}</p>}
     {notice && <p role="status" className="form-message" data-kind="success">{notice}</p>}
+    <div className="performance-panel"><h2>Performance reporting</h2>
+      {reports.length===0 ? <p>No performance cycles to report.</p> : <table><thead><tr><th>Cycle</th><th>Goals</th><th>Reviews</th><th>Finalized</th><th>Average rating</th></tr></thead><tbody>
+        {reports.map(r=><tr key={String(r.cycleId)}><td>{String(r.cycleName)}</td><td>{String(r.goalCount)}</td><td>{String(r.reviewCount)}</td><td>{String(r.finalizedCount)}</td><td>{String(r.averageRating??'—')}</td></tr>)}
+      </tbody></table>}
+    </div>
     <div className="performance-grid">
       <div className="performance-panel"><h2>Review cycles</h2>
         <label>Company <select value={companyId} onChange={e => setCompanyId(e.target.value)}>{companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
@@ -114,7 +125,17 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <input aria-label="Progress notes" maxLength={2000} placeholder="Progress notes" value={progressNote} onChange={e => setProgressNote(e.target.value)} />
           <button disabled={busy || !active || !goalId}>Record progress</button>
         </form>
-        <ul>{goals.map(g => <li key={String(g.id)}>{String(g.title)} · {String(g.actualValue ?? 0)} / {String(g.targetValue ?? '—')} · {String(g.status)}</li>)}</ul>
+        <ul>{goals.map(g => <li key={String(g.id)}>
+          {String(g.title)} · {String(g.actualValue ?? 0)} / {String(g.targetValue ?? '—')} · {String(g.status)}
+          <button type="button" disabled={busy} onClick={() => {setEditGoalId(String(g.id));setEditTitle(String(g.title));setEditTarget(String(g.targetValue??100));}}>Edit</button>
+          <button type="button" disabled={busy} onClick={() => void request<Item[]>(token,'/goals/'+String(g.id)+'/progress').then(history => setNotice('Progress records: '+history.length)).catch(e=>setError(String(e)))}>History</button>
+        </li>)}</ul>
+        {editGoalId && <form onSubmit={e=>{e.preventDefault();void run(async()=>{await request(token,'/goals/'+editGoalId,'PUT',{title:editTitle,targetValue:Number(editTarget),weight:1});setEditGoalId('');});}}>
+          <h3>Edit goal</h3>
+          <input aria-label="Edit goal title" required value={editTitle} onChange={e=>setEditTitle(e.target.value)}/>
+          <label>Target <input type="number" step=".001" min=".001" required value={editTarget} onChange={e=>setEditTarget(e.target.value)}/></label>
+          <button disabled={busy}>Save goal</button><button type="button" onClick={()=>setEditGoalId('')}>Cancel</button>
+        </form>}
       </div>
       <div className="performance-panel"><h2>Employee account linking</h2>
         <p>Connect an employee masterfile record to an existing active login account to enable self-service. Links must be unique.</p>
@@ -144,6 +165,7 @@ export function PerformanceWorkspace({ token }: { token: string }) {
           <button disabled={busy || !reviewId}>Create development plan</button>
         </form>
         <ul>{plans.map(p => <li key={String(p.id)}>{String(p.title)} · {String(p.status)} {['PLANNED','IN_PROGRESS'].includes(String(p.status)) && <button type="button" disabled={busy} onClick={() => void run(() => request(token, '/plans/' + String(p.id) + '/status', 'POST', { status: p.status === 'PLANNED' ? 'IN_PROGRESS' : 'COMPLETED' }))}>{p.status === 'PLANNED' ? 'Start' : 'Complete'}</button>}</li>)}</ul>
+        <MilestonePanel token={token} planId={reviewId ? String(plans.find(p=>p.reviewId===reviewId)?.id||'') : ''}/>
       </div>
     </div>
   </section>;
