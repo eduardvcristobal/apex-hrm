@@ -29,13 +29,16 @@ public class PayrollSettlementService {
     private final BankFileRepository bankFiles;
     private final PayrollBankSettlementRepository settlements;
     private final AuditService audit;
+    private final BankCreditResultService bankCreditResults;
 
     public PayrollSettlementService(PayrollRunRepository runs, BankFileRepository bankFiles,
-                                    PayrollBankSettlementRepository settlements, AuditService audit) {
+                                    PayrollBankSettlementRepository settlements, AuditService audit,
+                                    BankCreditResultService bankCreditResults) {
         this.runs = runs;
         this.bankFiles = bankFiles;
         this.settlements = settlements;
         this.audit = audit;
+        this.bankCreditResults = bankCreditResults;
     }
 
     @Transactional
@@ -52,8 +55,13 @@ public class PayrollSettlementService {
         }
         BankFile bankFile = bankFiles.findById(bankFileId).orElseThrow(() -> new NotFoundException("Bank file", bankFileId));
         if (!runId.equals(bankFile.getRunId())) throw new BusinessException("Bank file belongs to another payroll run");
-        if (amount.compareTo(bankFile.getTotalAmount()) != 0) {
-            throw new BusinessException("Acknowledgment must exactly equal the exported bank file total");
+        BigDecimal accepted = bankCreditResults.acceptedAmount(bankFileId);
+        BigDecimal eligible = accepted == null ? bankFile.getTotalAmount() : accepted;
+        if (accepted != null && accepted.signum() == 0) {
+            throw new BusinessException("All bank credits were rejected; there is nothing to acknowledge");
+        }
+        if (amount.compareTo(eligible) != 0) {
+            throw new BusinessException("Acknowledgment must exactly equal the accepted bank credits for this export");
         }
         if (settlements.existsByBankFileId(bankFileId)) {
             throw new BusinessException("A bank file can only be acknowledged once");
