@@ -23,7 +23,7 @@ class PayrollSettlementServiceTest {
     private final BankFileRepository files = mock(BankFileRepository.class);
     private final PayrollBankSettlementRepository acknowledgments = mock(PayrollBankSettlementRepository.class);
     private final AuditService audit = mock(AuditService.class);
-    private final PayrollSettlementService service = new PayrollSettlementService(runs, files, acknowledgments, audit);
+    private final PayrollSettlementService service = new PayrollSettlementService(runs, files, acknowledgments, audit, mock(BankCreditResultService.class));
     private final UUID runId = UUID.randomUUID();
     private final UUID fileId = UUID.randomUUID();
 
