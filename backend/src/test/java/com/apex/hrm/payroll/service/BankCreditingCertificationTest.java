@@ -46,6 +46,7 @@ class BankCreditingCertificationTest {
         run.setPayPeriodId(periodId);
         run.setStatus("LOCKED");
         when(runs.findById(runId)).thenReturn(Optional.of(run));
+        when(runs.lockForSettlement(runId)).thenReturn(Optional.of(run));
         PayPeriod period = new PayPeriod();
         period.setPayDate(LocalDate.of(2026, 10, 20));
         when(periods.findById(periodId)).thenReturn(Optional.of(period));
@@ -130,6 +131,7 @@ class BankCreditingCertificationTest {
         PayrollRun draft = new PayrollRun();
         draft.setStatus("DRAFT");
         when(runs.findById(runId)).thenReturn(Optional.of(draft));
+        when(runs.lockForSettlement(runId)).thenReturn(Optional.of(draft));
         assertThrows(BusinessException.class, () -> service.generate(runId, templateId));
         verifyNoInteractions(files);
     }
