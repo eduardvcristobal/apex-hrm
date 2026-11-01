@@ -20,10 +20,10 @@ INSERT INTO auth_identity(id,tenant_id,email,password_hash) VALUES
 SELECT set_config('app.tenant_id','81000000-0000-4000-8000-000000000001',true);
 INSERT INTO personnel_employee(id,tenant_id,company_id,employee_number,first_name,last_name,hire_date,employment_status)
 VALUES('84000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001',
- '82000000-0000-4000-8000-000000000001','FP-001','Jamie','Rivera','2020-01-01','ACTIVE');
+ '82000000-0000-4000-8000-000000000001','FP-001','Jamie','Rivera','2020-01-01','TERMINATED');
 INSERT INTO employee(id,tenant_id,company_id,employee_no,first_name,last_name,hire_date,status)
 VALUES('85000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001',
- '82000000-0000-4000-8000-000000000001','FP-001','Jamie','Rivera','2020-01-01','TERMINATED');
+ '82000000-0000-4000-8000-000000000001','FP-001','Jamie','Rivera','2020-01-01','ACTIVE');
 INSERT INTO employee_bank_account(id,tenant_id,employee_id,bank_code,account_no,primary_account)
 VALUES('86000000-0000-4000-8000-000000000001','81000000-0000-4000-8000-000000000001',
  '85000000-0000-4000-8000-000000000001','DEMO','00000001234',true);
