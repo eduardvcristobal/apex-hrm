@@ -125,6 +125,15 @@ Branch: feature/m3-1-payroll-compliance
 - CI tests duplicate records, bad digests, MFA/tenant permissions, forbidden actors, rejection of incomplete sources, non-rewritable database records, Maven/React/Flyway and Chromium paths.
 - **No issuer authentication, actual bank receipt, legally certified period closing, government release, live bank transfer or PAID transition.** See `docs/M3_1_20_CERTIFICATION_REPORT.md`.
 
+## M3.1.21 — Trusted issuer digest proof and release-readiness preflight
+
+- Flyway V60 adds forced tenant-RLS append-only document verification evidence linked to independently reviewed period attestations.
+- Backend only accepts Ed25519 claims from a deployment-pinned issuer public key, **not user-supplied keys**. It signs the tenant/attestation/declared SHA-256 digest/issuer alias, checks all prior independent actors, complete live sources and source freshness, and records immutable proof.
+- A valid signature certifies **only the key holder's statement about a digest**. No independent retrieval or re-hashing of actual document bytes, no authoritative external bank response, no account ownership verification, no funds settlement and no legal entitlement certification.
+- Added multi-attestor release-readiness API and UI. Status remains **PRODUCTION_NO_GO** after verified claims and all prior internal approvals.
+- CI includes real Ed25519 positive and negative fixtures with ephemeral keys, Maven/React/Flyway and authenticated Chromium E2E.
+- See `docs/M3_1_21_CERTIFICATION_REPORT.md` for configuration, canonical claim format and remaining production blockers.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
