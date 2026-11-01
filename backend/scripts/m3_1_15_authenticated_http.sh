@@ -75,9 +75,9 @@ http GET "$A" "/api/v1/payroll/final-pay/source-ledger/settlements/$SETTLEMENT"
 expect 200 'Source ledger inspects approved employee identity with payroll, loan and leave sources'
 [[ "$(echo "$LAST_BODY" | jq -r .payrollStatus)" == "ANNUAL_COVERAGE_AND_ACCRUAL_REVIEW_REQUIRED" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .lockedPayrollLines)" == "3" ]] || { echo "$LAST_BODY"; exit 1; }
-[[ "$(echo "$LAST_BODY" | jq -r .lockedBasicPay | tonumber)" == "14400" ]] || { echo "$LAST_BODY"; exit 1; }
-[[ "$(echo "$LAST_BODY" | jq -r .simpleThirteenthAccrualCandidate | tonumber)" == "1200" ]] || { echo "$LAST_BODY"; exit 1; }
-[[ "$(echo "$LAST_BODY" | jq -r .residualThirteenthCandidate | tonumber)" == "400" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r '.lockedBasicPay | tonumber')" == "14400" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r '.simpleThirteenthAccrualCandidate | tonumber')" == "1200" ]] || { echo "$LAST_BODY"; exit 1; }
+[[ "$(echo "$LAST_BODY" | jq -r '.residualThirteenthCandidate | tonumber')" == "400" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .thirteenthAccrualStatus)" == "ACCRUAL_CANDIDATE_REQUIRES_CUTOFF_CERTIFICATION" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .withholdingStatus)" == "ANNUAL_TAX_RECOMPUTATION_REQUIRED" ]] || { echo "$LAST_BODY"; exit 1; }
 [[ "$(echo "$LAST_BODY" | jq -r .dtrStatus)" == "DTR_UNFINALIZED" ]] || { echo "$LAST_BODY"; exit 1; }
