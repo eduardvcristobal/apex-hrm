@@ -30,6 +30,8 @@ class BankCreditingCertificationTest {
     private final EmployeeRepository employees = mock(EmployeeRepository.class);
     private final EmployeeBankAccountRepository accounts = mock(EmployeeBankAccountRepository.class);
     private final AuditService audit = mock(AuditService.class);
+    private final BankCreditImportRepository imports = mock(BankCreditImportRepository.class);
+    private final BankCreditResultRepository creditResults = mock(BankCreditResultRepository.class);
     private final UUID runId = UUID.randomUUID();
     private final UUID periodId = UUID.randomUUID();
     private final UUID templateId = UUID.randomUUID();
@@ -38,7 +40,7 @@ class BankCreditingCertificationTest {
     @BeforeEach
     void setup() {
         service = new BankFileService(runs, periods, payrollEmployees, templates, files, employees, accounts, audit,
-                mock(BankCreditImportRepository.class), mock(BankCreditResultRepository.class));
+                imports, creditResults);
         PayrollRun run = new PayrollRun();
         run.setId(runId);
         run.setPayPeriodId(periodId);
@@ -75,6 +77,51 @@ class BankCreditingCertificationTest {
         assertEquals(List.of("EMP-1002"), result.skippedEmployees());
         assertTrue(result.file().getContent().contains("EMP-1001,123456789,12500.00"));
         assertFalse(result.file().getContent().contains("EMP-1002"));
+    }
+
+
+    @Test
+    void recoveryExportIncludesOnlyRejectedEmployeeAndLinksOriginalBatch() {
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        UUID sourceId = UUID.randomUUID();
+        PayrollEmployee first = payrollEmployee(firstId, "12500.00");
+        PayrollEmployee second = payrollEmployee(secondId, "7500.00");
+        when(payrollEmployees.findByRunId(runId)).thenReturn(List.of(first, second));
+        when(employees.findById(firstId)).thenReturn(Optional.of(employee(firstId, "EMP-1001")));
+        when(employees.findById(secondId)).thenReturn(Optional.of(employee(secondId, "EMP-1002")));
+        EmployeeBankAccount one = new EmployeeBankAccount();
+        one.setBankCode("TESTBANK");
+        one.setAccountNo("111111111");
+        EmployeeBankAccount two = new EmployeeBankAccount();
+        two.setBankCode("TESTBANK");
+        two.setAccountNo("222222222");
+        when(accounts.findByEmployeeId(firstId)).thenReturn(List.of(one));
+        when(accounts.findByEmployeeId(secondId)).thenReturn(List.of(two));
+
+        BankFile source = new BankFile();
+        source.setId(sourceId);
+        source.setRunId(runId);
+        source.setBankTemplateId(templateId);
+        when(files.findById(sourceId)).thenReturn(Optional.of(source));
+        when(runs.lockForSettlement(runId)).thenReturn(runs.findById(runId));
+        when(imports.existsByBankFileId(sourceId)).thenReturn(true);
+        BankCreditResult accepted = new BankCreditResult();
+        accepted.setEmployeeId(firstId);
+        accepted.setCreditStatus("ACCEPTED");
+        BankCreditResult rejected = new BankCreditResult();
+        rejected.setEmployeeId(secondId);
+        rejected.setCreditStatus("REJECTED");
+        when(creditResults.findByBankFileId(sourceId)).thenReturn(List.of(accepted, rejected));
+
+        BankFileService.Result result = service.recoverRejected(sourceId);
+        assertEquals(1, result.file().getRecordCount());
+        assertEquals(sourceId, result.file().getRecoverySourceFileId());
+        assertEquals(0,new BigDecimal("7500.00").compareTo(result.file().getTotalAmount()));
+        assertTrue(result.file().getContent().contains("EMP-1002,222222222,7500.00"));
+        assertFalse(result.file().getContent().contains("EMP-1001"));
+        when(files.existsByRecoverySourceFileId(sourceId)).thenReturn(true);
+        assertThrows(BusinessException.class, () -> service.recoverRejected(sourceId));
     }
 
     @Test
