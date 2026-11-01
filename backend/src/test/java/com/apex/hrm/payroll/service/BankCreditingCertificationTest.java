@@ -37,7 +37,8 @@ class BankCreditingCertificationTest {
 
     @BeforeEach
     void setup() {
-        service = new BankFileService(runs, periods, payrollEmployees, templates, files, employees, accounts, audit);
+        service = new BankFileService(runs, periods, payrollEmployees, templates, files, employees, accounts, audit,
+                mock(BankCreditImportRepository.class), mock(BankCreditResultRepository.class));
         PayrollRun run = new PayrollRun();
         run.setId(runId);
         run.setPayPeriodId(periodId);
