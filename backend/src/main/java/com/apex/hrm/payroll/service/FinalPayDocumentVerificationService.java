@@ -43,7 +43,7 @@ public class FinalPayDocumentVerificationService {
         boolean documentBytesVerified,boolean bankConfirmed,boolean payoutCertified,
         boolean disbursementEnabled) {}
     private record Attestation(UUID id,String documentHash,String status,
-        UUID requestedBy,UUID reviewedBy,UUID sourceReviewer,UUID snapshotCapturer,
+        UUID requestedBy,UUID reviewedBy,UUID sourceRequester,UUID sourceReviewer,UUID snapshotCapturer,
         UUID snapshotId,String sourceSha256,String sourceReviewStatus) {}
 
     static String claim(UUID tenant,UUID attestationId,String sha256,String keyId){
@@ -64,9 +64,9 @@ public class FinalPayDocumentVerificationService {
         } catch(Exception ex) { return false; }
     }
     static void requireIndependentVerification(UUID actor,UUID requester,UUID reviewer,
-                                               UUID sourceReviewer,UUID capturer){
+                                               UUID sourceReviewer,UUID sourceRequester,UUID capturer){
         if(actor==null || actor.equals(requester) || actor.equals(reviewer)
-            || actor.equals(sourceReviewer) || actor.equals(capturer))
+            || actor.equals(sourceReviewer) || actor.equals(sourceRequester) || actor.equals(capturer))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN,
                 "Verification requires an officer independent from prior source and document attestors");
     }
@@ -86,7 +86,8 @@ public class FinalPayDocumentVerificationService {
                     "Issuer key ID is not pinned by deployment configuration");
             List<Attestation> rows=jdbc.query("""
                 SELECT a.id,a.declared_document_sha256,a.status,a.requested_by,
-                    a.reviewed_by,s.decided_by AS source_reviewer,
+                    a.reviewed_by,s.requested_by AS source_requester,
+                    s.decided_by AS source_reviewer,
                     p.captured_by AS snapshot_capturer,
                     p.id AS source_snapshot_id,a.source_sha256,s.status AS source_review_status
                 FROM payroll_final_pay_period_attestation a
@@ -98,6 +99,7 @@ public class FinalPayDocumentVerificationService {
                 """,(rs,i)->new Attestation(rs.getObject("id",UUID.class),
                     rs.getString("declared_document_sha256"),rs.getString("status"),
                     rs.getObject("requested_by",UUID.class),rs.getObject("reviewed_by",UUID.class),
+                    rs.getObject("source_requester",UUID.class),
                     rs.getObject("source_reviewer",UUID.class),
                     rs.getObject("snapshot_capturer",UUID.class),
                     rs.getObject("source_snapshot_id",UUID.class),
@@ -110,7 +112,7 @@ public class FinalPayDocumentVerificationService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                     "Document signature proof requires completed independent period evidence review");
             requireIndependentVerification(user.id(),a.requestedBy(),a.reviewedBy(),
-                a.sourceReviewer(),a.snapshotCapturer());
+                a.sourceReviewer(),a.sourceRequester(),a.snapshotCapturer());
             FinalPaySourceSnapshotService.Freshness fresh=snapshots.verifyCurrent(user,a.snapshotId());
             if(!"SOURCE_REVIEWED".equals(a.sourceReviewStatus())
                 || !fresh.current() || !fresh.latest()
