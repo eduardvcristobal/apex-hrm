@@ -82,6 +82,7 @@ public final class BankAccountCipher {
     }
 
     public String currentKeyId() { return currentId; }
+    public boolean hasCurrentKey() { return current != null; }
 
     public boolean needsRotation(String envelope) {
         return envelope != null && !envelope.startsWith("b1:" + currentId + ":");
