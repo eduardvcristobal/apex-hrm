@@ -6,6 +6,9 @@ type Identity = { id: string; personnelEmployeeId: string; payrollEmployeeId: st
 type Bank = { id: string; bankCode: string; maskedAccount: string };
 type Authorization = { id: string; settlementId: string; amount: number; status: string;
   preparedBy: string; bankTransmissionStatus: string };
+type Evidence = { id: string; paymentAuthorizationId: string; bankCode: string; bankReference: string;
+  bankValueDate: string; reportedAmount: number; status: string; recordedBy: string;
+  reviewedBy: string | null; verificationType: string };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -25,6 +28,12 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [authorization, setAuthorization] = useState<Authorization | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [evidenceRow, setEvidenceRow] = useState<Evidence | null>(null);
+  const [bankCode, setBankCode] = useState('');
+  const [bankReference, setBankReference] = useState('');
+  const [bankValueDate, setBankValueDate] = useState('');
+  const [evidenceDocumentReference, setEvidenceDocumentReference] = useState('');
+  const [reportedAmount, setReportedAmount] = useState('');
   const [busy, setBusy] = useState(false);
   const identityPath = '/api/v1/payroll/identity-links';
   const paymentPath = '/api/v1/payroll/final-pay/payment-authorizations';
@@ -56,6 +65,16 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
     return () => {active = false;};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [link?.status, personnelEmployeeId]);
+
+  useEffect(() => {
+    if (authorization?.status !== 'AUTHORIZED') return;
+    let active = true;
+    request<Evidence[]>(`/api/v1/payroll/final-pay/bank-evidence?paymentAuthorizationId=${authorization.id}`)
+      .then(rows => {if(active){setEvidenceRow(rows[0] || null);setReportedAmount(String(authorization.amount));}})
+      .catch(e => {if(active)setError(e instanceof Error ? e.message : 'Unable to review external bank evidence');});
+    return () => {active=false;};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authorization?.id, authorization?.status]);
 
   async function execute(operation: () => Promise<void>) {
     setBusy(true);setError('');setNotice('');
@@ -101,6 +120,30 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
       const result=await request<Authorization>(`${paymentPath}/${authorization.id}/${action}`,{method:'POST'});
       setAuthorization(result);
       setNotice('Authorization decision recorded. There is no automatic fund transfer or bank confirmation.');
+    });
+  }
+
+  async function recordBankEvidence(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!authorization) return;
+    await execute(async () => {
+      const row=await request<Evidence>('/api/v1/payroll/final-pay/bank-evidence',{
+        method:'POST',body:JSON.stringify({
+          paymentAuthorizationId: authorization.id, bankCode, bankReference,
+          bankValueDate, evidenceDocumentReference, reportedAmount: Number(reportedAmount)
+        })
+      });
+      setEvidenceRow(row);
+      setNotice('External bank evidence was recorded, not independently bank-verified.');
+    });
+  }
+  async function reviewBankEvidence(action:'review'|'reject') {
+    if (!evidenceRow)return;
+    await execute(async()=>{
+      const row=await request<Evidence>(`/api/v1/payroll/final-pay/bank-evidence/${evidenceRow.id}/${action}`,
+        {method:'POST'});
+      setEvidenceRow(row);
+      setNotice('Manual evidence decision recorded. No automatic transfer or bank confirmation exists.');
     });
   }
 
@@ -155,6 +198,36 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
       {authorization.status==='PREPARED' && authorization.preparedBy!==currentUserId && <div className="people-form-actions">
         <button type="button" className="security-submit" disabled={busy} onClick={()=>void decidePayment('authorize')}>Authorize instruction</button>
         <button type="button" className="session-revoke" disabled={busy} onClick={()=>void decidePayment('cancel')}>Cancel instruction</button>
+      </div>}
+    </div>}
+    {authorization?.status === 'AUTHORIZED' && !evidenceRow && <form className="people-inline-form"
+      onSubmit={event => void recordBankEvidence(event)}>
+      <h4>Record external bank evidence (manual review only)</h4>
+      <label className="people-field"><span>Bank code</span><input required maxLength={50} value={bankCode}
+        onChange={event=>setBankCode(event.target.value)} /></label>
+      <label className="people-field"><span>External bank reference (unique)</span>
+        <input required minLength={6} maxLength={160} value={bankReference}
+          onChange={event=>setBankReference(event.target.value)} /></label>
+      <label className="people-field"><span>Bank value date</span>
+        <input required type="date" max={new Date().toISOString().slice(0,10)} value={bankValueDate}
+          onChange={event=>setBankValueDate(event.target.value)} /></label>
+      <label className="people-field"><span>Supporting evidence reference</span>
+        <input required minLength={20} maxLength={1000} value={evidenceDocumentReference}
+          onChange={event=>setEvidenceDocumentReference(event.target.value)} /></label>
+      <label className="people-field"><span>Reported amount (PHP)</span>
+        <input required type="number" min="0.01" step="0.01" value={reportedAmount}
+          onChange={event=>setReportedAmount(event.target.value)} /></label>
+      <button className="security-submit" disabled={busy || !bankReference || evidenceDocumentReference.trim().length<20}
+        type="submit">Record reported external payment evidence</button>
+    </form>}
+    {evidenceRow && <div className="people-record"><span><strong>Bank evidence: {evidenceRow.status}</strong>
+      <small>{evidenceRow.bankCode} · Reference {evidenceRow.bankReference} · {peso(evidenceRow.reportedAmount)}</small>
+      <small>{evidenceRow.verificationType}</small></span>
+      {evidenceRow.status === 'SUBMITTED' && evidenceRow.recordedBy !== currentUserId && <div className="people-form-actions">
+        <button type="button" className="security-submit" disabled={busy}
+          onClick={()=>void reviewBankEvidence('review')}>Independently review evidence</button>
+        <button type="button" className="session-revoke" disabled={busy}
+          onClick={()=>void reviewBankEvidence('reject')}>Reject evidence</button>
       </div>}
     </div>}
     {error && <p role="alert" className="people-muted">{error}</p>}
