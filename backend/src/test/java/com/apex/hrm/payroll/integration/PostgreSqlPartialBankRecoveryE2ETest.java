@@ -60,8 +60,8 @@ class PostgreSqlPartialBankRecoveryE2ETest {
         assertEquals(2,original.getRecordCount());
         UUID recorder=UUID.randomUUID(),confirmer=UUID.randomUUID();
         var response=imported.importResults(original.getId(),
-                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\\n" +
-                "PBR-100,100.00,ACCEPTED,ACCEPT-1\\n" +
+                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\n" +
+                "PBR-100,100.00,ACCEPTED,ACCEPT-1\n" +
                 "PBR-200,200.00,REJECTED,REJECT-2",
                 "bank-statement-original",recorder);
         assertEquals(1,response.accepted());
@@ -83,10 +83,10 @@ class PostgreSqlPartialBankRecoveryE2ETest {
         assertFalse(recovery.getContent().contains("PBR-100"));
         assertThrows(BusinessException.class,()->files.recoverRejected(original.getId()));
         assertThrows(BusinessException.class,()->imported.importResults(original.getId(),
-                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\\nPBR-100,100.00,ACCEPTED,X", "duplicate",recorder));
+                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\nPBR-100,100.00,ACCEPTED,X", "duplicate",recorder));
 
         var recoveryResponse=imported.importResults(recovery.getId(),
-                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\\nPBR-200,200.00,ACCEPTED,RECOVERED",
+                "EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\nPBR-200,200.00,ACCEPTED,RECOVERED",
                 "bank-statement-recovery",recorder);
         assertEquals(1,recoveryResponse.accepted());
         var finalAck=settlements.record(run,recovery.getId(),new BigDecimal("200.00"),
