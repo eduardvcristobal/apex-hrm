@@ -35,6 +35,7 @@ class BankCreditResultServiceTest {
 
     @BeforeEach void setup() {
         PayrollRun run = new PayrollRun();
+        run.setId(runId);
         run.setStatus("LOCKED");
         when(runs.lockForSettlement(runId)).thenReturn(Optional.of(run));
         BankFile file = new BankFile();
@@ -96,7 +97,7 @@ class BankCreditResultServiceTest {
         BankCreditResult accepted = new BankCreditResult();
         accepted.setEmployeeId(first);
         accepted.setCreditStatus("ACCEPTED");
-        when(results.findByEmployeeIdAndCreditStatus(first,"ACCEPTED")).thenReturn(List.of(accepted));
+        when(results.findByRunIdAndEmployeeIdAndCreditStatus(runId,first,"ACCEPTED")).thenReturn(List.of(accepted));
         String csv="EMPLOYEE_NO,AMOUNT,STATUS,REFERENCE\nEMP-1,100.00,ACCEPTED,A\nEMP-2,200.00,REJECTED,B";
         assertThrows(BusinessException.class,()->service.importResults(fileId,csv,"EV",actor));
         when(results.findByEmployeeIdAndCreditStatus(first,"ACCEPTED")).thenReturn(List.of());
