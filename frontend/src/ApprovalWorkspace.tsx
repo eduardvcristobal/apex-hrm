@@ -8,8 +8,9 @@ type Correction = { id: string; employeeId: string; workDate: string; requestedI
 type Adjustment = { id: string; employeeId: string; itemCode: string; description: string | null; category: string; amount: number; reason: string; targetPeriodId: string | null; status: string; requestedBy: string };
 type PayrollRun = { id: string; payPeriodId: string; runType: string; status: string; employeeCount: number; totalNet: number; totalGross: number; remarks: string | null };
 type PayPeriod = { id: string; startDate: string; endDate: string; payDate: string };
-type QueueTab = 'all' | 'timekeeping' | 'payroll' | 'manager';
-type ManagerRow = { id: string; employee_id: string; employee_number: string; first_name: string; last_name: string; date_from?: string; date_to?: string; days?: number; leave_type?: string; work_date?: string; minutes_requested?: number; requested_in?: string | null; requested_out?: string | null; reason?: string | null };
+type QueueTab = 'all' | 'timekeeping' | 'payroll' | 'manager' | 'requests';
+type ManagerRow = { task_id: string; instance_id: string; process_code: string; business_id: string; summary: string; requester_email: string; first_name: string; last_name: string; label: string; action_type: string; step_no: number };
+type MyRequest = { id:string; process_code:string; business_entity:string; business_id:string; summary:string; status:string; current_step:number; created_at:string; completed_at:string|null };
 const php = (value: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP' }).format(Number(value || 0));
 const day = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`));
 const shortTime = (value: string | null) => value ? new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(new Date(value)) : '—';
@@ -17,7 +18,6 @@ const shortTime = (value: string | null) => value ? new Intl.DateTimeFormat(unde
 export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity }: { token: string; roles: string[]; currentUserId: string; onOpenSecurity: () => void }) {
   const canHr = roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role));
   const canPayroll = roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_PAYROLL_OFFICER'].includes(role));
-  const canManager = roles.includes('ROLE_MANAGER');
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [leave, setLeave] = useState<LeaveRequest[]>([]);
   const [overtime, setOvertime] = useState<OvertimeRequest[]>([]);
@@ -33,7 +33,9 @@ export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [mfaVerified, setMfaVerified] = useState<boolean | null>(null);
-  const [managerQueue, setManagerQueue] = useState<{leaveRequests:ManagerRow[];overtimeRequests:ManagerRow[];attendanceCorrections:ManagerRow[]}>({leaveRequests:[],overtimeRequests:[],attendanceCorrections:[]});
+  const [managerQueue, setManagerQueue] = useState<ManagerRow[]>([]);
+  const [myRequests, setMyRequests] = useState<MyRequest[]>([]);
+  const [historyById, setHistoryById] = useState<Record<string, Array<Record<string, unknown>>>>({});
 
   const request = useCallback(async <T,>(path: string, init: RequestInit = {}): Promise<T> => {
     const response = await fetch(path, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body ? { 'Content-Type': 'application/json' } : {}), ...init.headers } });
@@ -53,7 +55,8 @@ export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity 
     try {
       const tasks: Promise<unknown>[] = [];
       if (canHr || canPayroll) tasks.push(request<Page<Employee>>('/api/payroll/employees?size=1000&sort=employeeNo,asc').then(page => setEmployees(page.content)));
-      if (canManager) tasks.push(request<typeof managerQueue>('/api/v1/self-service/manager/approvals').then(setManagerQueue));
+      tasks.push(request<ManagerRow[]>('/api/v1/approvals/inbox').then(setManagerQueue));
+      tasks.push(request<MyRequest[]>('/api/v1/approvals/my-requests').then(setMyRequests));
       if (canHr) {
         tasks.push(
           request<Page<LeaveRequest>>('/api/leave-requests?size=1000&sort=dateFrom,asc').then(page => setLeave(page.content)),
@@ -71,7 +74,7 @@ export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity 
       await Promise.all(tasks);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not load pending approvals.'); }
     finally { setLoading(false); }
-  }, [canHr, canPayroll, canManager, request]);
+  }, [canHr, canPayroll, request]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
@@ -87,11 +90,12 @@ export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity 
   const payrollQueue = runs.filter(item => ['COMPUTED', 'REVIEWED'].includes(item.status));
   const timekeepingCount = pendingLeave.length + pendingOvertime.length + pendingCorrections.length;
   const payrollCount = pendingAdjustments.length + payrollQueue.length;
-  const managerCount = managerQueue.leaveRequests.length + managerQueue.overtimeRequests.length + managerQueue.attendanceCorrections.length;
+  const managerCount = managerQueue.length;
+  const myRequestCount = myRequests.length;
   const employeeLabel = (id: string) => { const employee = employeesById.get(id); return employee ? `${employee.firstName} ${employee.lastName}` : 'Employee'; };
   const matches = (text: string) => !query || text.toLowerCase().includes(query.toLowerCase());
-  const visible = { hr: tab !== 'payroll' && tab !== 'manager' && canHr, payroll: tab !== 'timekeeping' && tab !== 'manager' && canPayroll, manager: (tab === 'all' || tab === 'manager') && canManager };
-  const totalVisible = (visible.hr ? timekeepingCount : 0) + (visible.payroll ? payrollCount : 0) + (visible.manager ? managerCount : 0);
+  const visible = { hr: tab !== 'payroll' && tab !== 'manager' && tab !== 'requests' && canHr, payroll: tab !== 'timekeeping' && tab !== 'manager' && tab !== 'requests' && canPayroll, manager: tab === 'all' || tab === 'manager', requests: tab === 'all' || tab === 'requests' };
+  const totalVisible = (visible.hr ? timekeepingCount : 0) + (visible.payroll ? payrollCount : 0) + (visible.manager ? managerCount : 0) + (visible.requests ? myRequestCount : 0);
 
   async function decide(path: string, label: string, body?: unknown) {
     setBusy(label); setError(''); setNotice('');
@@ -102,11 +106,18 @@ export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity 
     finally { setBusy(''); }
   }
 
+  function decideWorkflowTask(taskId: string, decision: 'APPROVE'|'REJECT') {
+    const comments = window.prompt(`${decision === 'APPROVE' ? 'Approval' : 'Rejection'} comments (optional):`);
+    if (comments === null) return;
+    void decide(`/api/v1/approvals/tasks/${taskId}/decision`, 'Workflow decision', { decision, comments });
+  }
+
   const tabs: { id: QueueTab; label: string; count: number; enabled: boolean }[] = [
-    { id: 'all', label: 'All approvals', count: (canHr ? timekeepingCount : 0) + (canPayroll ? payrollCount : 0) + (canManager ? managerCount : 0), enabled: true },
+    { id: 'all', label: 'All approvals', count: (canHr ? timekeepingCount : 0) + (canPayroll ? payrollCount : 0) + managerCount + myRequestCount, enabled: true },
     { id: 'timekeeping', label: 'Timekeeping', count: timekeepingCount, enabled: canHr },
     { id: 'payroll', label: 'Payroll', count: payrollCount, enabled: canPayroll },
-    { id: 'manager', label: 'My team', count: managerCount, enabled: canManager },
+    { id: 'manager', label: 'My tasks', count: managerCount, enabled: true },
+    { id: 'requests', label: 'My requests', count: myRequestCount, enabled: true },
   ];
 
   return <section className="timekeeping-workspace approvals-workspace">
@@ -116,9 +127,13 @@ export function ApprovalWorkspace({ token, roles, currentUserId, onOpenSecurity 
     <div className="timekeeping-metrics payroll-metrics approval-metrics"><article><span>TIMEKEEPING</span><strong>{timekeepingCount}</strong><small>Leave, overtime, corrections</small></article><article><span>PAYROLL</span><strong>{payrollCount}</strong><small>Adjustments, review, approval</small></article><article><span>LEAVE REQUESTS</span><strong>{pendingLeave.length}</strong><small>Awaiting HR decision</small></article><article><span>PAYROLL RUNS</span><strong>{payrollQueue.length}</strong><small>Review or approve</small></article></div>
     <div className="approval-toolbar"><div className="timekeeping-tabs" role="tablist" aria-label="Approval queue">{tabs.filter(item => item.enabled).map(item => <button type="button" role="tab" key={item.id} aria-selected={tab === item.id} className={tab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}<span>{item.count}</span></button>)}</div><label className="timekeeping-search"><span aria-hidden="true">⌕</span><input type="search" placeholder="Search employee or request…" aria-label="Search approvals" value={query} onChange={event => setQuery(event.target.value)} /></label></div>
     {loading ? <div className="payroll-panel"><div className="timekeeping-empty">Loading approval queues…</div></div> : !totalVisible ? <div className="payroll-panel"><div className="approval-empty"><span>✓</span><h2>You're all caught up</h2><p>There are no pending approvals in the queues available to your role.</p></div></div> : <div className="approval-queues">
-      {visible.manager && <section className="payroll-panel approval-queue"><div className="payroll-panel-heading"><div><p className="eyebrow">MY TEAM</p><h2>Direct report requests</h2></div><span>{managerCount} pending</span></div>
-        {[...managerQueue.leaveRequests.map(item=>({...item,kind:'leave'})),...managerQueue.overtimeRequests.map(item=>({...item,kind:'overtime'})),...managerQueue.attendanceCorrections.map(item=>({...item,kind:'correction'}))].filter(item=>matches(`${item.first_name} ${item.last_name} ${item.employee_number} ${item.work_date||item.date_from} ${item.reason||''} ${item.kind}`)).map(item=><article className="approval-card" key={`manager-${item.kind}-${item.id}`}><div className="approval-card-kind"><span className="approval-icon leave">{item.kind==='leave'?'L':item.kind==='overtime'?'OT':'DTR'}</span></div><div className="approval-card-main"><div className="approval-title-line"><h3>{item.kind==='leave'?`${item.leave_type||'Leave'} request`:item.kind==='overtime'?'Overtime request':'Attendance correction'}</h3><span className="timekeeping-status warning">PENDING</span></div><p>{item.first_name} {item.last_name} · {item.employee_number} · {item.work_date||`${item.date_from} – ${item.date_to}`}</p><small>{item.kind==='leave'?`${item.days} days · `:item.kind==='overtime'?`${item.minutes_requested} minutes · `:`In ${shortTime(item.requested_in||null)} · Out ${shortTime(item.requested_out||null)} · `}{item.reason||'No reason supplied'}</small></div><div className="approval-card-actions"><button className="session-revoke" type="button" onClick={()=>void decide(`/api/v1/self-service/manager/approvals/${item.kind}/${item.id}`,'Manager decision',{decision:'REJECT'})} disabled={!!busy||mfaVerified===false}>Reject</button><button className="security-submit" type="button" onClick={()=>void decide(`/api/v1/self-service/manager/approvals/${item.kind}/${item.id}`,'Manager decision',{decision:'APPROVE'})} disabled={!!busy||mfaVerified===false}>Approve</button></div></article>)}
-        {!managerCount&&<p className="approval-no-pending">Your direct reports have no pending requests.</p>}
+      {visible.manager && <section className="payroll-panel approval-queue"><div className="payroll-panel-heading"><div><p className="eyebrow">MY TASKS</p><h2>Requests awaiting your decision</h2></div><span>{managerCount} pending</span></div>
+        {managerQueue.filter(item=>matches(`${item.first_name} ${item.last_name} ${item.requester_email} ${item.process_code} ${item.summary} ${item.label}`)).map(item=><article className="approval-card" key={`task-${item.task_id}`}><div className="approval-card-kind"><span className="approval-icon leave">{item.process_code==='LEAVE'?'L':item.process_code==='OVERTIME'?'OT':item.process_code==='HEADCOUNT'?'HC':'DTR'}</span></div><div className="approval-card-main"><div className="approval-title-line"><h3>{item.label}</h3><span className="timekeeping-status warning">{item.action_type}</span></div><p>{item.first_name} {item.last_name} · {item.requester_email} · {item.process_code.replaceAll('_',' ')}</p><small>{item.summary} · Step {item.step_no}</small></div><div className="approval-card-actions"><button className="session-revoke" type="button" onClick={()=>decideWorkflowTask(item.task_id,'REJECT')} disabled={!!busy||mfaVerified===false}>Reject</button><button className="security-submit" type="button" onClick={()=>decideWorkflowTask(item.task_id,'APPROVE')} disabled={!!busy||mfaVerified===false}>Approve</button></div></article>)}
+        {!managerCount&&<p className="approval-no-pending">No assigned workflow tasks are waiting for your decision.</p>}
+      </section>}
+      {visible.requests && <section className="payroll-panel approval-queue"><div className="payroll-panel-heading"><div><p className="eyebrow">SUBMITTED BY YOU</p><h2>My requests</h2></div><span>{myRequestCount} requests</span></div>
+        {myRequests.filter(item=>matches(`${item.process_code} ${item.summary} ${item.status}`)).map(item=><article className="approval-card" key={`my-${item.id}`}><div className="approval-card-kind"><span className="approval-icon leave">{item.process_code==='LEAVE'?'L':item.process_code==='OVERTIME'?'OT':item.process_code==='HEADCOUNT'?'HC':'DTR'}</span></div><div className="approval-card-main"><div className="approval-title-line"><h3>{item.process_code.replaceAll('_',' ')}</h3><span className="timekeeping-status warning">{item.status}</span></div><p>{item.summary} · {new Date(item.created_at).toLocaleDateString()}</p><small>{item.status==='PENDING'?`Waiting at step ${item.current_step}`:item.completed_at?`Completed ${new Date(item.completed_at).toLocaleString()}`:'Workflow needs administrator attention'}</small>{historyById[item.id]&&<ol className="approval-history">{historyById[item.id].map((event,index)=><li key={String(event.id||index)}><strong>{String(event.event_type||'Event').replaceAll('_',' ')}</strong><small>{String(event.actor_email||'System')} · {new Date(String(event.created_at)).toLocaleString()}{event.details&&typeof event.details==='object'&&'comments' in event.details?` · ${String((event.details as Record<string,unknown>).comments)}`:''}</small></li>)}</ol>}</div><div className="approval-card-actions"><button type="button" className="session-revoke" onClick={()=>{if(historyById[item.id])setHistoryById(current=>{const next={...current};delete next[item.id];return next});else void request<Array<Record<string,unknown>>>(`/api/v1/approvals/requests/${item.id}/history`).then(events=>setHistoryById(current=>({...current,[item.id]:events}))).catch(reason=>setError(reason instanceof Error?reason.message:'Could not load request history.'));}}>{historyById[item.id]?'Hide history':'View progress'}</button></div></article>)}
+        {!myRequestCount&&<p className="approval-no-pending">You haven’t submitted workflow requests yet.</p>}
       </section>}
       {visible.hr && <section className="payroll-panel approval-queue"><div className="payroll-panel-heading"><div><p className="eyebrow">TIMEKEEPING</p><h2>Requests for review</h2></div><span>{timekeepingCount} pending</span></div>
         {pendingLeave.filter(item => matches(`${employeeLabel(item.employeeId)} ${item.dateFrom} ${item.dateTo} ${item.reason || ''} leave`)).map(item => <article className="approval-card" key={`leave-${item.id}`}><div className="approval-card-kind"><span className="approval-icon leave">L</span></div><div className="approval-card-main"><div className="approval-title-line"><h3>Leave request</h3><span className="timekeeping-status warning">PENDING</span></div><p>{employeeLabel(item.employeeId)} · {item.days} day{Number(item.days) === 1 ? '' : 's'}</p><small>{day(item.dateFrom)} – {day(item.dateTo)}{item.reason ? ` · ${item.reason}` : ''}</small></div><div className="approval-card-actions"><button type="button" className="session-revoke" onClick={() => void decide(`/api/leave/requests/${item.id}/reject`, 'Leave rejection')} disabled={!!busy || mfaVerified === false}>Reject</button><button type="button" className="security-submit" onClick={() => void decide(`/api/leave/requests/${item.id}/approve`, 'Leave approval')} disabled={!!busy || mfaVerified === false}>{busy === `Leave approval` ? 'Saving…' : 'Approve'}</button></div></article>)}

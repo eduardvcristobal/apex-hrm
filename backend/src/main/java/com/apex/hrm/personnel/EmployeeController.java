@@ -144,6 +144,17 @@ public class EmployeeController {
                           NULL::varchar AS position_name
                 """,(rs,i)->row(rs),user.tenantId(),input.companyId(),input.employeeNumber(),
                 input.firstName().trim(),input.lastName().trim(),input.hireDate());
+            String legacyNumber=jdbc.queryForObject("""
+                SELECT CASE WHEN EXISTS(SELECT 1 FROM employee WHERE tenant_id=? AND employee_no=?)
+                    THEN c.company_code||'-'||? ELSE ? END
+                FROM company c WHERE c.tenant_id=? AND c.id=?
+                """,String.class,user.tenantId(),input.employeeNumber(),input.employeeNumber(),input.employeeNumber(),user.tenantId(),input.companyId());
+            jdbc.update("""
+                INSERT INTO employee(id,tenant_id,company_id,employee_no,first_name,last_name,hire_date,status)
+                VALUES(?,?,?,?,?,?,?,'ACTIVE') ON CONFLICT(tenant_id,employee_no) DO NOTHING
+                """,employee.id(),user.tenantId(),employee.companyId(),legacyNumber,employee.firstName(),employee.lastName(),employee.hireDate());
+            UUID timekeepingId=jdbc.queryForObject("SELECT id FROM employee WHERE tenant_id=? AND company_id=? AND employee_no=?",UUID.class,user.tenantId(),employee.companyId(),legacyNumber);
+            jdbc.update("INSERT INTO personnel_timekeeping_employee(tenant_id,personnel_employee_id,employee_id) VALUES(?,?,?) ON CONFLICT(tenant_id,personnel_employee_id) DO NOTHING",user.tenantId(),employee.id(),timekeepingId);
             jdbc.update("""
                 INSERT INTO personnel_employment_history
                   (tenant_id,employee_id,effective_date,employment_type,employment_status,reason)
