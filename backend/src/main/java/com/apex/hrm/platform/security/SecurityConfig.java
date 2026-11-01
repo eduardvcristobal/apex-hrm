@@ -162,6 +162,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.DELETE, "/api/reference/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/reference/**").hasAnyAuthority("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN","ROLE_PAYROLL_OFFICER","ROLE_MANAGER","ROLE_EMPLOYEE","ROLE_AUDITOR")
+                .requestMatchers("/api/payroll/bank-files/*/retention",
+                    "/api/payroll/bank-files/*/legal-hold", "/api/payroll/bank-files/*/purge")
+                    .access(requireAll("ROLE_TENANT_ADMIN", "ROLE_MFA_VERIFIED"))
                 .requestMatchers(HttpMethod.GET, "/api/payroll/employees")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/payroll/**", "/api/payroll-runs/**", "/api/payroll-lines/**",
