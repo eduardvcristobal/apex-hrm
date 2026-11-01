@@ -5,6 +5,13 @@
 - M3.1 Payroll Compliance Completion is being implemented separately. Do not merge M3.2 until M3.1 is merged, M3.2 is rebased, and all tests are rerun against the merged payroll rules.
 - Current coverage is **service-level with mocked repositories**, not a real-PostgreSQL or browser E2E certification.
 
+## M3.2.6 follow-up work (2026-11-01)
+
+- Added `PayrollAuthorizationHttpTest`: verifies payroll operations reject an ordinary employee, payroll officer without MFA, and that DTR processing rejects payroll-only and non-MFA HR roles. The spoofed `X-Tenant-ID` header does not grant payroll access. This is targeted endpoint RBAC; not M3.3-wide security certification.
+- Added `frontend/e2e/public-routes.spec.ts` and `.github/workflows/m3-2-browser-smoke.yml`: Chromium real-browser smoke on login, invitation acceptance and signup routes, plus frontend TypeScript build. **Public-route smoke is not authenticated payroll browser E2E.**
+- Payment settlement remains **unimplemented/unverified**: `PayrollService.markPaid` advances status after LOCKED without independent bank acknowledgment. Until settlement evidence, reconciliation policy and dual control are specified and implemented, do **not** equate PAID with proof that money was transferred.
+- GitHub CI for these new gates must be green before claiming them passed. The code is committed but certification stays **NO-GO** regardless of CI result until M3.1, M3.3 and financial/operational gates close.
+
 ## M3.2.6 execution evidence (2026-11-01)
 
 - **Latest verified green commit:** `5aa815a81147763928e78009ea2463eca11104d7`
