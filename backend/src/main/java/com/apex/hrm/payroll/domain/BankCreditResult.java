@@ -13,6 +13,7 @@ import lombok.Setter;
 @Getter @Setter
 public class BankCreditResult extends BaseEntity {
     private UUID bankImportId;
+    private UUID runId;
     private UUID bankFileId;
     private UUID employeeId;
     private String employeeNo;
