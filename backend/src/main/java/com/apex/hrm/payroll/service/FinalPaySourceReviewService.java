@@ -70,6 +70,11 @@ public class FinalPaySourceReviewService {
                 "Source review not found");
             Review pending=found.get(0);
             requireIndependentDecision(pending.status(),pending.requestedBy(),user.id());
+            UUID capturedBy=jdbc.queryForObject("""
+                SELECT captured_by FROM payroll_final_pay_source_snapshot
+                WHERE tenant_id=? AND id=?
+                """,UUID.class,user.tenantId(),pending.snapshotId());
+            requireIndependentCapture(capturedBy,user.id());
             FinalPaySourceSnapshotService.Freshness fresh=
                 snapshots.verifyCurrent(user,pending.snapshotId());
             if(accept && (!fresh.current() || !fresh.latest()
@@ -108,6 +113,11 @@ public class FinalPaySourceReviewService {
         });
     }
 
+    static void requireIndependentCapture(UUID capturedBy,UUID reviewer){
+        if(capturedBy==null || reviewer==null || capturedBy.equals(reviewer))
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "Source reviewer cannot be the officer who captured the source snapshot");
+    }
     static void requireIndependentDecision(String status,UUID requester,UUID reviewer){
         if(!"PENDING".equals(status))
             throw new ResponseStatusException(HttpStatus.CONFLICT,"Source review already decided");
