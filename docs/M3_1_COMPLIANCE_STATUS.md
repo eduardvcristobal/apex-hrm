@@ -68,6 +68,13 @@ Branch: feature/m3-1-payroll-compliance
 
 **Strict distinction:** Payment authorization `AUTHORIZED` means a human has authorized an instruction inside Apex HRM, **not** that the bank received funds. Bank evidence `EVIDENCE_REVIEWED` means a separate officer reviewed manually supplied details, **not** that an official bank statement or payment gateway certified them. No automated disbursement, bank acknowledgement polling, actual bank settlement, payout reconciliation, legally issued final payslip, or legacy payroll PAID transition is implemented by M3.1.13. Payroll deductions, 13th-month accrual and leave balances are not yet automatically reconciled against full source ledgers; amounts remain human-attested.
 
+## M3.1.14 — Financial-control pre-certification
+
+- Added rollback-only PostgreSQL 16 integration fixture `backend/scripts/m3_1_14_postgres_e2e.sql` covering two tenants, approved separation-to-evidence lifecycle, duplicate payment/evidence constraints, segregation of duties and restricted-role RLS.
+- CI runs the SQL lifecycle fixture after Flyway migration and schema assertions; anonymous financial API probes must return 401/403.
+- Maven and frontend builds remain mandatory. **No production banking, certified final payslip, or human financial approval is implied by green CI.**
+- See `docs/M3_1_14_CERTIFICATION_REPORT.md` for explicit coverage, evidence and NO-GO gates.
+
 ## Outstanding production blockers (not completed by this PR)
 
 1. Split-rate earnings for compensation changes mid-cutoff, day-based proration policy configuration, and complete leave/holiday eligibility including half-day leave and double holidays.
