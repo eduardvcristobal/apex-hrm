@@ -3,6 +3,7 @@ package com.apex.hrm.payroll.domain;
 import com.apex.hrm.common.BaseEntity;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -20,6 +21,7 @@ public class BankFile extends BaseEntity {
     private UUID bankTemplateId;
     private UUID recoverySourceFileId;
     private String fileName;
+    @JsonIgnore
     private String content;
     private Integer recordCount = 0;
     private BigDecimal totalAmount = new BigDecimal("0");
