@@ -19,6 +19,8 @@ import { PerformanceWorkspace } from './PerformanceWorkspace';
 import { PerformanceSelfService } from './PerformanceSelfService';
 import { LearningWorkspace } from './LearningWorkspace';
 import { MyLearningWorkspace } from './MyLearningWorkspace';
+import { RecruitmentWorkspace } from './RecruitmentWorkspace';
+import { SelfServiceWorkspace } from './SelfServiceWorkspace';
 import { SelectField } from './SelectField';
 import { routePath, routeSlug } from './routePaths';
 import './styles.css';
@@ -26,7 +28,7 @@ import './styles.css';
 const TOKEN_KEY = 'apexHrm.accessToken';
 const EXPIRY_KEY = 'apexHrm.expiresAt';
 
-const workspaceRouteSections = ['Overview','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Performance','Learning & development','My learning','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Payroll','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
+const workspaceRouteSections = ['Overview','My workspace','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Performance','Learning & development','My learning','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Payroll','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
 const platformRouteSections = ['Subscriptions','Payment requests','Plan maintenance','Payment QR','Module status','Mail settings','Backup & restore','Account security'];
 function sectionFromPath(pathname: string, base: string, sections: readonly string[], fallback: string) {
   const slug = pathname.replace(new RegExp(`^${base}/?`), '').split('/')[0];
@@ -432,12 +434,13 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
     {
       label: 'Personnel management',
       items: [
+        { label: 'My workspace', icon: '♙', available: true },
         { label: 'People', displayLabel: 'Employee directory', icon: '♙', available: user.roles.includes('ROLE_TENANT_ADMIN') },
         { label: 'Onboarding', icon: '✳', available: isWorkspaceOwner },
         { label: 'Organization', icon: '▦', available: user.roles.includes('ROLE_TENANT_ADMIN') },
         { label: 'Documents', icon: '▤', available: isWorkspaceOwner },
         { label: 'HR policies', icon: '⚖', available: user.roles.includes('ROLE_TENANT_ADMIN') },
-        { label: 'Recruitment', icon: '⊕', available: false },
+        { label: 'Recruitment', icon: '⊕', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) },
         { label: 'Performance', icon: '◇', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_MANAGER', 'ROLE_EMPLOYEE'].includes(role)) },
         { label: 'Learning & development', icon: '▧', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_AUDITOR'].includes(role)) },
         { label: 'My learning', icon: '◈', available: true },
@@ -450,7 +453,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
         { label: 'Leave management', icon: '▣', available: canManageTimekeeping },
         { label: 'Schedules & shifts', icon: '▦', available: canManageTimekeeping },
         { label: 'Overtime', icon: '◴', available: canManageTimekeeping },
-        { label: 'Approval center', icon: '✓', available: canManageTimekeeping || canManagePayroll },
+        { label: 'Approval center', icon: '✓', available: canManageTimekeeping || canManagePayroll || user.roles.includes('ROLE_MANAGER') },
       ],
     },
     {
@@ -721,7 +724,9 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
             : activeSection === 'Time & attendance' && canManageTimekeeping ? <TimekeepingWorkspace key={activeSection} token={token} />
             : activeSection === 'Leave management' && canManageTimekeeping ? <LeaveWorkspace key={activeSection} token={token} />
             : activeSection === 'Overtime' && canManageTimekeeping ? <OvertimeWorkspace key={activeSection} token={token} />
-            : activeSection === 'Approval center' && (canManageTimekeeping || canManagePayroll) ? <ApprovalWorkspace key={activeSection} token={token} roles={user.roles} currentUserId={user.id} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
+            : activeSection === 'Approval center' && (canManageTimekeeping || canManagePayroll || user.roles.includes('ROLE_MANAGER')) ? <ApprovalWorkspace key={activeSection} token={token} roles={user.roles} currentUserId={user.id} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
+            : activeSection === 'Recruitment' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) ? <RecruitmentWorkspace key={activeSection} token={token} />
+            : activeSection === 'My workspace' ? <SelfServiceWorkspace key={activeSection} token={token} />
             : activeSection === 'Schedules & shifts' && canManageTimekeeping ? <ScheduleWorkspace key={activeSection} token={token} />
             : activeSection === 'Payroll' && canManagePayroll ? <PayrollWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Pay groups & periods' && canManagePayroll ? <PaySetupWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />

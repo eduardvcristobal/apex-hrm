@@ -110,6 +110,12 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/v1/learning/**")
                     .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_AUDITOR")
                 .requestMatchers("/api/v1/learning/**").denyAll()
+                .requestMatchers("/api/v1/recruitment/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
+                .requestMatchers("/api/v1/self-service/manager/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_MANAGER"))
+                .requestMatchers("/api/v1/self-service/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER", "ROLE_MANAGER", "ROLE_EMPLOYEE"))
                 // Performance self-service has manager/employee route access, with employee
                 // and direct-report scoping enforced again by the controllers.
                 .requestMatchers("/api/v1/performance/my/**", "/api/v1/performance/team/**",

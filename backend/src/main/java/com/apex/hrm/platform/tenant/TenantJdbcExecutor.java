@@ -28,8 +28,16 @@ public class TenantJdbcExecutor {
             throw new SecurityException("Cross-tenant SQL access is forbidden");
         }
         return transactions.execute(status -> {
-            jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
-            return work.get();
+            // Many workflows combine tenant SQL with Hibernate repositories. Bind
+            // the Hibernate tenant for the same unit of work, then restore the caller.
+            TenantContext.set(tenantId);
+            try {
+                jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
+                return work.get();
+            } finally {
+                if (authenticatedTenant == null) TenantContext.clear();
+                else TenantContext.set(authenticatedTenant);
+            }
         });
     }
 }
