@@ -15,6 +15,7 @@ import com.apex.hrm.payroll.repo.PayrollRunRepository;
 import com.apex.hrm.payroll.repo.PayslipRepository;
 import com.apex.hrm.payroll.service.BankFileService;
 import com.apex.hrm.payroll.service.PayrollService;
+import com.apex.hrm.payroll.service.PayrollSettlementService;
 import com.apex.hrm.timekeeping.domain.DtrDay;
 import com.apex.hrm.timekeeping.repo.DtrDayRepository;
 import com.apex.hrm.timekeeping.service.AttendanceService;
@@ -65,6 +66,7 @@ class PostgreSqlPayrollLifecycleE2ETest {
     @Autowired DtrService dtr;
     @Autowired PayrollService payroll;
     @Autowired BankFileService bankFiles;
+    @Autowired PayrollSettlementService settlements;
     @Autowired PayrollRunRepository runs;
     @Autowired PayrollEmployeeRepository payrollEmployees;
     @Autowired PayrollLineRepository payrollLines;
@@ -179,6 +181,16 @@ class PostgreSqlPayrollLifecycleE2ETest {
         assertEquals(1, bank.getRecordCount());
         assertMoney(pe.getNetPay(), bank.getTotalAmount());
         assertTrue(bank.getContent().contains("CERT-0001,0000001234,"));
+        assertThrows(BusinessException.class, () -> payroll.markPaid(created.getId()));
+        UUID recorder = UUID.randomUUID();
+        UUID confirmer = UUID.randomUUID();
+        var acknowledgment = settlements.record(created.getId(), bank.getId(), bank.getTotalAmount(),
+                "BANK-REF-" + bank.getId(), "EVIDENCE-" + bank.getId(), recorder);
+        assertEquals("UNSETTLED", settlements.summary(created.getId()).status());
+        assertThrows(BusinessException.class, () -> settlements.confirm(acknowledgment.getId(), recorder));
+        assertThrows(BusinessException.class, () -> payroll.markPaid(created.getId()));
+        settlements.confirm(acknowledgment.getId(), confirmer);
+        assertEquals("RECONCILED", settlements.summary(created.getId()).status());
         mockMvc.perform(post("/api/payroll/runs/" + created.getId() + "/pay")
                 .with(authentication(authentication)).with(csrf()))
                 .andExpect(status().isOk())
