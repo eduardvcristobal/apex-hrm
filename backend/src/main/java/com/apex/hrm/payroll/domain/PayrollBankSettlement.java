@@ -24,4 +24,8 @@ public class PayrollBankSettlement extends BaseEntity {
     private UUID recordedBy;
     private UUID confirmedBy;
     private Instant confirmedAt;
+    private String exceptionReason;
+    private String exceptionEvidenceReference;
+    private UUID exceptionBy;
+    private Instant exceptionAt;
 }
