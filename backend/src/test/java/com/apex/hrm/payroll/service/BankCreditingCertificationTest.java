@@ -127,6 +127,13 @@ class BankCreditingCertificationTest {
     }
 
     @Test
+    void duplicateOriginalBankExportIsDenied() {
+        when(files.findByRunId(runId)).thenReturn(List.of(new BankFile()));
+        assertThrows(BusinessException.class, () -> service.generate(runId, templateId));
+        verify(files, never()).save(any());
+    }
+
+    @Test
     void draftRunCannotProduceBankPaymentFile() {
         PayrollRun draft = new PayrollRun();
         draft.setStatus("DRAFT");
