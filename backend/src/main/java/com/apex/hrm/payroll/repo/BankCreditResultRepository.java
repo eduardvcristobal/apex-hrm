@@ -7,5 +7,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface BankCreditResultRepository extends JpaRepository<BankCreditResult, UUID> {
     List<BankCreditResult> findByBankFileId(UUID bankFileId);
-    List<BankCreditResult> findByEmployeeIdAndCreditStatus(UUID employeeId, String creditStatus);
+    List<BankCreditResult> findByRunIdAndEmployeeIdAndCreditStatus(UUID runId, UUID employeeId, String creditStatus);
 }
