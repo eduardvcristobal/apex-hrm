@@ -9,6 +9,8 @@ type Authorization = { id: string; settlementId: string; amount: number; status:
 type Evidence = { id: string; paymentAuthorizationId: string; bankCode: string; bankReference: string;
   bankValueDate: string; reportedAmount: number; status: string; recordedBy: string;
   reviewedBy: string | null; verificationType: string };
+type Reconciliation = { controlStatus: string; internallyConsistent: boolean;
+  bankConfirmed: boolean; disbursementEnabled: boolean; explanation: string };
 type Page<T> = { content: T[] };
 const peso = (amount: number) => new Intl.NumberFormat('en-PH',
   { style: 'currency', currency: 'PHP' }).format(amount);
@@ -34,6 +36,7 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
   const [bankValueDate, setBankValueDate] = useState('');
   const [evidenceDocumentReference, setEvidenceDocumentReference] = useState('');
   const [reportedAmount, setReportedAmount] = useState('');
+  const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null);
   const [busy, setBusy] = useState(false);
   const identityPath = '/api/v1/payroll/identity-links';
   const paymentPath = '/api/v1/payroll/final-pay/payment-authorizations';
@@ -75,6 +78,15 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
     return () => {active=false;};
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authorization?.id, authorization?.status]);
+
+  useEffect(() => {
+    let active = true;
+    request<Reconciliation>(`/api/v1/payroll/final-pay/reconciliation/settlements/${settlementId}`)
+      .then(value => { if(active) setReconciliation(value); })
+      .catch(() => { if(active) setReconciliation(null); });
+    return () => { active=false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settlementId, link?.status, authorization?.status, evidenceRow?.status]);
 
   async function execute(operation: () => Promise<void>) {
     setBusy(true);setError('');setNotice('');
@@ -230,6 +242,17 @@ export function FinalPayReleaseReviewPanel({ personnelEmployeeId, employeeNumber
           onClick={()=>void reviewBankEvidence('reject')}>Reject evidence</button>
       </div>}
     </div>}
+    <section className="people-subcard">
+      <h4>Final-pay financial certification preflight</h4>
+      <p className="people-muted"><strong>{reconciliation?.controlStatus.replaceAll('_', ' ') || 'Loading certification controls'}</strong></p>
+      <p className="people-muted">{reconciliation?.explanation || 'Financial evidence is being assessed.'}</p>
+      <p className="people-muted">
+        Internal consistency: {reconciliation?.internallyConsistent ? 'Reviewed' : 'Pending'}
+        {' · '}Bank independently confirmed: {reconciliation?.bankConfirmed ? 'Yes' : 'No'}
+        {' · '}Disbursement enabled: {reconciliation?.disbursementEnabled ? 'Yes' : 'No'}
+      </p>
+      <p className="people-muted">Manual bank evidence is not proof of payment. Actual transfer, posted settlement and bank reconciliation remain disabled.</p>
+    </section>
     {error && <p role="alert" className="people-muted">{error}</p>}
     {notice && <p role="status" className="people-muted">{notice}</p>}
   </div>;
