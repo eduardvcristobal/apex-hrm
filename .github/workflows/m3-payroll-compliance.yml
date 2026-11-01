@@ -143,7 +143,12 @@ jobs:
           PGPASSWORD: hrm
         run: |
           set -euo pipefail
-          (cd backend && mvn -B -ntp spring-boot:run) > /tmp/m315-startup.log 2>&1 &
+          # Ephemeral CI-only issuer key; never commit or print a private key.
+          openssl genpkey -algorithm Ed25519 -out /tmp/m321-issuer.pem
+          chmod 600 /tmp/m321-issuer.pem
+          export HRM_FINANCIAL_DOCUMENTS_ISSUER_KEY_ID=CI_PINNED_ISSUER
+          export HRM_FINANCIAL_DOCUMENTS_ISSUER_PUBLIC_KEY_BASE64="$(openssl pkey -in /tmp/m321-issuer.pem -pubout -outform DER | base64 -w0)"
+          (cd backend && mvn -B -ntp spring-boot:run -Dspring-boot.run.arguments="--hrm.financial.documents.issuer-key-id=$HRM_FINANCIAL_DOCUMENTS_ISSUER_KEY_ID --hrm.financial.documents.issuer-public-key-base64=$HRM_FINANCIAL_DOCUMENTS_ISSUER_PUBLIC_KEY_BASE64") > /tmp/m315-startup.log 2>&1 &
           app_pid=$!
           trap 'kill "$app_pid" 2>/dev/null || true' EXIT
           ready=0
@@ -158,6 +163,10 @@ jobs:
           if [[ "$ready" -ne 1 ]]; then tail -n 120 /tmp/m315-startup.log; exit 1; fi
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_15_http_seed.sql
           bash backend/scripts/m3_1_15_authenticated_http.sh
+          # Positive verification with full synthetic coverage, six separate signers
+          # and a trusted issuer key generated only in this disposable runner.
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_21_signed_claim_seed.sql
+          bash backend/scripts/m3_1_21_signed_claim_http.sh
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_20_period_immutability.sql
           # Verify actual stored snapshot rows are immutable after authenticated capture.
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SNAPSHOT_SQL'
