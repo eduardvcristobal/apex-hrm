@@ -107,6 +107,7 @@ jobs:
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_14_postgres_e2e.sql
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_18_snapshot_schema.sql
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_19_review_schema.sql
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_20_period_schema.sql
 
   authenticated-financial-api:
     runs-on: ubuntu-latest
@@ -156,6 +157,7 @@ jobs:
           if [[ "$ready" -ne 1 ]]; then tail -n 120 /tmp/m315-startup.log; exit 1; fi
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_15_http_seed.sql
           bash backend/scripts/m3_1_15_authenticated_http.sh
+          psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm -f backend/scripts/m3_1_20_period_immutability.sql
           # Verify actual stored snapshot rows are immutable after authenticated capture.
           psql -v ON_ERROR_STOP=1 -h localhost -U hrm -d apex_hrm <<'SNAPSHOT_SQL'
           BEGIN;
