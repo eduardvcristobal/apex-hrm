@@ -23,6 +23,7 @@ Branch: feature/m3-1-payroll-compliance
 - Reconciliation returns an explicit REVIEW_REQUIRED status. Missing payroll records fail closed.
 - This is not automatically posted to a pay run, does not generate an official BIR form, and cannot certify an incomplete year or uncategorized fringe benefits.
 - Unit and service-level mocked ledger tests cover tax thresholds, bonus exemption handling and persisted-record lookup.
+- Tax & Compliance now includes an Annualization Review tab that loads employee selections and displays persisted-year tax reconciliations without posting deductions or refunds.
 - Tax sources: https://bir-cdn.bir.gov.ph/local/pdf/1701%20Jan%202018%20final%20with%20rates.pdf and https://bir-cdn.bir.gov.ph/local/pdf/RR%20No.%2011-2018.pdf
 
 ## Outstanding production blockers (not completed by this PR)
