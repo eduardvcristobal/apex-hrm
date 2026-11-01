@@ -1,0 +1,11 @@
+# M7.4: Keep Gitleaks default rules intact. The single exception below is a
+# synthetic, non-production password hardcoded only for a short-lived PostgreSQL
+# service container created by GitHub Actions. It cannot access any deployed DB.
+# NEVER add an actual credential, deploy password or broad path allowlist here.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Literal non-secret disposable PostgreSQL test credential used solely in M7.4 CI"
+regexTarget = "match"
+regexes = ['m74-ci-disposable']
