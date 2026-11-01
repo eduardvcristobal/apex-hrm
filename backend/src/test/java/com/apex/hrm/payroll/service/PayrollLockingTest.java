@@ -40,7 +40,6 @@ class PayrollLockingTest {
         when(runs.findByPayPeriodIdAndRunType(periodId, "REGULAR")).thenReturn(List.of());
         when(runs.save(any(PayrollRun.class))).thenAnswer(invocation -> {
             PayrollRun run = invocation.getArgument(0);
-            run.setId(null);
             return run;
         });
         PayrollRun created = payroll.createRun(periodId, "REGULAR");
