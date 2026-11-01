@@ -7,6 +7,7 @@
 Previous `bank_file.content` retained complete beneficiary CSV (including account numbers) as plaintext in PostgreSQL, despite its omission from JSON. CSV was used by both MFA-guarded downloads and bank result reconciliation; encrypting only downloads would break reconciliation.
 
 - **Flyway V60** renames the historical column to `content_legacy` and introduces `content_ciphertext`, `content_sha256`, `purged_at` and `legal_hold`. A trigger rejects new plaintext export inserts and modifications.
+- **Flyway V61** changes digest storage to `varchar(64)` for Hibernate compatibility while keeping the original V60 checksum intact.
 - `BankExportCipher` uses independent, externally managed AES-256-GCM keys, randomized 96-bit IVs, an authenticated context of tenant ID + payroll run ID + filename, and version-tagged envelopes.
 - `BankExportBackfill` locks export rows in a single transaction on startup, decrypts and validates any existing ciphertext, verifies digests, encrypts historical plaintext, clears `content_legacy`, and rotates old-key ciphertext. Failures roll back and abort startup.
 - New bank-file generation encrypts CSV **before saving**. Authenticated payroll download and bank-response reconciliation decrypt and verify the SHA-256 digest. Encrypted contents are never emitted by generic JSON endpoints.
@@ -41,12 +42,12 @@ All three require `ROLE_TENANT_ADMIN` and `ROLE_MFA_VERIFIED`, reinforced at the
 Run only on a disposable, empty PostgreSQL 16 instance:
 
 1. Apply real V1–V59 Flyway migrations and seed `scripts/db/m7_3_31_v59_export_fixture.sql`.
-2. Run Maven verify and start the V60 application with `HRM_BANK_EXPORT_KEY`.
+2. Run Maven verify and start the V60/V61 application with `HRM_BANK_EXPORT_KEY`.
 3. Check `scripts/db/m7_3_31_export_certification.sql`: plaintext legacy NULL, digest present, ciphertext envelope with active key ID, attempts to insert new legacy plaintext rejected.
 4. Restart with a new export key and the previous key configuration; verify the active envelope is now k2.
 5. Verify tenant substitution and ciphertext tampering fail in `BankExportCipherTest`, and that retention/hold/settlement gates fail closed in `BankExportRetentionServiceTest`.
 
-CI: `.github/workflows/m7-3-31-bank-export.yml` exercises the synthetic V59→V60 upgrade, key rotation, Maven tests and retention unit tests.
+CI: `.github/workflows/m7-3-31-bank-export.yml` exercises the synthetic V59→V61 upgrade, key rotation, Maven tests and retention unit tests.
 
 ## Additional release blockers
 
