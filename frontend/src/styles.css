@@ -1969,3 +1969,5 @@ select:not([multiple]) option:checked { color: #007f75; background: #edf7f4; }
 .self-service-camera video, .self-service-photo-preview img { width: min(100%, 320px); aspect-ratio: 4 / 3; object-fit: cover; border-radius: 14px; background: #101827; }
 .self-service-photo-modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-content: center; gap: 1rem; padding: 1.5rem; background: rgb(10 18 32 / 85%); }
 .self-service-photo-modal img { max-width: min(90vw, 640px); max-height: 80vh; border-radius: 12px; }
+
+.approval-payload{max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:12px;border-radius:10px;background:rgba(20,32,50,.055);font-size:12px;line-height:1.5}.platform-proposal-actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap}
