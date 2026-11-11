@@ -29,5 +29,13 @@ public interface PayrollRunRepository extends JpaRepository<PayrollRun, UUID> {
 
     List<PayrollRun> findByPayPeriodIdAndRunType(UUID payPeriodId, String runType);
 
+    @Query("select distinct r from PayrollRun r, PayPeriod p where r.payPeriodId = p.id "
+         + "and r.status in ('LOCKED', 'PAID') and p.endDate between :from and :to "
+         + "and r.runType in ('REGULAR','THIRTEENTH_MONTH','OFF_CYCLE','FINAL_PAY','YEAR_END_ADJUSTMENT') "
+         + "and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()} and r.payGroupId in "
+         + "(select g.id from PayGroup g where g.companyId = :companyId)")
+    List<PayrollRun> findFinalizedCompensationBetweenForCompany(@Param("from") LocalDate from, @Param("to") LocalDate to,
+                                                                @Param("companyId") UUID companyId);
+
     List<PayrollRun> findByEmployeeIdAndRunType(UUID employeeId, String runType);
 }

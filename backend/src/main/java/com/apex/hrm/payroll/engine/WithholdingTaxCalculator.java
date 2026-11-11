@@ -9,7 +9,10 @@ public final class WithholdingTaxCalculator {
     private WithholdingTaxCalculator() {
     }
 
-    public record Bracket(BigDecimal lowerBound, BigDecimal baseTax, BigDecimal rate) {
+    public record Bracket(BigDecimal lowerBound, BigDecimal baseTax, BigDecimal rate, BigDecimal upperBound) {
+        public Bracket(BigDecimal lowerBound, BigDecimal baseTax, BigDecimal rate) {
+            this(lowerBound, baseTax, rate, null);
+        }
     }
 
     public static BigDecimal tax(List<Bracket> brackets, BigDecimal taxableIncome) {
@@ -24,5 +27,16 @@ public final class WithholdingTaxCalculator {
             return Money.ZERO;
         }
         return Money.round(match.baseTax().add(taxableIncome.subtract(match.lowerBound()).multiply(match.rate())));
+    }
+
+    /**
+     * BIR supplementary withholding is the difference between tax on regular plus supplementary
+     * compensation and tax already attributable to regular compensation for the pay period.
+     */
+    public static BigDecimal supplementaryTax(List<Bracket> brackets, BigDecimal regularTaxable, BigDecimal supplementaryTaxable) {
+        if (supplementaryTaxable.signum() <= 0) return Money.ZERO;
+        BigDecimal combined = tax(brackets, regularTaxable.add(supplementaryTaxable));
+        BigDecimal regular = tax(brackets, regularTaxable);
+        return Money.round(combined.subtract(regular).max(BigDecimal.ZERO));
     }
 }

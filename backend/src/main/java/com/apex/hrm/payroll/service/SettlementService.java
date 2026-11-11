@@ -126,8 +126,11 @@ public class SettlementService {
         }
         Compensation comp = compensations.findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(emp.getId(), sep)
                 .orElseThrow(() -> new BusinessException("No compensation record effective on " + sep));
-        BigDecimal dailyRate = "DAILY".equals(comp.getPayBasis()) ? comp.getBaseRate()
-                : comp.getBaseRate().multiply(BigDecimal.valueOf(12)).divide(group.getDaysFactor(), 6, RoundingMode.HALF_UP);
+        BigDecimal dailyRate = switch (comp.getPayBasis()) {
+            case "DAILY" -> comp.getBaseRate();
+            case "HOURLY" -> comp.getBaseRate().multiply(group.getHoursPerDay());
+            default -> comp.getBaseRate().multiply(BigDecimal.valueOf(12)).divide(group.getDaysFactor(), 6, RoundingMode.HALF_UP);
+        };
         LocalDate from = LocalDate.of(sep.getYear(), 1, 1);
         LocalDate to = LocalDate.of(sep.getYear(), 12, 31);
 
@@ -135,6 +138,7 @@ public class SettlementService {
         for (LeaveType t : leaveTypes.findAll()) {
             if (Boolean.TRUE.equals(t.getConvertible()) && Boolean.TRUE.equals(t.getPaid())) {
                 BigDecimal days = ledger.balance(emp.getId(), t.getId());
+                if (days != null && t.getCarryOverMax() != null) days = days.min(t.getCarryOverMax());
                 if (days != null && days.signum() > 0) {
                     leave.add(new FinalPayCalculator.LeaveBalance(t.getCode(), days));
                 }
@@ -147,8 +151,7 @@ public class SettlementService {
             }
         }
         BigDecimal otherBenefits = lines.otherExemptBenefitsYtd(emp.getId(), from, to);
-        List<WithholdingTaxCalculator.Bracket> brackets = Boolean.TRUE.equals(emp.getMinimumWageEarner())
-                ? List.of() : annualBrackets(sep);
+        List<WithholdingTaxCalculator.Bracket> brackets = annualBrackets(sep);
         FinalPayCalculator.Result r = FinalPayCalculator.compute(new FinalPayCalculator.Input(
                 lines.basicEarned(emp.getId(), from, to), lines.thirteenthPaid(emp.getId(), from, to),
                 lines.thirteenthExemptPaid(emp.getId(), from, to), otherBenefits, dailyRate,
@@ -172,6 +175,7 @@ public class SettlementService {
         lines.saveAll(out);
         pe.setGross(r.gross());
         pe.setTaxableIncome(r.taxableIncome());
+        pe.setSupplementaryTaxableIncome(r.taxableIncome());
         pe.setTotalDeductions(r.deductions());
         pe.setNetPay(r.net());
         pe.setWarnings(String.join("; ", r.warnings()));
@@ -183,7 +187,7 @@ public class SettlementService {
         LocalDate latest = all.stream().map(WithholdingTaxBracket::getEffectiveFrom).max(LocalDate::compareTo)
                 .orElseThrow(() -> new BusinessException("No annual withholding tax table is configured"));
         return all.stream().filter(b -> b.getEffectiveFrom().equals(latest))
-                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate())).toList();
+                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate(), b.getUpperBound())).toList();
     }
 
     private PayrollEmployee newPayrollEmployee(PayrollRun run, Employee emp, UUID costCenterId) {

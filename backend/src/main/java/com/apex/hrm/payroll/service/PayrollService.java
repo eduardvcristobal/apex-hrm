@@ -71,6 +71,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class PayrollService {
     private static final Set<String> ATTENDANCE_DEDUCTIONS = Set.of("ABSENCE", "LATE_UT");
+    private static final Set<String> MWE_EXEMPT_ITEMS = Set.of("BASIC", "HOLIDAY_PAY", "PREMIUM", "OT", "ND");
     private static final Set<String> RUN_TYPES = Set.of("REGULAR", "OFF_CYCLE", "THIRTEENTH_MONTH", "YEAR_END_ADJUSTMENT");
     private static final Set<String> SETTLEMENT_TYPES = Set.of("FINAL_PAY");
 
@@ -361,7 +362,8 @@ public class PayrollService {
         LocalDate latest = all.stream().map(WithholdingTaxBracket::getEffectiveFrom).max(LocalDate::compareTo)
                 .orElseThrow(() -> new BusinessException("No withholding tax table for " + group.getFrequency()));
         List<WithholdingTaxCalculator.Bracket> brackets = all.stream().filter(b -> b.getEffectiveFrom().equals(latest))
-                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate())).toList();
+                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate(), b.getUpperBound())).toList();
+        validateTaxBrackets(group.getFrequency(), brackets);
 
         return new Rules(premium,
                 new SssCalculator.Rule(sss.getEmployeeRate(), sss.getEmployerRate(), sss.getMinBase(), sss.getMaxBase(),
@@ -381,8 +383,32 @@ public class PayrollService {
         List<WithholdingTaxBracket> all = taxBrackets.findByPeriodTypeAndEffectiveFromLessThanEqual("ANNUAL", asOf);
         LocalDate latest = all.stream().map(WithholdingTaxBracket::getEffectiveFrom).max(LocalDate::compareTo)
                 .orElseThrow(() -> new BusinessException("No annual withholding tax table is configured"));
-        return all.stream().filter(b -> b.getEffectiveFrom().equals(latest))
-                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate())).toList();
+        List<WithholdingTaxCalculator.Bracket> brackets = all.stream().filter(b -> b.getEffectiveFrom().equals(latest))
+                .map(b -> new WithholdingTaxCalculator.Bracket(b.getLowerBound(), b.getBaseTax(), b.getRate(), b.getUpperBound())).toList();
+        validateTaxBrackets("ANNUAL", brackets);
+        return brackets;
+    }
+
+    private static void validateTaxBrackets(String periodType, List<WithholdingTaxCalculator.Bracket> brackets) {
+        List<WithholdingTaxCalculator.Bracket> ordered = brackets.stream()
+                .sorted(java.util.Comparator.comparing(WithholdingTaxCalculator.Bracket::lowerBound)).toList();
+        if (ordered.isEmpty() || ordered.get(0).lowerBound().signum() != 0) {
+            throw new BusinessException("The " + periodType + " withholding table must begin at zero");
+        }
+        for (int i = 0; i < ordered.size(); i++) {
+            WithholdingTaxCalculator.Bracket current = ordered.get(i);
+            if (current.baseTax().signum() < 0 || current.rate().signum() < 0 || current.rate().compareTo(BigDecimal.ONE) > 0) {
+                throw new BusinessException("The " + periodType + " withholding table contains an invalid tax amount or rate");
+            }
+            if (i == ordered.size() - 1) {
+                if (current.upperBound() != null) {
+                    throw new BusinessException("The " + periodType + " withholding table needs an open-ended final bracket");
+                }
+            } else if (current.upperBound() == null
+                    || current.upperBound().compareTo(ordered.get(i + 1).lowerBound()) != 0) {
+                throw new BusinessException("The " + periodType + " withholding table has a gap or overlap between brackets");
+            }
+        }
     }
 
     private PayrollEmployee computeEmployee(PayrollRun run, PayPeriod period, PayGroup group, Rules rules, Employee emp,
@@ -398,10 +424,17 @@ public class PayrollService {
         boolean yearEnd = "YEAR_END_ADJUSTMENT".equals(run.getRunType());
         boolean regular = "REGULAR".equals(run.getRunType()) || yearEnd;
         boolean thirteenth = "THIRTEENTH_MONTH".equals(run.getRunType());
-        int periodsPerMonth = "MONTHLY".equals(group.getFrequency()) ? 1 : 2;
+        BigDecimal periodsPerMonth = periodsPerMonth(group);
         PayBasis basis = PayBasis.valueOf(comp.getPayBasis());
-        BigDecimal monthlyEquivalent = basis == PayBasis.MONTHLY ? comp.getBaseRate()
-                : comp.getBaseRate().multiply(group.getDaysFactor()).divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
+        if ("DAILY".equals(group.getFrequency()) && basis == PayBasis.MONTHLY) {
+            throw new BusinessException("Daily payroll groups require daily-rate or hourly-rate compensation; use a monthly, semi-monthly, or weekly pay group for monthly salaries");
+        }
+        BigDecimal monthlyEquivalent = switch (basis) {
+            case MONTHLY -> comp.getBaseRate();
+            case DAILY -> comp.getBaseRate().multiply(group.getDaysFactor()).divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
+            case HOURLY -> comp.getBaseRate().multiply(group.getHoursPerDay()).multiply(group.getDaysFactor())
+                    .divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
+        };
         List<String> warnings = new ArrayList<>();
 
         PayrollEmployee pe = new PayrollEmployee();
@@ -446,7 +479,7 @@ public class PayrollService {
             checkMinimumWage(emp, rec, cfg, end, warnings);
             for (RecurringItem r : recurring.findActive(emp.getId(), start, end)) {
                 out.add(line(run, pe, emp, cc, new PayLine(r.getItemCode(), r.getDescription(), r.getCategory(), null, null,
-                        Money.round(r.getAmount()), Boolean.TRUE.equals(r.getTaxable())), "RECURRING", r.getId()));
+                        Money.round(r.getAmount()), Boolean.TRUE.equals(r.getTaxable()), r.getIncomeClass()), "RECURRING", r.getId()));
             }
         }
 
@@ -454,7 +487,7 @@ public class PayrollService {
             for (Adjustment a : adjustments.findByEmployeeIdAndStatus(emp.getId(), "APPROVED")) {
                 if (a.getTargetPeriodId() == null || a.getTargetPeriodId().equals(period.getId())) {
                     out.add(line(run, pe, emp, cc, new PayLine(a.getItemCode(), a.getDescription(), a.getCategory(), null, null,
-                            Money.round(a.getAmount()), Boolean.TRUE.equals(a.getTaxable())), "ADJUSTMENT", a.getId()));
+                            Money.round(a.getAmount()), Boolean.TRUE.equals(a.getTaxable()), a.getIncomeClass()), "ADJUSTMENT", a.getId()));
                     a.setStatus("APPLIED");
                     a.setAppliedRunId(run.getId());
                     adjustments.save(a);
@@ -462,7 +495,7 @@ public class PayrollService {
             }
         }
 
-        BigDecimal contributionShare = contributionShare(group, period, periodsPerMonth);
+        BigDecimal contributionShare = contributionShare(group, period);
         if (regular && contributionShare.signum() > 0) {
             SssCalculator.Result sss = SssCalculator.monthly(rules.sss(), monthlyEquivalent);
             PhilHealthCalculator.Result phic = PhilHealthCalculator.monthly(rules.philhealth(), monthlyEquivalent);
@@ -480,11 +513,20 @@ public class PayrollService {
         BigDecimal attendanceDeductions = sumCodes(out, ATTENDANCE_DEDUCTIONS);
         BigDecimal preTax = sumCodes(out, Set.of("SSS_EE", "PHIC_EE", "HDMF_EE"));
         BigDecimal taxable = taxableEarnings.subtract(attendanceDeductions).subtract(preTax).max(BigDecimal.ZERO);
+        BigDecimal regularEarnings = out.stream().filter(l -> PayLine.EARNING.equals(l.getCategory()))
+                .filter(l -> Boolean.TRUE.equals(l.getTaxable())).filter(l -> "REGULAR".equals(l.getIncomeClass()))
+                .map(PayrollLine::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal supplementaryEarnings = out.stream().filter(l -> PayLine.EARNING.equals(l.getCategory()))
+                .filter(l -> Boolean.TRUE.equals(l.getTaxable())).filter(l -> "SUPPLEMENTARY".equals(l.getIncomeClass()))
+                .map(PayrollLine::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal reductionsAgainstRegular = attendanceDeductions.add(preTax).min(regularEarnings);
+        BigDecimal regularTaxableIncome = regularEarnings.subtract(reductionsAgainstRegular).max(BigDecimal.ZERO);
+        BigDecimal supplementaryTaxableIncome = supplementaryEarnings.subtract(attendanceDeductions.add(preTax)
+                .subtract(reductionsAgainstRegular)).max(BigDecimal.ZERO);
 
         BigDecimal periodWithholding = BigDecimal.ZERO;
         if (regular) {
-            BigDecimal tax = Boolean.TRUE.equals(emp.getMinimumWageEarner()) ? Money.ZERO
-                    : WithholdingTaxCalculator.tax(rules.brackets(), taxable);
+            BigDecimal tax = withholdingByIncomeClass(rules.brackets(), regularTaxableIncome, supplementaryTaxableIncome);
             periodWithholding = tax;
             if (tax.signum() > 0) {
                 out.add(line(run, pe, emp, cc, new PayLine("WTAX", "Withholding tax", PayLine.DEDUCTION, null, null, tax, false), null, null));
@@ -504,29 +546,27 @@ public class PayrollService {
         }
 
         if (yearEnd) {
-            if (Boolean.TRUE.equals(emp.getMinimumWageEarner())) {
-                warnings.add("Annual tax adjustment was skipped for a minimum-wage earner; review taxable benefits manually");
-            } else {
-                LocalDate yearStart = LocalDate.of(end.getYear(), 1, 1);
-                BigDecimal taxableYtd = payrollEmployees.taxableIncomeYtd(emp.getId(), yearStart, end).add(taxable);
-                BigDecimal withheldYtd = lines.taxWithheldYtd(emp.getId(), yearStart, end).add(periodWithholding);
-                BigDecimal adjustment = AnnualTaxCalculator.adjustment(annualTaxBrackets(end), taxableYtd, withheldYtd);
-                if (adjustment.signum() > 0) {
-                    BigDecimal earningsAvailable = sum(out, PayLine.EARNING, false, null).subtract(attendanceDeductions);
-                    BigDecimal otherDeductions = sum(out, PayLine.DEDUCTION, false, null);
-                    BigDecimal availableForTax = earningsAvailable.subtract(otherDeductions).max(BigDecimal.ZERO);
-                    BigDecimal withheld = adjustment.min(availableForTax);
-                    if (withheld.signum() > 0) {
-                        out.add(line(run, pe, emp, cc, new PayLine("WTAX", "Year-end annual tax adjustment", PayLine.DEDUCTION, null, null, withheld, false), null, null));
-                    }
-                    if (adjustment.compareTo(withheld) > 0) {
-                        warnings.add("Additional annual tax of " + Money.round(adjustment.subtract(withheld))
-                                + " could not be withheld from this pay; resolve the balance manually");
-                    }
-                } else if (adjustment.signum() < 0) {
-                    BigDecimal refund = adjustment.negate();
-                    out.add(line(run, pe, emp, cc, new PayLine("TAX_REFUND", "Year-end refund of excess tax withheld", PayLine.EARNING, null, null, refund, false), null, null));
+            LocalDate yearStart = LocalDate.of(end.getYear(), 1, 1);
+            BigDecimal taxableYtd = payrollEmployees.taxableIncomeYtd(emp.getId(), yearStart, end.minusDays(1)).add(taxable);
+            taxableYtd = taxableYtd.add(priorYearTaxable(emp));
+            BigDecimal withheldYtd = lines.taxWithheldYtd(emp.getId(), yearStart, end.minusDays(1)).add(periodWithholding);
+            withheldYtd = withheldYtd.add(priorYearTaxWithheld(emp));
+            BigDecimal adjustment = AnnualTaxCalculator.adjustment(annualTaxBrackets(end), taxableYtd, withheldYtd);
+            if (adjustment.signum() > 0) {
+                BigDecimal earningsAvailable = sum(out, PayLine.EARNING, false, null).subtract(attendanceDeductions);
+                BigDecimal otherDeductions = sum(out, PayLine.DEDUCTION, false, null);
+                BigDecimal availableForTax = earningsAvailable.subtract(otherDeductions).max(BigDecimal.ZERO);
+                BigDecimal withheld = adjustment.min(availableForTax);
+                if (withheld.signum() > 0) {
+                    out.add(line(run, pe, emp, cc, new PayLine("WTAX", "Year-end annual tax adjustment", PayLine.DEDUCTION, null, null, withheld, false), null, null));
                 }
+                if (adjustment.compareTo(withheld) > 0) {
+                    warnings.add("Additional annual tax of " + Money.round(adjustment.subtract(withheld))
+                            + " could not be withheld from this pay; resolve the balance manually");
+                }
+            } else if (adjustment.signum() < 0) {
+                BigDecimal refund = adjustment.negate();
+                out.add(line(run, pe, emp, cc, new PayLine("TAX_REFUND", "Year-end refund of excess tax withheld", PayLine.EARNING, null, null, refund, false), null, null));
             }
         }
 
@@ -541,6 +581,8 @@ public class PayrollService {
         lines.saveAll(out);
         pe.setGross(grossPay);
         pe.setTaxableIncome(taxable);
+        pe.setRegularTaxableIncome(regularTaxableIncome);
+        pe.setSupplementaryTaxableIncome(supplementaryTaxableIncome);
         pe.setTotalDeductions(otherDeductions);
         pe.setNetPay(netPay);
         pe.setEmployerCost(sum(out, PayLine.EMPLOYER_COST, false, null));
@@ -549,7 +591,7 @@ public class PayrollService {
     }
 
     /** Calendar-day proration for hires, separations and salary changes inside the period. */
-    private BigDecimal proratedBasic(Employee emp, Compensation current, LocalDate start, LocalDate end, int periodsPerMonth) {
+    private BigDecimal proratedBasic(Employee emp, Compensation current, LocalDate start, LocalDate end, BigDecimal periodsPerMonth) {
         List<SalaryProration.Segment> segments = new ArrayList<>();
         LocalDate hire = emp.getHireDate();
         LocalDate separation = emp.getSeparationDate();
@@ -578,11 +620,41 @@ public class PayrollService {
     }
 
     /** Fraction of the monthly statutory contribution deducted in this cutoff. */
-    private static BigDecimal contributionShare(PayGroup group, PayPeriod period, int periodsPerMonth) {
+    private BigDecimal contributionShare(PayGroup group, PayPeriod period) {
+        List<PayPeriod> monthlyPeriods = periods.findByPayGroupId(group.getId()).stream()
+                .filter(candidate -> candidate.getPayDate().getYear() == period.getPayDate().getYear()
+                        && candidate.getPayDate().getMonth() == period.getPayDate().getMonth())
+                .toList();
         if ("EVERY_CUTOFF".equals(group.getContributionSchedule())) {
-            return BigDecimal.ONE.divide(BigDecimal.valueOf(periodsPerMonth), 10, RoundingMode.HALF_UP);
+            int count = Math.max(monthlyPeriods.size(), 1);
+            return BigDecimal.ONE.divide(BigDecimal.valueOf(count), 10, RoundingMode.HALF_UP);
         }
-        return period.getPeriodOfMonth() == periodsPerMonth ? BigDecimal.ONE : BigDecimal.ZERO;
+        boolean laterPayInMonth = monthlyPeriods.stream().anyMatch(candidate -> candidate.getPayDate().isAfter(period.getPayDate()));
+        return laterPayInMonth ? BigDecimal.ZERO : BigDecimal.ONE;
+    }
+
+    private BigDecimal withholdingByIncomeClass(List<WithholdingTaxCalculator.Bracket> brackets,
+                                                BigDecimal regularTaxable, BigDecimal supplementaryTaxable) {
+        return WithholdingTaxCalculator.tax(brackets, regularTaxable)
+                .add(WithholdingTaxCalculator.supplementaryTax(brackets, regularTaxable, supplementaryTaxable));
+    }
+
+    private static BigDecimal priorYearTaxable(Employee employee) {
+        return employee.getPriorEmployerTaxableCompensation() == null ? BigDecimal.ZERO : employee.getPriorEmployerTaxableCompensation();
+    }
+
+    private static BigDecimal priorYearTaxWithheld(Employee employee) {
+        return employee.getPriorEmployerTaxWithheld() == null ? BigDecimal.ZERO : employee.getPriorEmployerTaxWithheld();
+    }
+
+    private static BigDecimal periodsPerMonth(PayGroup group) {
+        return switch (group.getFrequency()) {
+            case "MONTHLY" -> BigDecimal.ONE;
+            case "SEMI_MONTHLY" -> BigDecimal.valueOf(2);
+            case "WEEKLY" -> BigDecimal.valueOf(52).divide(BigDecimal.valueOf(12), 10, RoundingMode.HALF_UP);
+            case "DAILY" -> group.getDaysFactor().divide(BigDecimal.valueOf(12), 10, RoundingMode.HALF_UP);
+            default -> throw new BusinessException("Unsupported pay frequency " + group.getFrequency());
+        };
     }
 
     private void addShare(List<PayrollLine> out, PayrollRun run, PayrollEmployee pe, Employee emp, UUID cc, String code,
@@ -603,8 +675,18 @@ public class PayrollService {
             return;
         }
         WageOrder wo = wageOrders.findApplicable(loc.getRegionCode(), "NON_AGRI", asOf).stream().findFirst().orElse(null);
-        if (wo != null && AttendancePayCalculator.dailyRate(cfg).compareTo(wo.getDailyRate()) < 0) {
-            warnings.add("Daily rate is below the " + loc.getRegionCode() + " minimum wage of " + wo.getDailyRate().setScale(2, RoundingMode.HALF_UP));
+        if (wo == null && Boolean.TRUE.equals(emp.getMinimumWageEarner())) {
+            warnings.add("Employee is marked as a minimum-wage earner but no effective wage order is configured for "
+                    + loc.getRegionCode() + "; review tax eligibility");
+        }
+        if (wo != null) {
+            int rateComparison = AttendancePayCalculator.dailyRate(cfg).compareTo(wo.getDailyRate());
+            if (rateComparison < 0) {
+                warnings.add("Daily rate is below the " + loc.getRegionCode() + " minimum wage of " + wo.getDailyRate().setScale(2, RoundingMode.HALF_UP));
+            } else if (rateComparison > 0 && Boolean.TRUE.equals(emp.getMinimumWageEarner())) {
+                warnings.add("Employee is marked as a minimum-wage earner but the daily rate exceeds the configured "
+                        + loc.getRegionCode() + " minimum wage; review tax eligibility and the effective wage order");
+            }
         }
     }
 
@@ -617,10 +699,12 @@ public class PayrollService {
         pl.setItemCode(l.code());
         pl.setDescription(l.description());
         pl.setCategory(l.category());
+        pl.setIncomeClass(l.incomeClass());
         pl.setQuantity(l.quantity());
         pl.setRate(l.rate());
         pl.setAmount(l.amount());
-        pl.setTaxable(l.taxable());
+        pl.setTaxable(l.taxable() && !(Boolean.TRUE.equals(emp.getMinimumWageEarner())
+                && MWE_EXEMPT_ITEMS.contains(l.code())));
         pl.setSourceType(sourceType);
         pl.setSourceId(sourceId);
         pl.setCostCenterId(costCenterId);

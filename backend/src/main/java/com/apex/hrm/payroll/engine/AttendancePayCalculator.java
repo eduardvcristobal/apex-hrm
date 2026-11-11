@@ -7,6 +7,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Converts processed daily time records into basic pay, premiums, overtime, night differential and attendance deductions.
@@ -20,9 +21,9 @@ public final class AttendancePayCalculator {
 
     /** periodBasicOverride: pre-computed basic for the period (pro-rated hire, separation or raise); null = full period. */
     public record Config(PayBasis basis, BigDecimal baseRate, BigDecimal daysFactor, BigDecimal hoursPerDay,
-                         int periodsPerMonth, BigDecimal periodBasicOverride) {
+                         BigDecimal periodsPerMonth, BigDecimal periodBasicOverride) {
         public Config(PayBasis basis, BigDecimal baseRate, BigDecimal daysFactor, BigDecimal hoursPerDay, int periodsPerMonth) {
-            this(basis, baseRate, daysFactor, hoursPerDay, periodsPerMonth, null);
+            this(basis, baseRate, daysFactor, hoursPerDay, BigDecimal.valueOf(periodsPerMonth), null);
         }
     }
 
@@ -43,12 +44,16 @@ public final class AttendancePayCalculator {
     }
 
     public static BigDecimal dailyRate(Config c) {
-        return c.basis() == PayBasis.DAILY ? c.baseRate()
-                : c.baseRate().multiply(BigDecimal.valueOf(12)).divide(c.daysFactor(), 6, RoundingMode.HALF_UP);
+        return switch (c.basis()) {
+            case DAILY -> c.baseRate();
+            case HOURLY -> c.baseRate().multiply(c.hoursPerDay());
+            case MONTHLY -> c.baseRate().multiply(BigDecimal.valueOf(12)).divide(c.daysFactor(), 6, RoundingMode.HALF_UP);
+        };
     }
 
     public static BigDecimal hourlyRate(Config c) {
-        return dailyRate(c).divide(c.hoursPerDay(), 6, RoundingMode.HALF_UP);
+        return c.basis() == PayBasis.HOURLY ? c.baseRate()
+                : dailyRate(c).divide(c.hoursPerDay(), 6, RoundingMode.HALF_UP);
     }
 
     public static List<PayLine> compute(Config c, Map<DayType, PremiumRuleData> rules, List<DayInput> days) {
@@ -58,7 +63,7 @@ public final class AttendancePayCalculator {
 
         BigDecimal basic = !monthly ? BigDecimal.ZERO
                 : c.periodBasicOverride() != null ? c.periodBasicOverride()
-                : c.baseRate().divide(BigDecimal.valueOf(c.periodsPerMonth()), 6, RoundingMode.HALF_UP);
+                : c.baseRate().divide(c.periodsPerMonth(), 6, RoundingMode.HALF_UP);
         BigDecimal premium = BigDecimal.ZERO;
         BigDecimal ot = BigDecimal.ZERO;
         BigDecimal nd = BigDecimal.ZERO;
@@ -124,7 +129,8 @@ public final class AttendancePayCalculator {
                             boolean taxable) {
         BigDecimal rounded = Money.round(amount);
         if (rounded.signum() > 0) {
-            out.add(new PayLine(code, desc, category, null, null, rounded, taxable));
+            String incomeClass = Set.of("BASIC", "LEAVE_PAY", "HOLIDAY_PAY").contains(code) ? "REGULAR" : "SUPPLEMENTARY";
+            out.add(new PayLine(code, desc, category, null, null, rounded, taxable, incomeClass));
         }
     }
 }

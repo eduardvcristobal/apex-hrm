@@ -22,6 +22,7 @@ public class PayrollLine extends BaseEntity {
     private String itemCode;
     private String description;
     private String category;
+    private String incomeClass = "SUPPLEMENTARY";
     private BigDecimal quantity;
     private BigDecimal rate;
     private BigDecimal amount;

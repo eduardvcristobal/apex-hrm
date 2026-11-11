@@ -29,10 +29,10 @@ public class CompensationService {
         if (effectiveFrom == null) {
             throw new BusinessException("effectiveFrom is required");
         }
-        if (!"MONTHLY".equals(payBasis) && !"DAILY".equals(payBasis)) {
-            throw new BusinessException("payBasis must be MONTHLY or DAILY");
+        if (!"MONTHLY".equals(payBasis) && !"DAILY".equals(payBasis) && !"HOURLY".equals(payBasis)) {
+            throw new BusinessException("payBasis must be MONTHLY, DAILY, or HOURLY");
         }
-        if (baseRate == null || baseRate.signum() <= 0) {
+        if (baseRate == null || baseRate.signum() <= 0 || baseRate.scale() > 2) {
             throw new BusinessException("baseRate must be greater than zero");
         }
         compensations.findFirstByEmployeeIdAndEffectiveToIsNull(employeeId).ifPresent(open -> {

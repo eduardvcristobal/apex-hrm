@@ -65,7 +65,7 @@ public final class FinalPayCalculator {
         warnings.add("Statutory contributions for the separation month are not included; review them manually");
         warnings.add("Review other exempt benefit classifications and prior-employer compensation before final tax approval");
         if (in.annualBrackets().isEmpty()) {
-            warnings.add("Automatic annual tax reconciliation was skipped for a minimum-wage earner; review taxable benefits manually");
+            warnings.add("No annual withholding table is configured; annual tax reconciliation was skipped");
         }
 
         BigDecimal adjustment = in.annualBrackets().isEmpty() ? BigDecimal.ZERO

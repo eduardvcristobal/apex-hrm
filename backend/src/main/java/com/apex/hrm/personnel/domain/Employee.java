@@ -35,5 +35,13 @@ public class Employee extends BaseEntity {
     private LocalDate hireDate;
     private LocalDate separationDate;
     private Boolean minimumWageEarner = false;
+    private String priorEmployerName;
+    private String priorEmployerTin;
+    private String priorEmployerAddress;
+    private BigDecimal priorEmployerCompensation = BigDecimal.ZERO;
+    private BigDecimal priorEmployerTaxableCompensation = BigDecimal.ZERO;
+    private BigDecimal priorEmployerNonTaxableCompensation = BigDecimal.ZERO;
+    private BigDecimal priorEmployerTaxWithheld = BigDecimal.ZERO;
+    private Boolean priorEmployerCertificateReceived = false;
     private String status = "ACTIVE";
 }

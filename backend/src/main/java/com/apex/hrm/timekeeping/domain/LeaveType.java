@@ -20,6 +20,7 @@ public class LeaveType extends BaseEntity {
     private String name;
     private Boolean paid = true;
     private BigDecimal annualEntitlement;
+    private Boolean hireProrationEnabled = true;
     private Boolean convertible = false;
     private BigDecimal carryOverMax;
 }

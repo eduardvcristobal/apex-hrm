@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 
 type Page<T> = { content: T[] };
 type Employee = { id: string; employeeNo: string; firstName: string; lastName: string; status: string };
-type LeaveType = { id: string; code: string; name: string; paid: boolean; annualEntitlement: number | null };
+type LeaveType = { id: string; code: string; name: string; paid: boolean; annualEntitlement: number | null; hireProrationEnabled: boolean; convertible: boolean; carryOverMax: number | null };
 type LeaveRequest = { id: string; employeeId: string; leaveTypeId: string; dateFrom: string; dateTo: string; days: number; halfDay: boolean; reason: string | null; status: string };
 type LeaveLedger = { employeeId: string; leaveTypeId: string; days: number };
 
@@ -19,7 +19,14 @@ export function LeaveWorkspace({ token }: { token: string }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [tab, setTab] = useState<'requests' | 'balances'>('requests');
+  const [tab, setTab] = useState<'requests' | 'balances' | 'types'>('requests');
+  const [typeCode, setTypeCode] = useState('');
+  const [typeName, setTypeName] = useState('');
+  const [annualEntitlement, setAnnualEntitlement] = useState('');
+  const [typePaid, setTypePaid] = useState(true);
+  const [hireProrationEnabled, setHireProrationEnabled] = useState(true);
+  const [convertible, setConvertible] = useState(false);
+  const [carryOverMax, setCarryOverMax] = useState('');
   const [employeeId, setEmployeeId] = useState('');
   const [leaveTypeId, setLeaveTypeId] = useState('');
   const [dateFrom, setDateFrom] = useState(() => localDateValue(new Date()));
@@ -86,6 +93,27 @@ export function LeaveWorkspace({ token }: { token: string }) {
     finally { setBusy(''); }
   }
 
+  async function createLeaveType(event: FormEvent) {
+    event.preventDefault(); setBusy('type'); setError(''); setNotice('');
+    try {
+      const created = await request<LeaveType>('/api/leave-types', { method: 'POST', body: JSON.stringify({ code: typeCode.trim().toUpperCase(), name: typeName.trim(), paid: typePaid, annualEntitlement: annualEntitlement ? Number(annualEntitlement) : null, hireProrationEnabled, convertible, carryOverMax: carryOverMax ? Number(carryOverMax) : null }) });
+      setTypes(current => [...current, created].sort((a, b) => a.name.localeCompare(b.name))); setLeaveTypeId(current => current || created.id);
+      setTypeCode(''); setTypeName(''); setAnnualEntitlement(''); setHireProrationEnabled(true); setConvertible(false); setCarryOverMax('');
+      setNotice(`${created.name} leave policy created.`);
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Could not create the leave policy.'); }
+    finally { setBusy(''); }
+  }
+
+  async function toggleHireProration(type: LeaveType) {
+    setBusy(type.id); setError(''); setNotice('');
+    try {
+      const updated = await request<LeaveType>(`/api/leave-types/${type.id}`, { method: 'PUT', body: JSON.stringify({ hireProrationEnabled: !type.hireProrationEnabled }) });
+      setTypes(current => current.map(item => item.id === type.id ? updated : item));
+      setNotice(`${type.name} hire-date proration ${updated.hireProrationEnabled ? 'enabled' : 'disabled'}.`);
+    } catch (issue) { setError(issue instanceof Error ? issue.message : 'Could not update the leave policy.'); }
+    finally { setBusy(''); }
+  }
+
   async function decide(item: LeaveRequest, action: 'approve' | 'reject' | 'cancel') {
     setBusy(item.id); setError(''); setNotice('');
     try {
@@ -100,7 +128,7 @@ export function LeaveWorkspace({ token }: { token: string }) {
     <header className="timekeeping-heading"><div><p className="eyebrow">TIMEKEEPING</p><h1>Leave management</h1><p>File leave, review requests, and track balances from the append-only leave ledger.</p></div><button type="button" className="session-revoke" onClick={() => void load()} disabled={loading}>↻ Refresh</button></header>
     {error && <div className="platform-alert" role="alert">{error}</div>}{notice && <p className="platform-notice" role="status">{notice}</p>}
     <div className="timekeeping-metrics"><article><span>Employees</span><strong>{activeEmployees}</strong><small>Active or on leave</small></article><article><span>Leave types</span><strong>{types.length}</strong><small>Configured for workspace</small></article><article><span>Requests</span><strong>{requests.length}</strong><small>Loaded requests</small></article><article><span>Pending approval</span><strong>{pendingCount}</strong><small>Awaiting HR decision</small></article></div>
-    <div className="timekeeping-tabs" role="tablist" aria-label="Leave sections"><button type="button" role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>Requests{pendingCount > 0 && <span>{pendingCount}</span>}</button><button type="button" role="tab" aria-selected={tab === 'balances'} className={tab === 'balances' ? 'active' : ''} onClick={() => setTab('balances')}>Balances</button></div>
+    <div className="timekeeping-tabs" role="tablist" aria-label="Leave sections"><button type="button" role="tab" aria-selected={tab === 'requests'} className={tab === 'requests' ? 'active' : ''} onClick={() => setTab('requests')}>Requests{pendingCount > 0 && <span>{pendingCount}</span>}</button><button type="button" role="tab" aria-selected={tab === 'balances'} className={tab === 'balances' ? 'active' : ''} onClick={() => setTab('balances')}>Balances</button><button type="button" role="tab" aria-selected={tab === 'types'} className={tab === 'types' ? 'active' : ''} onClick={() => setTab('types')}>Leave policies</button></div>
     {tab === 'requests' && <>
       <form className="timekeeping-manual-form leave-file-form" onSubmit={event => void fileLeave(event)}>
         <div><p className="eyebrow">NEW REQUEST</p><h2>File employee leave</h2><p>Requests are pending until an authorized HR user approves or rejects them.</p></div>
@@ -117,6 +145,7 @@ export function LeaveWorkspace({ token }: { token: string }) {
       <div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>LEAVE TYPE</th><th>DATES</th><th>DAYS</th><th>REASON</th><th>STATUS</th><th></th></tr></thead><tbody>{loading ? <tr><td colSpan={7} className="timekeeping-empty">Loading leave requests…</td></tr> : filteredRequests.length ? filteredRequests.map(item => <tr key={item.id}><td><strong>{employeeLabel(item.employeeId)}</strong></td><td>{typeById.get(item.leaveTypeId)?.name || 'Unknown type'}</td><td>{item.dateFrom} – {item.dateTo}{item.halfDay && <small>Half day</small>}</td><td>{Number(item.days).toLocaleString()}</td><td className="timekeeping-note-cell">{item.reason || '—'}</td><td><span className={`timekeeping-status ${item.status === 'PENDING' ? 'warning' : item.status === 'APPROVED' ? 'open' : 'locked'}`}>{item.status}</span></td><td><div className="timekeeping-row-actions">{item.status === 'PENDING' && <><button type="button" className="session-revoke" onClick={() => void decide(item, 'approve')} disabled={busy === item.id}>{busy === item.id ? 'Saving…' : 'Approve'}</button><button type="button" className="timekeeping-reject" onClick={() => void decide(item, 'reject')} disabled={busy === item.id}>Reject</button></>}{item.status === 'APPROVED' && <button type="button" className="timekeeping-reject" onClick={() => void decide(item, 'cancel')} disabled={busy === item.id}>Cancel</button>}</div></td></tr>) : <tr><td colSpan={7} className="timekeeping-empty">No leave requests match this status.</td></tr>}</tbody></table></div>
     </>}
     {tab === 'balances' && <div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th>{types.map(type => <th key={type.id}>{type.name.toUpperCase()}<small>{type.annualEntitlement == null ? 'LEDGER BALANCE' : `${type.annualEntitlement} DAYS / YEAR`}</small></th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={Math.max(types.length + 1, 2)} className="timekeeping-empty">Loading leave balances…</td></tr> : employees.length && types.length ? employees.map(employee => <tr key={employee.id}><td><strong>{employee.firstName} {employee.lastName}</strong><small>{employee.employeeNo}</small></td>{types.map(type => <td key={type.id}>{(balances.get(`${employee.id}:${type.id}`) || 0).toLocaleString()} days</td>)}</tr>) : <tr><td colSpan={Math.max(types.length + 1, 2)} className="timekeeping-empty">Add employees and leave types to see balances.</td></tr>}</tbody></table></div>}
+    {tab === 'types' && <><form className="timekeeping-manual-form leave-file-form" onSubmit={event => void createLeaveType(event)}><div><p className="eyebrow">LEAVE BENEFITS</p><h2>Create leave policy</h2><p>Set each employee’s annual allowance and whether the first hire-year entitlement is prorated to their hire date.</p></div><label><span>Policy code</span><input value={typeCode} onChange={event => setTypeCode(event.currentTarget.value.toUpperCase())} required maxLength={40} pattern="[A-Za-z0-9_-]+" placeholder="ANNUAL" /></label><label><span>Policy name</span><input value={typeName} onChange={event => setTypeName(event.currentTarget.value)} required maxLength={120} placeholder="Annual leave" /></label><label><span>Annual entitlement (days)</span><input type="number" min="0" step="0.25" value={annualEntitlement} onChange={event => setAnnualEntitlement(event.currentTarget.value)} placeholder="Leave blank for ledger-managed balance" /></label><label className="leave-half-day"><input type="checkbox" checked={typePaid} onChange={event => setTypePaid(event.currentTarget.checked)} /><span>Paid leave</span></label><label className="leave-half-day"><input type="checkbox" checked={hireProrationEnabled} onChange={event => setHireProrationEnabled(event.currentTarget.checked)} /><span>Prorate hire-year balance</span></label><label className="leave-half-day"><input type="checkbox" checked={convertible} onChange={event => setConvertible(event.currentTarget.checked)} /><span>Convert unused balance on final pay</span></label>{convertible && <label><span>Maximum carry-over / conversion days (optional)</span><input type="number" min="0" step="0.25" value={carryOverMax} onChange={event => setCarryOverMax(event.currentTarget.value)} placeholder="No limit" /></label>}<button type="submit" className="security-submit" disabled={busy === 'type' || loading}>{busy === 'type' ? 'Saving…' : 'Create leave policy'}</button></form><div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>POLICY</th><th>ANNUAL ENTITLEMENT</th><th>PAID</th><th>HIRE-YEAR CREDIT</th><th></th></tr></thead><tbody>{types.map(type => <tr key={type.id}><td><strong>{type.name}</strong><small>{type.code}{type.convertible ? ` · Final pay conversion${type.carryOverMax == null ? '' : ` capped at ${type.carryOverMax} days`}` : ''}</small></td><td>{type.annualEntitlement == null ? 'Ledger managed' : `${type.annualEntitlement} days`}</td><td>{type.paid ? 'Yes' : 'No'}</td><td>{type.annualEntitlement == null ? 'Not applicable' : type.hireProrationEnabled ? 'Prorated from hire date' : 'Not automatic'}</td><td>{type.annualEntitlement != null && <button type="button" className="session-revoke" onClick={() => void toggleHireProration(type)} disabled={busy === type.id}>{busy === type.id ? 'Saving…' : type.hireProrationEnabled ? 'Turn off proration' : 'Enable proration'}</button>}</td></tr>)}{!types.length && <tr><td colSpan={5} className="timekeeping-empty">No leave policies configured.</td></tr>}</tbody></table></div></>}
     <p className="timekeeping-footnote">Balances are calculated by summing ledger entries. Approving a paid leave request posts its usage to the ledger; cancellation posts a reversal.</p>
   </section>;
 }

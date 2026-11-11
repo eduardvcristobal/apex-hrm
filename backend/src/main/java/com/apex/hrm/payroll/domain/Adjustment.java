@@ -20,6 +20,7 @@ public class Adjustment extends BaseEntity {
     private String itemCode;
     private String description;
     private String category;
+    private String incomeClass = "SUPPLEMENTARY";
     private BigDecimal amount;
     private Boolean taxable = true;
     private String reason;

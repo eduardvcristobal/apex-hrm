@@ -23,6 +23,13 @@ public interface PayrollEmployeeRepository extends JpaRepository<PayrollEmployee
 
     @Query("select coalesce(sum(e.taxableIncome), 0) from PayrollEmployee e, PayrollRun r, PayPeriod p "
          + "where e.runId = r.id and r.payPeriodId = p.id and e.employeeId = :e and r.status in ('LOCKED', 'PAID') "
-         + "and r.runType in ('REGULAR', 'THIRTEENTH_MONTH', 'OFF_CYCLE', 'FINAL_PAY') and p.endDate between :from and :to")
+         + "and r.runType in ('REGULAR', 'THIRTEENTH_MONTH', 'OFF_CYCLE', 'FINAL_PAY') and p.endDate between :from and :to "
+         + "and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()}")
     BigDecimal taxableIncomeYtd(@Param("e") UUID employeeId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Query("select count(e) from PayrollEmployee e, PayrollRun r, PayPeriod p "
+         + "where e.runId = r.id and r.payPeriodId = p.id and e.employeeId = :e "
+         + "and r.status in ('LOCKED', 'PAID') and p.endDate between :from and :to "
+         + "and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()}")
+    long finalizedRunsYtd(@Param("e") UUID employeeId, @Param("from") LocalDate from, @Param("to") LocalDate to);
 }

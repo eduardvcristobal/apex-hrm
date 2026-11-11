@@ -19,6 +19,7 @@ public class RecurringItem extends BaseEntity {
     private UUID employeeId;
     private String itemCode;
     private String category;
+    private String incomeClass = "REGULAR";
     private String description;
     private BigDecimal amount;
     private Boolean taxable = true;

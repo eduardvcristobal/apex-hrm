@@ -19,6 +19,10 @@ public final class SalaryProration {
     }
 
     public static BigDecimal periodBasic(List<Segment> segments, LocalDate periodStart, LocalDate periodEnd, int periodsPerMonth) {
+        return periodBasic(segments, periodStart, periodEnd, BigDecimal.valueOf(periodsPerMonth));
+    }
+
+    public static BigDecimal periodBasic(List<Segment> segments, LocalDate periodStart, LocalDate periodEnd, BigDecimal periodsPerMonth) {
         BigDecimal periodDays = BigDecimal.valueOf(ChronoUnit.DAYS.between(periodStart, periodEnd) + 1);
         BigDecimal total = BigDecimal.ZERO;
         for (Segment s : segments) {
@@ -28,7 +32,7 @@ public final class SalaryProration {
                 continue;
             }
             BigDecimal days = BigDecimal.valueOf(ChronoUnit.DAYS.between(from, to) + 1);
-            BigDecimal share = s.monthlyRate().divide(BigDecimal.valueOf(periodsPerMonth), 10, RoundingMode.HALF_UP)
+            BigDecimal share = s.monthlyRate().divide(periodsPerMonth, 10, RoundingMode.HALF_UP)
                     .multiply(days).divide(periodDays, 10, RoundingMode.HALF_UP);
             total = total.add(share);
         }

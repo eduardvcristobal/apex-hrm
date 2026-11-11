@@ -21,6 +21,8 @@ public class PayrollEmployee extends BaseEntity {
     private UUID costCenterId;
     private BigDecimal gross = new BigDecimal("0");
     private BigDecimal taxableIncome = new BigDecimal("0");
+    private BigDecimal regularTaxableIncome = new BigDecimal("0");
+    private BigDecimal supplementaryTaxableIncome = new BigDecimal("0");
     private BigDecimal totalDeductions = new BigDecimal("0");
     private BigDecimal netPay = new BigDecimal("0");
     private BigDecimal employerCost = new BigDecimal("0");

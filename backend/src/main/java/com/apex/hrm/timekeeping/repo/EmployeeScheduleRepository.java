@@ -17,6 +17,7 @@ import org.springframework.data.repository.query.Param;
 
 public interface EmployeeScheduleRepository extends JpaRepository<EmployeeSchedule, UUID> {
 
-    @Query("select s from EmployeeSchedule s where s.effectiveFrom <= :to and (s.effectiveTo is null or s.effectiveTo >= :from)")
+    @Query("select s from EmployeeSchedule s where s.effectiveFrom <= :to and (s.effectiveTo is null or s.effectiveTo >= :from) "
+         + "and s.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()}")
     List<EmployeeSchedule> findOverlapping(@Param("from") LocalDate from, @Param("to") LocalDate to);
 }

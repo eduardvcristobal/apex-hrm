@@ -196,6 +196,16 @@ public class SecurityConfig {
                 .requestMatchers("/api/reference/**").hasAnyAuthority("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN","ROLE_PAYROLL_OFFICER","ROLE_MANAGER","ROLE_EMPLOYEE","ROLE_AUDITOR")
                 .requestMatchers(HttpMethod.GET, "/api/payroll/employees")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers(HttpMethod.GET, "/api/payroll/employees/*/tax-profile")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers(HttpMethod.PUT, "/api/payroll/employees/*/tax-profile")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers(HttpMethod.GET, "/api/payroll/employees/*/prior-employer")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers(HttpMethod.PUT, "/api/payroll/employees/*/prior-employer")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers(HttpMethod.GET, "/api/payroll/reports/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/payroll/**", "/api/payroll-runs/**", "/api/payroll-lines/**",
                     "/api/payroll-employees/**", "/api/pay-groups/**", "/api/pay-periods/**",
                     "/api/pay-item-types/**", "/api/payslips/**", "/api/adjustments/**",
@@ -203,6 +213,8 @@ public class SecurityConfig {
                     "/api/bank-templates/**", "/api/gl-accounts/**", "/api/gl-mappings/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/recurring-items/**", "/api/loans/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers("/api/employee-dependents/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/attendance/**", "/api/dtr/**", "/api/dtr-days/**", "/api/dtr-daies/**",
                     "/api/leave/**", "/api/leave-requests/**", "/api/leave-ledgers/**",

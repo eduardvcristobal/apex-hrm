@@ -156,6 +156,16 @@ public class EmployeeController {
             UUID timekeepingId=jdbc.queryForObject("SELECT id FROM employee WHERE tenant_id=? AND company_id=? AND employee_no=?",UUID.class,user.tenantId(),employee.companyId(),legacyNumber);
             jdbc.update("INSERT INTO personnel_timekeeping_employee(tenant_id,personnel_employee_id,employee_id) VALUES(?,?,?) ON CONFLICT(tenant_id,personnel_employee_id) DO NOTHING",user.tenantId(),employee.id(),timekeepingId);
             jdbc.update("""
+                INSERT INTO leave_ledger(tenant_id,employee_id,leave_type_id,entry_date,entry_type,days,reference_type,reference_id,remarks)
+                SELECT ?,?,t.id,?,'ACCRUAL',round(t.annual_entitlement *
+                    ((make_date(extract(year from ?::date)::int,12,31) - ?::date + 1)::numeric /
+                     extract(doy from make_date(extract(year from ?::date)::int,12,31))::numeric),4),
+                    'HIRE_PRORATION',?,'Prorated leave entitlement from hire date through calendar year-end'
+                FROM leave_type t
+                WHERE t.tenant_id=? AND t.hire_proration_enabled AND t.annual_entitlement>0
+                ON CONFLICT (tenant_id,employee_id,leave_type_id) WHERE reference_type='HIRE_PRORATION' DO NOTHING
+                """,user.tenantId(),timekeepingId,input.hireDate(),input.hireDate(),input.hireDate(),input.hireDate(),employee.id(),user.tenantId());
+            jdbc.update("""
                 INSERT INTO personnel_employment_history
                   (tenant_id,employee_id,effective_date,employment_type,employment_status,reason)
                 VALUES(?,? ,?,'REGULAR','ACTIVE','INITIAL_HIRE')
