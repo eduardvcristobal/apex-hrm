@@ -27,17 +27,19 @@ public class TenantJdbcExecutor {
         if (authenticatedTenant != null && !authenticatedTenant.equals(tenantId)) {
             throw new SecurityException("Cross-tenant SQL access is forbidden");
         }
-        return transactions.execute(status -> {
-            // Many workflows combine tenant SQL with Hibernate repositories. Bind
-            // the Hibernate tenant for the same unit of work, then restore the caller.
-            TenantContext.set(tenantId);
-            try {
+        // JpaTransactionManager opens its Hibernate session while the transaction
+        // starts, so bind the tenant before TransactionTemplate begins execution.
+        // Binding it inside the callback is too late: the session would already be
+        // pinned to the NONE tenant and later writes would violate tenant FKs.
+        TenantContext.set(tenantId);
+        try {
+            return transactions.execute(status -> {
                 jdbc.queryForObject("SELECT set_config('app.tenant_id', ?, true)", String.class, tenantId.toString());
                 return work.get();
-            } finally {
-                if (authenticatedTenant == null) TenantContext.clear();
-                else TenantContext.set(authenticatedTenant);
-            }
-        });
+            });
+        } finally {
+            if (authenticatedTenant == null) TenantContext.clear();
+            else TenantContext.set(authenticatedTenant);
+        }
     }
 }
