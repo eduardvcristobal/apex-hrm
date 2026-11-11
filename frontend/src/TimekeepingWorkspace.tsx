@@ -6,6 +6,8 @@ type TimeLog = { id: string; employeeId: string; logTime: string; logType: 'IN' 
 type DtrDay = { id: string; employeeId: string; workDate: string; firstIn: string | null; lastOut: string | null; regularMinutes: number; lateMinutes: number; undertimeMinutes: number; otDetectedMinutes: number; otApprovedMinutes: number; absent: boolean; paidLeave: boolean; status: string; dayType: string };
 type Correction = { id: string; employeeId: string; workDate: string; requestedIn: string | null; requestedOut: string | null; reason: string; status: string };
 type DtrException = { id: string; employeeId: string; workDate: string; status: string; firstIn: string | null; lastOut: string | null; reason: string };
+type EvidencePolicy = { retentionDays: number | null; enabled: boolean; rationale: string | null; updatedAt: string | null };
+type PhotoHold = { timeLogId: string; employeeId: string; capturedAt: string; reason: string | null };
 type WorkspaceRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 
 const localDate = (date: Date) => {
@@ -31,12 +33,16 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
   const [days, setDays] = useState<DtrDay[]>([]);
   const [corrections, setCorrections] = useState<Correction[]>([]);
   const [dtrExceptions, setDtrExceptions] = useState<DtrException[]>([]);
+  const [evidencePolicy, setEvidencePolicy] = useState<EvidencePolicy>({ retentionDays: null, enabled: false, rationale: null, updatedAt: null });
+  const [retentionDays, setRetentionDays] = useState('365');
+  const [retentionRationale, setRetentionRationale] = useState('');
+  const [photoHolds, setPhotoHolds] = useState<PhotoHold[]>([]);
   const [punchPhotoUrl,setPunchPhotoUrl]=useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [tab, setTab] = useState<'dtr' | 'exceptions' | 'punches' | 'corrections'>('dtr');
+  const [tab, setTab] = useState<'dtr' | 'exceptions' | 'punches' | 'corrections' | 'evidence'>('dtr');
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(() => localDate(new Date()));
   const [employeeId, setEmployeeId] = useState('');
@@ -69,18 +75,24 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
     setLoading(true);
     setError('');
     try {
-      const [employeePage, logPage, dtrPage, correctionPage, exceptionRows] = await Promise.all([
+      const [employeePage, logPage, dtrPage, correctionPage, exceptionRows, photoPolicy, holds] = await Promise.all([
         request<Page<Employee>>('/api/employees?size=200&sort=employeeNo,asc'),
         request<Page<TimeLog>>('/api/time-logs?size=200&sort=logTime,desc'),
         request<Page<DtrDay>>('/api/dtr-days?size=500&sort=workDate,desc'),
         request<Page<Correction>>('/api/attendance-corrections?size=200&sort=workDate,desc'),
         request<DtrException[]>('/api/dtr-days/exceptions'),
+        request<EvidencePolicy>('/api/attendance/evidence-retention'),
+        request<PhotoHold[]>('/api/attendance/evidence-retention/holds'),
       ]);
       setEmployees(employeePage.content);
       setLogs(logPage.content);
       setDays(dtrPage.content);
       setCorrections(correctionPage.content);
       setDtrExceptions(exceptionRows);
+      setEvidencePolicy(photoPolicy);
+      setRetentionDays(photoPolicy.retentionDays ? String(photoPolicy.retentionDays) : '365');
+      setRetentionRationale(photoPolicy.rationale || '');
+      setPhotoHolds(holds);
       setManualEmployeeId(current => current || employeePage.content[0]?.id || '');
       setCorrectionEmployeeId(current => current || employeePage.content[0]?.id || '');
     } catch (reason) {
@@ -121,6 +133,30 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not process DTR.');
     } finally { setBusy(''); }
+  }
+
+  async function saveEvidencePolicy(event: FormEvent) {
+    event.preventDefault(); setBusy('retention'); setError(''); setNotice('');
+    try {
+      const policy = await request<EvidencePolicy>('/api/attendance/evidence-retention', { method: 'PUT', body: JSON.stringify({ retentionDays: Number(retentionDays), rationale: retentionRationale || null }) });
+      setEvidencePolicy(policy); setNotice(`Attendance photos will be purged after ${policy.retentionDays} days, except records on legal hold.`);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not save the photo retention policy.'); }
+    finally { setBusy(''); }
+  }
+  async function disableEvidencePolicy() {
+    setBusy('retention'); setError(''); setNotice('');
+    try { await request('/api/attendance/evidence-retention', { method: 'DELETE' }); setEvidencePolicy({ ...evidencePolicy, enabled: false }); setNotice('Automatic attendance photo purging is disabled.'); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not disable photo purging.'); }
+    finally { setBusy(''); }
+  }
+  async function setPhotoHold(logId: string, enabled: boolean) {
+    setBusy(logId); setError('');
+    try {
+      if (enabled) await request(`/api/attendance/evidence-retention/${logId}/legal-hold`, { method: 'PUT', body: JSON.stringify({ reason: 'Held for HR review' }) });
+      else await request(`/api/attendance/evidence-retention/${logId}/legal-hold`, { method: 'DELETE' });
+      setPhotoHolds(await request<PhotoHold[]>('/api/attendance/evidence-retention/holds'));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not update the photo legal hold.'); }
+    finally { setBusy(''); }
   }
 
   async function recordManualPunch(event: FormEvent) {
@@ -204,9 +240,12 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
       <button type="button" role="tab" aria-selected={tab === 'exceptions'} className={tab === 'exceptions' ? 'active' : ''} onClick={() => { setTab('exceptions'); setQuery(''); }}>DTR exceptions{dtrExceptions.length > 0 && <span>{dtrExceptions.length}</span>}</button>
       <button type="button" role="tab" aria-selected={tab === 'punches'} className={tab === 'punches' ? 'active' : ''} onClick={() => { setTab('punches'); setQuery(''); }}>Punches{flaggedLogs.length > 0 && <span>{flaggedLogs.length}</span>}</button>
       <button type="button" role="tab" aria-selected={tab === 'corrections'} className={tab === 'corrections' ? 'active' : ''} onClick={() => { setTab('corrections'); setQuery(''); }}>Corrections{pendingCorrections.length > 0 && <span>{pendingCorrections.length}</span>}</button>
+      <button type="button" role="tab" aria-selected={tab === 'evidence'} className={tab === 'evidence' ? 'active' : ''} onClick={() => { setTab('evidence'); setQuery(''); }}>Photo retention</button>
     </nav>
 
     {tab === 'exceptions' && <section className="payroll-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">ATTENDANCE REVIEW</p><h2>Incomplete records and absences</h2><p>Review these records before payroll is finalized. Submit a correction when the source punches need adjustment.</p></div></div><div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>WORK DATE</th><th>FIRST IN</th><th>LAST OUT</th><th>ISSUE</th><th>STATUS</th></tr></thead><tbody>{dtrExceptions.length ? dtrExceptions.map(row => <tr key={row.id}><td><strong>{employeeName(row.employeeId)}</strong></td><td>{row.workDate}</td><td>{formatDateTime(row.firstIn)}</td><td>{formatDateTime(row.lastOut)}</td><td>{row.reason}</td><td><span className={`timekeeping-status ${row.status === 'LOCKED' ? 'locked' : 'warning'}`}>{row.status}</span></td></tr>) : <tr><td colSpan={6} className="timekeeping-empty">No DTR exceptions in the last 30 days.</td></tr>}</tbody></table></div></section>}
+
+    {tab === 'evidence' && <><form className="timekeeping-manual-form" onSubmit={event => void saveEvidencePolicy(event)}><div><p className="eyebrow">PRIVACY &amp; RETENTION</p><h2>Attendance photo retention</h2><p>Photos are kept until HR selects a retention period. DTR and punch records remain after a photo is purged.</p></div><label><span>Retain photos for (days)</span><input type="number" min="1" max="3650" value={retentionDays} onChange={event => setRetentionDays(event.target.value)} required /></label><label className="timekeeping-remarks"><span>Policy rationale</span><input value={retentionRationale} onChange={event => setRetentionRationale(event.target.value)} maxLength={500} placeholder="Legal or operational basis for this period" /></label><div className="timekeeping-row-actions"><button type="submit" className="security-submit" disabled={busy === 'retention'}>{evidencePolicy.enabled ? 'Update retention policy' : 'Enable automatic purging'}</button>{evidencePolicy.enabled && <button type="button" className="session-revoke" onClick={() => void disableEvidencePolicy()} disabled={busy === 'retention'}>Disable purging</button>}</div><p className="payroll-help">Automatic purge runs daily. Photos on legal hold are excluded. No retention period is enabled by default.</p></form><section className="payroll-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">LEGAL HOLDS</p><h2>Held attendance photos</h2></div></div><div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>CAPTURED</th><th>REASON</th><th></th></tr></thead><tbody>{photoHolds.map(row => <tr key={row.timeLogId}><td><strong>{employeeName(row.employeeId)}</strong></td><td>{formatDateTime(row.capturedAt)}</td><td>{row.reason || '—'}</td><td><button type="button" className="session-revoke" onClick={() => void setPhotoHold(row.timeLogId, false)} disabled={busy === row.timeLogId}>Release hold</button></td></tr>)}{!photoHolds.length && <tr><td colSpan={4} className="timekeeping-empty">No attendance photos are on legal hold.</td></tr>}</tbody></table></div><h3>Set a hold from punch records</h3><div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>TIME</th><th>PHOTO</th><th></th></tr></thead><tbody>{logs.filter(log => !!log.photoRef).map(log => { const held = photoHolds.some(row => row.timeLogId === log.id); return <tr key={log.id}><td><strong>{employeeName(log.employeeId)}</strong></td><td>{formatDateTime(log.logTime)}</td><td>{held ? 'On legal hold' : 'Available for retention policy'}</td><td><button type="button" className="session-revoke" onClick={() => void setPhotoHold(log.id, !held)} disabled={busy === log.id}>{held ? 'Held' : 'Place on hold'}</button></td></tr>; })}{!logs.some(log => !!log.photoRef) && <tr><td colSpan={4} className="timekeeping-empty">No punch photos are available.</td></tr>}</tbody></table></div></section></>}
 
     {tab === 'dtr' && <>
       <form className="timekeeping-filters" onSubmit={processDtr}>
