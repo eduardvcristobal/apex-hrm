@@ -22,6 +22,7 @@ public class TimeLog extends BaseEntity {
     private String source;
     private BigDecimal latitude;
     private BigDecimal longitude;
+    private BigDecimal locationAccuracyM;
     private String deviceId;
     private String photoRef;
     private String status = "VALID";

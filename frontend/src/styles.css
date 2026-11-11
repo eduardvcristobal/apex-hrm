@@ -1964,3 +1964,8 @@ select:not([multiple]) option:checked { color: #007f75; background: #edf7f4; }
   .tax-form-grid { grid-template-columns: 1fr; }
   .tax-tabs { max-width: 100%; }
 }
+.self-service-punch-panel { display: grid; gap: 1rem; }
+.self-service-camera, .self-service-photo-preview { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.self-service-camera video, .self-service-photo-preview img { width: min(100%, 320px); aspect-ratio: 4 / 3; object-fit: cover; border-radius: 14px; background: #101827; }
+.self-service-photo-modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-content: center; gap: 1rem; padding: 1.5rem; background: rgb(10 18 32 / 85%); }
+.self-service-photo-modal img { max-width: min(90vw, 640px); max-height: 80vh; border-radius: 12px; }

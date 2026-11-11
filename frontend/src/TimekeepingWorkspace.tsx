@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 
 type Page<T> = { content: T[]; totalElements: number };
 type Employee = { id: string; employeeNo: string; firstName: string; lastName: string; status: string };
-type TimeLog = { id: string; employeeId: string; logTime: string; logType: 'IN' | 'OUT'; source: string; status: string; remarks: string | null };
+type TimeLog = { id: string; employeeId: string; logTime: string; logType: 'IN' | 'OUT'; source: string; status: string; remarks: string | null; latitude:number|null;longitude:number|null;locationAccuracyM:number|null;photoRef:string|null };
 type DtrDay = { id: string; employeeId: string; workDate: string; firstIn: string | null; lastOut: string | null; regularMinutes: number; lateMinutes: number; undertimeMinutes: number; otDetectedMinutes: number; otApprovedMinutes: number; absent: boolean; paidLeave: boolean; status: string; dayType: string };
 type Correction = { id: string; employeeId: string; workDate: string; requestedIn: string | null; requestedOut: string | null; reason: string; status: string };
 type WorkspaceRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -29,6 +29,7 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
   const [logs, setLogs] = useState<TimeLog[]>([]);
   const [days, setDays] = useState<DtrDay[]>([]);
   const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [punchPhotoUrl,setPunchPhotoUrl]=useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -146,6 +147,8 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
     } finally { setBusy(''); }
   }
 
+  async function viewPunchPhoto(log:TimeLog){try{const response=await fetch(`/api/time-logs/${log.id}/photo`,{headers:{Authorization:`Bearer ${token}`}});if(!response.ok)throw new Error('Photo evidence could not be loaded.');setPunchPhotoUrl(URL.createObjectURL(await response.blob()))}catch(reason){setError(reason instanceof Error?reason.message:'Photo evidence could not be loaded.')}}
+
   async function fileCorrection(event: FormEvent) {
     event.preventDefault();
     if (!correctionEmployeeId || (!correctionIn && !correctionOut)) return;
@@ -221,9 +224,10 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
         <button type="submit" className="security-submit" disabled={busy === 'manual' || !manualEmployeeId}>{busy === 'manual' ? 'Saving…' : 'Record punch'}</button>
       </form>
       <label className="timekeeping-search"><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={event => setQuery(event.currentTarget.value)} placeholder="Search employee, source, or status" /></label>
-      <div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>TIME</th><th>TYPE</th><th>SOURCE</th><th>STATUS</th><th>NOTE</th><th></th></tr></thead><tbody>
-        {loading ? <tr><td colSpan={7} className="timekeeping-empty">Loading punches…</td></tr> : filteredLogs.length ? filteredLogs.map(log => <tr key={log.id}><td><strong>{employeeName(log.employeeId)}</strong></td><td>{formatDateTime(log.logTime)}</td><td>{log.logType}</td><td>{log.source}</td><td><span className={`timekeeping-status ${log.status === 'FLAGGED' ? 'warning' : 'open'}`}>{log.status}</span></td><td className="timekeeping-note-cell">{log.remarks || '—'}</td><td>{log.status === 'FLAGGED' && <button type="button" className="session-revoke" onClick={() => void validatePunch(log)} disabled={busy === log.id}>{busy === log.id ? 'Saving…' : 'Accept punch'}</button>}</td></tr>) : <tr><td colSpan={7} className="timekeeping-empty">No punches match your search.</td></tr>}
+      <div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>TIME</th><th>TYPE</th><th>SOURCE</th><th>LOCATION</th><th>STATUS</th><th>NOTE</th><th></th></tr></thead><tbody>
+        {loading ? <tr><td colSpan={8} className="timekeeping-empty">Loading punches…</td></tr> : filteredLogs.length ? filteredLogs.map(log => <tr key={log.id}><td><strong>{employeeName(log.employeeId)}</strong></td><td>{formatDateTime(log.logTime)}</td><td>{log.logType}</td><td>{log.source}</td><td>{log.latitude==null?'—':`${log.latitude}, ${log.longitude}${log.locationAccuracyM?` · ±${log.locationAccuracyM} m`:''}`}</td><td><span className={`timekeeping-status ${log.status === 'FLAGGED' ? 'warning' : 'open'}`}>{log.status}</span></td><td className="timekeeping-note-cell">{log.remarks || '—'}</td><td>{log.photoRef&&<button type="button" className="platform-text-action" onClick={()=>void viewPunchPhoto(log)}>View photo</button>}{log.status === 'FLAGGED' && <button type="button" className="session-revoke" onClick={() => void validatePunch(log)} disabled={busy === log.id}>{busy === log.id ? 'Saving…' : 'Accept punch'}</button>}</td></tr>) : <tr><td colSpan={8} className="timekeeping-empty">No punches match your search.</td></tr>}
       </tbody></table></div>
+      {punchPhotoUrl&&<div className="self-service-photo-modal" role="dialog" aria-modal="true" aria-label="Punch photo evidence"><button type="button" className="session-revoke" onClick={()=>{URL.revokeObjectURL(punchPhotoUrl);setPunchPhotoUrl('')}}>Close</button><img src={punchPhotoUrl} alt="Attendance punch photo evidence"/></div>}
     </>}
 
     {tab === 'corrections' && <>

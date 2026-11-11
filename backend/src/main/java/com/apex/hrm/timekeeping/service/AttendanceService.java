@@ -51,6 +51,13 @@ public class AttendanceService {
     @Transactional
     public TimeLog clock(UUID employeeId, String logType, String source, BigDecimal lat, BigDecimal lon,
                          String deviceId, String photoRef) {
+        return clock(employeeId,logType,source,lat,lon,null,deviceId,photoRef);
+    }
+
+    /** Authenticated self-service punch with a GPS accuracy estimate from the device. */
+    @Transactional
+    public TimeLog clock(UUID employeeId, String logType, String source, BigDecimal lat, BigDecimal lon,
+                         BigDecimal locationAccuracyM, String deviceId, String photoRef) {
         Employee emp = activeEmployee(employeeId);
         requireLogType(logType);
         if (!"MOBILE".equals(source) && !"WEB".equals(source)) {
@@ -69,11 +76,12 @@ public class AttendanceService {
         log.setSource(source);
         log.setLatitude(lat);
         log.setLongitude(lon);
+        log.setLocationAccuracyM(locationAccuracyM);
         log.setDeviceId(deviceId);
         log.setPhotoRef(photoRef);
         applyGeofence(log, emp, now);
         assertNotLocked(employeeId, now);
-        return logs.save(log);
+        return logs.saveAndFlush(log);
     }
 
     /** HR-entered punch with an explicit time. Always recorded as MANUAL. */

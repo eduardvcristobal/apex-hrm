@@ -35,7 +35,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api")
 public class TimekeepingController {
     public record ClockRequest(UUID employeeId, String logType, String source, BigDecimal latitude, BigDecimal longitude,
-                               String deviceId, String photoRef) {
+                               BigDecimal locationAccuracyM, String deviceId, String photoRef) {
     }
 
     public record ManualRequest(UUID employeeId, String logType, Instant logTime, String remarks) {
@@ -82,7 +82,7 @@ public class TimekeepingController {
     @ResponseStatus(HttpStatus.CREATED)
     public TimeLog clock(@RequestBody ClockRequest r) {
         return attendance.clock(r.employeeId(), r.logType(), r.source() == null ? "MOBILE" : r.source(), r.latitude(),
-                r.longitude(), r.deviceId(), r.photoRef());
+                r.longitude(), r.locationAccuracyM(), r.deviceId(), r.photoRef());
     }
 
     @PostMapping("/attendance/manual")

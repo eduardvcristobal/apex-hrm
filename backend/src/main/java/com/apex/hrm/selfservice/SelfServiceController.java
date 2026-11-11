@@ -12,6 +12,8 @@ import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,11 @@ public class SelfServiceController {
     public record LeaveInput(@NotNull UUID leaveTypeId,@NotNull LocalDate dateFrom,@NotNull LocalDate dateTo,@NotNull @DecimalMin("0.25") BigDecimal days,boolean halfDay,@Size(max=3000) String reason) {}
     public record OvertimeInput(@NotNull LocalDate workDate,@Min(1) @Max(1440) int minutes,@NotBlank @Size(max=3000) String reason) {}
     public record CorrectionInput(@NotNull LocalDate workDate,Instant requestedIn,Instant requestedOut,@NotBlank @Size(max=3000) String reason) {}
+    public record PunchInput(@NotBlank @Pattern(regexp="IN|OUT") String logType,
+                             @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal latitude,
+                             @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal longitude,
+                             @DecimalMin("0.0") BigDecimal locationAccuracyM,
+                             @Size(max=1398104) String photoBase64,@Size(max=255) String deviceId) {}
     public record Decision(@NotBlank @Pattern(regexp="APPROVE|REJECT") String decision,@Min(1) @Max(1440) Integer approvedMinutes) {}
     private record EmployeeRef(UUID personnelId,UUID timekeepingId) {}
     private ResponseStatusException denied() { return new ResponseStatusException(HttpStatus.FORBIDDEN,"An employee profile must be linked to this account"); }
@@ -46,8 +53,36 @@ public class SelfServiceController {
         authenticated(user); return tenants.inTenant(user.tenantId(),()->{ EmployeeRef ids=employee(user); Map<String,Object> profile=employeeRow(ids.personnelId(),user.tenantId());
             List<Map<String,Object>> balances=jdbc.queryForList("SELECT t.id,t.code,t.name,coalesce(profile_rule.profile_name,'Default') AS profile_name,coalesce(profile_rule.employee_class,'GENERAL') AS employee_class,coalesce(profile_rule.paid,t.paid) AS paid,coalesce(profile_rule.annual_entitlement,t.annual_entitlement) AS annual_entitlement,coalesce(profile_rule.convertible,t.convertible) AS convertible,coalesce(profile_rule.carry_over_max,t.carry_over_max) AS carry_over_max,coalesce(profile_rule.hire_proration_enabled,t.hire_proration_enabled) AS hire_proration_enabled,coalesce(sum(l.days),0) AS balance FROM leave_type t LEFT JOIN leave_ledger l ON l.tenant_id=t.tenant_id AND l.leave_type_id=t.id AND l.employee_id=? AND l.entry_date<=current_date LEFT JOIN LATERAL (SELECT be.paid,be.annual_entitlement,be.convertible,be.carry_over_max,be.hire_proration_enabled,p.name AS profile_name,p.employee_class FROM employee_leave_benefit_assignment a JOIN leave_benefit_profile p ON p.tenant_id=a.tenant_id AND p.id=a.profile_id JOIN leave_benefit_entitlement be ON be.tenant_id=a.tenant_id AND be.profile_id=a.profile_id AND be.leave_type_id=t.id WHERE a.tenant_id=t.tenant_id AND a.employee_id=? AND a.effective_from<=current_date AND (a.effective_to IS NULL OR a.effective_to>=current_date) AND be.effective_from<=current_date AND (be.effective_to IS NULL OR be.effective_to>=current_date) ORDER BY a.effective_from DESC,be.effective_from DESC LIMIT 1) profile_rule ON true WHERE t.tenant_id=? GROUP BY t.id,profile_rule.profile_name,profile_rule.employee_class,profile_rule.paid,profile_rule.annual_entitlement,profile_rule.convertible,profile_rule.carry_over_max,profile_rule.hire_proration_enabled ORDER BY t.name",ids.timekeepingId(),ids.timekeepingId(),user.tenantId());
             List<Map<String,Object>> dtr=jdbc.queryForList("SELECT work_date,day_type,first_in,last_out,regular_minutes,late_minutes,undertime_minutes,ot_approved_minutes,absent,paid_leave,status FROM dtr_day WHERE tenant_id=? AND employee_id=? AND work_date>=current_date-30 ORDER BY work_date DESC",user.tenantId(),ids.timekeepingId());
+            List<Map<String,Object>> punches=jdbc.queryForList("SELECT id,log_time,log_type,source,latitude,longitude,location_accuracy_m,photo_ref,status,remarks FROM time_log WHERE tenant_id=? AND employee_id=? ORDER BY log_time DESC LIMIT 20",user.tenantId(),ids.timekeepingId());
             List<Map<String,Object>> payroll=jdbc.queryForList("SELECT p.id,p.snapshot,p.acknowledged_at,r.status AS run_status,r.run_type AS run_type,pp.start_date AS period_start,pp.end_date AS period_end,pp.pay_date AS pay_date,pe.net_pay AS net_pay FROM payslip p JOIN payroll_run r ON r.tenant_id=p.tenant_id AND r.id=p.run_id JOIN pay_period pp ON pp.tenant_id=r.tenant_id AND pp.id=r.pay_period_id JOIN payroll_employee pe ON pe.tenant_id=p.tenant_id AND pe.id=p.payroll_employee_id WHERE p.tenant_id=? AND p.employee_id=? AND r.status IN ('EMPLOYEE_REVIEW','LOCKED','PAID') ORDER BY pp.pay_date DESC LIMIT 1000",user.tenantId(),ids.timekeepingId());
-            return Map.of("profile",profile,"leaveBalances",balances,"attendance",dtr,"payslips",payroll,"leaveRequests",jdbc.queryForList("SELECT r.id,r.date_from,r.date_to,r.days,r.reason,r.status,t.name AS leave_type FROM leave_request r JOIN leave_type t ON t.tenant_id=r.tenant_id AND t.id=r.leave_type_id WHERE r.tenant_id=? AND r.employee_id=? ORDER BY r.created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()),"overtimeRequests",jdbc.queryForList("SELECT id,work_date,minutes_requested,approved_minutes,reason,status FROM overtime_request WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()),"attendanceCorrections",jdbc.queryForList("SELECT id,work_date,requested_in,requested_out,reason,status FROM attendance_correction WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()));
+            return Map.of("profile",profile,"leaveBalances",balances,"attendance",dtr,"punches",punches,"payslips",payroll,"leaveRequests",jdbc.queryForList("SELECT r.id,r.date_from,r.date_to,r.days,r.reason,r.status,t.name AS leave_type FROM leave_request r JOIN leave_type t ON t.tenant_id=r.tenant_id AND t.id=r.leave_type_id WHERE r.tenant_id=? AND r.employee_id=? ORDER BY r.created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()),"overtimeRequests",jdbc.queryForList("SELECT id,work_date,minutes_requested,approved_minutes,reason,status FROM overtime_request WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()),"attendanceCorrections",jdbc.queryForList("SELECT id,work_date,requested_in,requested_out,reason,status FROM attendance_correction WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()));
+        });
+    }
+    @PostMapping("/attendance-punches") @ResponseStatus(HttpStatus.CREATED)
+    public Map<String,Object> punch(@AuthenticationPrincipal HrmUserPrincipal user,@Valid @RequestBody PunchInput in) {
+        authenticated(user);return tenants.inTenant(user.tenantId(),()->{
+            byte[] photo=null;UUID photoId=null;
+            if(in.photoBase64()!=null&&!in.photoBase64().isBlank()) {
+                try { photo=Base64.getDecoder().decode(in.photoBase64()); }
+                catch(IllegalArgumentException invalid) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Photo must be valid base64 JPEG data"); }
+                if(photo.length>1_048_576||photo.length<3||photo[0]!=(byte)0xff||photo[1]!=(byte)0xd8||photo[2]!=(byte)0xff)
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Photo must be a JPEG image no larger than 1 MB");
+                photoId=UUID.randomUUID();
+            }
+            EmployeeRef ids=employee(user);
+            var log=attendance.clock(ids.timekeepingId(),in.logType(),"WEB",in.latitude(),in.longitude(),in.locationAccuracyM(),in.deviceId(),photoId==null?null:photoId.toString());
+            if(photo!=null) jdbc.update("INSERT INTO attendance_photo(id,tenant_id,employee_id,time_log_id,content_type,photo_bytes,captured_by) VALUES(?,?,?,?,'image/jpeg',?,?)",photoId,user.tenantId(),ids.timekeepingId(),log.getId(),photo,user.id());
+            jdbc.update("INSERT INTO audit_event(tenant_id,actor_id,action,entity_type,entity_id) VALUES(?,?,?,'time_log',?)",user.tenantId(),user.id(),"SELF_SERVICE_CLOCK_"+in.logType(),log.getId());
+            return Map.of("id",log.getId(),"logType",log.getLogType(),"logTime",log.getLogTime(),"status",log.getStatus(),"photoCaptured",photoId!=null);
+        });
+    }
+    @GetMapping(value="/attendance-photos/{photoId}")
+    public ResponseEntity<byte[]> attendancePhoto(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID photoId) {
+        authenticated(user);return tenants.inTenant(user.tenantId(),()->{
+            UUID employeeId=employee(user).timekeepingId();
+            List<byte[]> rows=jdbc.query("SELECT photo_bytes FROM attendance_photo WHERE tenant_id=? AND id=? AND employee_id=?",(rs,n)->rs.getBytes(1),user.tenantId(),photoId,employeeId);
+            if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Attendance photo not found");
+            return ResponseEntity.ok().contentType(MediaType.IMAGE_JPEG).cacheControl(org.springframework.http.CacheControl.noStore()).body(rows.get(0));
         });
     }
     @PostMapping("/payslips/{payslipId}/acknowledge")
