@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class StatutoryRuleReviewController {
     private static final ZoneId HRM_ZONE=ZoneId.of("Asia/Manila");
     private static final List<String> AGENCIES=List.of("SSS","PHILHEALTH","PAGIBIG");
-    private static final List<String> PERIODS=List.of("MONTHLY","SEMI_MONTHLY");
+    private static final List<String> PERIODS=List.of("DAILY","WEEKLY","SEMI_MONTHLY","MONTHLY","ANNUAL");
     private static final List<String> DAY_TYPES=List.of("ORDINARY","REST_DAY","SPECIAL_HOLIDAY","SPECIAL_HOLIDAY_REST_DAY","REGULAR_HOLIDAY","REGULAR_HOLIDAY_REST_DAY");
     private final JdbcTemplate jdbc;
     private final TenantJdbcExecutor tenants;
