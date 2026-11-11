@@ -20,4 +20,6 @@ public interface DtrDayRepository extends JpaRepository<DtrDay, UUID> {
     Optional<DtrDay> findByEmployeeIdAndWorkDate(UUID employeeId, LocalDate workDate);
 
     List<DtrDay> findByEmployeeIdAndWorkDateBetween(UUID employeeId, LocalDate from, LocalDate to);
+
+    List<DtrDay> findByWorkDateBetweenOrderByWorkDateDesc(LocalDate from, LocalDate to);
 }

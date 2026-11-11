@@ -22,7 +22,8 @@ public class HrCaseController {
     public HrCaseController(JdbcTemplate jdbc,TenantJdbcExecutor tenants) {
         this.jdbc=jdbc;this.tenants=tenants;
     }
-    public record Case(UUID id,String type,String status,LocalDate effectiveDate,UUID requestedBy,UUID decidedBy) {}
+    public record Case(UUID id,String type,String status,LocalDate effectiveDate,UUID requestedBy,UUID decidedBy,
+                       LocalDate finalPayDueDate,java.time.Instant coeRequestedAt,LocalDate coeDueDate,java.time.Instant coeIssuedAt) {}
     public record Request(@NotBlank @Pattern(regexp="ONBOARDING|SEPARATION") String type,
         @NotNull LocalDate effectiveDate,@NotBlank @Size(max=500) String reason) {}
     @GetMapping
@@ -30,7 +31,7 @@ public class HrCaseController {
         return tenants.inTenant(user.tenantId(),()->{
             employee(user.tenantId(),employeeId,false);
             return jdbc.query("""
-                SELECT id,case_type,status,effective_date,requested_by,decided_by
+                SELECT id,case_type,status,effective_date,requested_by,decided_by,final_pay_due_date,coe_requested_at,coe_due_date,coe_issued_at
                 FROM personnel_hr_case WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100
                 """,(rs,i)->map(rs),user.tenantId(),employeeId);
         });
@@ -47,10 +48,42 @@ public class HrCaseController {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,"Onboarding requires an active employee");
             Case result=jdbc.queryForObject("""
                 INSERT INTO personnel_hr_case(tenant_id,employee_id,case_type,effective_date,reason,requested_by)
-                VALUES(?,?,?,?,?,?) RETURNING id,case_type,status,effective_date,requested_by,decided_by
+                VALUES(?,?,?,?,?,?) RETURNING id,case_type,status,effective_date,requested_by,decided_by,final_pay_due_date,coe_requested_at,coe_due_date,coe_issued_at
                 """,(rs,i)->map(rs),user.tenantId(),employeeId,input.type(),input.effectiveDate(),
                   input.reason().trim(),user.id());
             audit(user,"HR_CASE_REQUESTED",result.id());
+            return result;
+        });
+    }
+
+    @PostMapping("/{caseId}/coe-request")
+    public Case requestCertificate(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID employeeId,
+                                   @PathVariable UUID caseId) {
+        return tenants.inTenant(user.tenantId(),()->{
+            Case result=jdbc.query("""
+                UPDATE personnel_hr_case SET coe_requested_at=COALESCE(coe_requested_at,now()),
+                    coe_due_date=COALESCE(coe_due_date,current_date+3)
+                WHERE tenant_id=? AND employee_id=? AND id=? AND case_type='SEPARATION' AND status='APPROVED'
+                RETURNING id,case_type,status,effective_date,requested_by,decided_by,final_pay_due_date,coe_requested_at,coe_due_date,coe_issued_at
+                """,(rs,i)->map(rs),user.tenantId(),employeeId,caseId).stream().findFirst()
+                .orElseThrow(()->new ResponseStatusException(HttpStatus.CONFLICT,"COE request requires an approved separation case"));
+            audit(user,"COE_REQUESTED",caseId);
+            return result;
+        });
+    }
+
+    @PostMapping("/{caseId}/coe-issued")
+    public Case issueCertificate(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID employeeId,
+                                 @PathVariable UUID caseId) {
+        return tenants.inTenant(user.tenantId(),()->{
+            Case result=jdbc.query("""
+                UPDATE personnel_hr_case SET coe_issued_at=now()
+                WHERE tenant_id=? AND employee_id=? AND id=? AND case_type='SEPARATION'
+                  AND status='APPROVED' AND coe_requested_at IS NOT NULL
+                RETURNING id,case_type,status,effective_date,requested_by,decided_by,final_pay_due_date,coe_requested_at,coe_due_date,coe_issued_at
+                """,(rs,i)->map(rs),user.tenantId(),employeeId,caseId).stream().findFirst()
+                .orElseThrow(()->new ResponseStatusException(HttpStatus.CONFLICT,"COE must be requested for an approved separation first"));
+            audit(user,"COE_ISSUED",caseId);
             return result;
         });
     }
@@ -118,10 +151,11 @@ public class HrCaseController {
                     """,p.date(),user.tenantId(),employeeId);
             }
             Case result=jdbc.queryForObject("""
-                UPDATE personnel_hr_case SET status=?,decided_by=?,decided_at=now()
+                UPDATE personnel_hr_case SET status=?,decided_by=?,decided_at=now(),
+                    final_pay_due_date=CASE WHEN case_type='SEPARATION' AND ?='APPROVED' THEN effective_date+30 ELSE final_pay_due_date END
                 WHERE tenant_id=? AND employee_id=? AND id=?
-                RETURNING id,case_type,status,effective_date,requested_by,decided_by
-                """,(rs,i)->map(rs),decision,user.id(),user.tenantId(),employeeId,caseId);
+                RETURNING id,case_type,status,effective_date,requested_by,decided_by,final_pay_due_date,coe_requested_at,coe_due_date,coe_issued_at
+                """,(rs,i)->map(rs),decision,user.id(),decision,user.tenantId(),employeeId,caseId);
             audit(user,"HR_CASE_"+decision,caseId);
             return result;
         });
@@ -140,6 +174,8 @@ public class HrCaseController {
     private static Case map(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new Case(rs.getObject("id",UUID.class),rs.getString("case_type"),rs.getString("status"),
             rs.getObject("effective_date",LocalDate.class),rs.getObject("requested_by",UUID.class),
-            rs.getObject("decided_by",UUID.class));
+            rs.getObject("decided_by",UUID.class),rs.getObject("final_pay_due_date",LocalDate.class),
+            rs.getObject("coe_requested_at",java.time.Instant.class),rs.getObject("coe_due_date",LocalDate.class),
+            rs.getObject("coe_issued_at",java.time.Instant.class));
     }
 }

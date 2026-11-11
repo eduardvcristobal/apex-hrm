@@ -21,6 +21,8 @@ public class WorkLocation extends BaseEntity {
     private String code;
     private String name;
     private String regionCode;
+    @Column(name = "wage_sector")
+    private String wageSector = "NON_AGRI";
     private String city;
     private String address;
     private BigDecimal latitude;

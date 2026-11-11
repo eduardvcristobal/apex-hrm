@@ -5,6 +5,7 @@ type Employee = { id: string; employeeNo: string; firstName: string; lastName: s
 type TimeLog = { id: string; employeeId: string; logTime: string; logType: 'IN' | 'OUT'; source: string; status: string; remarks: string | null; latitude:number|null;longitude:number|null;locationAccuracyM:number|null;photoRef:string|null };
 type DtrDay = { id: string; employeeId: string; workDate: string; firstIn: string | null; lastOut: string | null; regularMinutes: number; lateMinutes: number; undertimeMinutes: number; otDetectedMinutes: number; otApprovedMinutes: number; absent: boolean; paidLeave: boolean; status: string; dayType: string };
 type Correction = { id: string; employeeId: string; workDate: string; requestedIn: string | null; requestedOut: string | null; reason: string; status: string };
+type DtrException = { id: string; employeeId: string; workDate: string; status: string; firstIn: string | null; lastOut: string | null; reason: string };
 type WorkspaceRequest = <T>(path: string, init?: RequestInit) => Promise<T>;
 
 const localDate = (date: Date) => {
@@ -29,12 +30,13 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
   const [logs, setLogs] = useState<TimeLog[]>([]);
   const [days, setDays] = useState<DtrDay[]>([]);
   const [corrections, setCorrections] = useState<Correction[]>([]);
+  const [dtrExceptions, setDtrExceptions] = useState<DtrException[]>([]);
   const [punchPhotoUrl,setPunchPhotoUrl]=useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [tab, setTab] = useState<'dtr' | 'punches' | 'corrections'>('dtr');
+  const [tab, setTab] = useState<'dtr' | 'exceptions' | 'punches' | 'corrections'>('dtr');
   const [from, setFrom] = useState(monthStart);
   const [to, setTo] = useState(() => localDate(new Date()));
   const [employeeId, setEmployeeId] = useState('');
@@ -67,16 +69,18 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
     setLoading(true);
     setError('');
     try {
-      const [employeePage, logPage, dtrPage, correctionPage] = await Promise.all([
+      const [employeePage, logPage, dtrPage, correctionPage, exceptionRows] = await Promise.all([
         request<Page<Employee>>('/api/employees?size=200&sort=employeeNo,asc'),
         request<Page<TimeLog>>('/api/time-logs?size=200&sort=logTime,desc'),
         request<Page<DtrDay>>('/api/dtr-days?size=500&sort=workDate,desc'),
         request<Page<Correction>>('/api/attendance-corrections?size=200&sort=workDate,desc'),
+        request<DtrException[]>('/api/dtr-days/exceptions'),
       ]);
       setEmployees(employeePage.content);
       setLogs(logPage.content);
       setDays(dtrPage.content);
       setCorrections(correctionPage.content);
+      setDtrExceptions(exceptionRows);
       setManualEmployeeId(current => current || employeePage.content[0]?.id || '');
       setCorrectionEmployeeId(current => current || employeePage.content[0]?.id || '');
     } catch (reason) {
@@ -193,13 +197,16 @@ export function TimekeepingWorkspace({ token }: { token: string }) {
       <article><span>Employees</span><strong>{employees.length}</strong><small>In this workspace</small></article>
       <article><span>Attendance records</span><strong>{days.length}</strong><small>Loaded DTR days</small></article>
       <article><span>Flagged punches</span><strong>{flaggedLogs.length}</strong><small>Need validation</small></article>
-      <article><span>Pending corrections</span><strong>{pendingCorrections.length}</strong><small>Awaiting HR review</small></article>
+      <article><span>DTR exceptions</span><strong>{dtrExceptions.length}</strong><small>Missing punch or absence review</small></article>
     </div>
     <nav className="timekeeping-tabs" aria-label="Timekeeping sections" role="tablist">
       <button type="button" role="tab" aria-selected={tab === 'dtr'} className={tab === 'dtr' ? 'active' : ''} onClick={() => { setTab('dtr'); setQuery(''); }}>Daily time records</button>
+      <button type="button" role="tab" aria-selected={tab === 'exceptions'} className={tab === 'exceptions' ? 'active' : ''} onClick={() => { setTab('exceptions'); setQuery(''); }}>DTR exceptions{dtrExceptions.length > 0 && <span>{dtrExceptions.length}</span>}</button>
       <button type="button" role="tab" aria-selected={tab === 'punches'} className={tab === 'punches' ? 'active' : ''} onClick={() => { setTab('punches'); setQuery(''); }}>Punches{flaggedLogs.length > 0 && <span>{flaggedLogs.length}</span>}</button>
       <button type="button" role="tab" aria-selected={tab === 'corrections'} className={tab === 'corrections' ? 'active' : ''} onClick={() => { setTab('corrections'); setQuery(''); }}>Corrections{pendingCorrections.length > 0 && <span>{pendingCorrections.length}</span>}</button>
     </nav>
+
+    {tab === 'exceptions' && <section className="payroll-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">ATTENDANCE REVIEW</p><h2>Incomplete records and absences</h2><p>Review these records before payroll is finalized. Submit a correction when the source punches need adjustment.</p></div></div><div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>WORK DATE</th><th>FIRST IN</th><th>LAST OUT</th><th>ISSUE</th><th>STATUS</th></tr></thead><tbody>{dtrExceptions.length ? dtrExceptions.map(row => <tr key={row.id}><td><strong>{employeeName(row.employeeId)}</strong></td><td>{row.workDate}</td><td>{formatDateTime(row.firstIn)}</td><td>{formatDateTime(row.lastOut)}</td><td>{row.reason}</td><td><span className={`timekeeping-status ${row.status === 'LOCKED' ? 'locked' : 'warning'}`}>{row.status}</span></td></tr>) : <tr><td colSpan={6} className="timekeeping-empty">No DTR exceptions in the last 30 days.</td></tr>}</tbody></table></div></section>}
 
     {tab === 'dtr' && <>
       <form className="timekeeping-filters" onSubmit={processDtr}>

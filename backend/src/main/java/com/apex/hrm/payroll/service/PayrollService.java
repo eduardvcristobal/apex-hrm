@@ -704,15 +704,16 @@ public class PayrollService {
         if (loc == null) {
             return;
         }
-        WageOrder wo = wageOrders.findApplicable(loc.getRegionCode(), "NON_AGRI", asOf).stream().findFirst().orElse(null);
+        String sector = loc.getWageSector() == null || loc.getWageSector().isBlank() ? "NON_AGRI" : loc.getWageSector();
+        WageOrder wo = wageOrders.findApplicable(loc.getRegionCode(), sector, asOf).stream().findFirst().orElse(null);
         if (wo == null && Boolean.TRUE.equals(emp.getMinimumWageEarner())) {
             warnings.add("Employee is marked as a minimum-wage earner but no effective wage order is configured for "
-                    + loc.getRegionCode() + "; review tax eligibility");
+                    + loc.getRegionCode() + " (" + sector + "); review wage-order coverage and tax eligibility");
         }
         if (wo != null) {
             int rateComparison = AttendancePayCalculator.dailyRate(cfg).compareTo(wo.getDailyRate());
             if (rateComparison < 0) {
-                warnings.add("Daily rate is below the " + loc.getRegionCode() + " minimum wage of " + wo.getDailyRate().setScale(2, RoundingMode.HALF_UP));
+                warnings.add("Daily rate is below the " + loc.getRegionCode() + " " + sector + " minimum wage of " + wo.getDailyRate().setScale(2, RoundingMode.HALF_UP) + "; review pay and any wage-distortion impact before finalizing the payroll");
             } else if (rateComparison > 0 && Boolean.TRUE.equals(emp.getMinimumWageEarner())) {
                 warnings.add("Employee is marked as a minimum-wage earner but the daily rate exceeds the configured "
                         + loc.getRegionCode() + " minimum wage; review tax eligibility and the effective wage order");
