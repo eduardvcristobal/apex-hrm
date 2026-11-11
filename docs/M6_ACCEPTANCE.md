@@ -1,6 +1,6 @@
 # M6 Learning & Development — acceptance handoff
 
-Status: **IMPLEMENTED; LOCAL ACCEPTANCE PARTIAL**.
+Status: **IMPLEMENTED; LOCAL ACCEPTANCE COMPLETE (2026-11-11)**.
 
 ## Delivered
 
@@ -20,19 +20,17 @@ Status: **IMPLEMENTED; LOCAL ACCEPTANCE PARTIAL**.
 - Fresh PostgreSQL 16 database: all 65 Flyway migrations applied successfully.
 - Forced-RLS probe with a non-owner, non-superuser, non-`BYPASSRLS` role: tenant A saw only its own Learning row; an insert carrying tenant B's ID was rejected by row-level security.
 - Focused Learning JUnit tests in Linux/Docker: 12 tests passed, 0 failures (3 portal tests and 9 controller tests).
+- Populated Learning Playwright flow (`npm run test:e2e:learning`): passed. It creates a course and employee, enrolls and completes the course with score 96, links the employee account, and verifies the employee portal, report and CSV download, and 390px mobile layout.
+- Role checks passed: owner writes with verified MFA; owner writes without verified MFA denied; HR administrator writes denied without MFA and allowed with MFA; HR administrator account linking denied; employee catalog/picker reads and writes denied while `/me` shows only the linked employee's completed course; auditor reads/reports allowed and writes/account linking denied; anonymous reads denied.
+- Two-tenant API checks passed: a tenant cannot resolve another tenant's employee ID or create a course for another tenant's company.
+- Enrollment transition SQL now casts the nullable score parameter to numeric. The populated workflow confirmed `ENROLLED → IN_PROGRESS → COMPLETED` and persisted score 96 on PostgreSQL 16.
 - Configured PostgreSQL account `hrm` is not a superuser and does not have `BYPASSRLS`; it has ordinary table grants for Learning tables.
 - The local app database is migrated through V65.
-
-## Acceptance gaps
-
-- The owner journey is a navigation tour; it does not create a populated Learning fixture or exercise the full course → enrollment → completion → employee portal path in the browser.
-- The owner journey and database-level RLS probe do not replace a complete two-tenant API authorization test (HR/MFA writes, employee/auditor denials, and account linking).
-- Manual desktop/mobile and export-content inspection remain to be done in a prepared acceptance workspace.
 
 ## Deferred product enhancements
 
 Scheduled sessions, instructor assignment, capacity, approval flows, reminders, certificate attachments, renewal notifications, retake attempts, and position-specific skills-gap analysis are outside the delivered M6 scope.
 
-## Release decision
+## Acceptance result
 
-**Not fully certified for release** until the populated Learning browser workflow and role-level API checks (including employee/auditor denial and account linking) pass. Fresh-database migration, Learning unit tests, and core forced-RLS isolation now pass.
+**Local Learning acceptance complete.** The deferred enhancements above remain outside this delivered scope. Apply the normal integrated CI and deployment release checks before production rollout.

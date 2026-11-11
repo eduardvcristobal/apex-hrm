@@ -9,7 +9,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "test:unit": "vitest run --config vitest.config.ts",
     "test:e2e": "playwright test --config=playwright.config.cjs",
-    "test:e2e:owner": "playwright test --config=playwright.config.cjs e2e/owner.journey.spec.cjs"
+    "test:e2e:owner": "playwright test --config=playwright.config.cjs e2e/owner.journey.spec.cjs",
+    "test:e2e:learning": "playwright test --config=playwright.config.cjs e2e/learning.workflow.spec.cjs"
   },
   "dependencies": {
     "@react-oauth/google": "^0.13.5",
