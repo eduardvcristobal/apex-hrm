@@ -59,8 +59,9 @@ public class TenantProvisioningService {
         leave("SIL", "Service incentive leave", true, "5");
         leave("VL", "Vacation leave", true, null);
         leave("SL", "Sick leave", true, null);
-        leave("ML", "Maternity leave", true, "105");
-        leave("PL", "Paternity leave", true, "7");
+        // Event leave is granted after an eligible event claim is independently approved.
+        leave("ML", "Maternity leave", true, null);
+        leave("PL", "Paternity leave", true, null);
         leave("SPL", "Solo parent leave", true, "7");
         leave("UL", "Unpaid leave", false, null);
 
@@ -118,6 +119,7 @@ public class TenantProvisioningService {
         t.setName(name);
         t.setPaid(paid);
         t.setAnnualEntitlement(entitlement == null ? null : new BigDecimal(entitlement));
+        t.setHireProrationEnabled(entitlement != null);
         leaveTypes.save(t);
     }
 

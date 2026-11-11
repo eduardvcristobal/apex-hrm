@@ -126,7 +126,7 @@ public class LeaveService {
         return ledger.save(l);
     }
 
-    private record BenefitRule(UUID id,UUID profileId,BigDecimal annualEntitlement,boolean paid,boolean convertible,BigDecimal carryOverMax) {}
+    private record BenefitRule(UUID id,UUID profileId,BigDecimal annualEntitlement,String grantBasis,boolean paid,boolean convertible,BigDecimal carryOverMax) {}
 
     private void validateEntitlement(UUID employeeId,UUID leaveTypeId,LeaveType type,LocalDate from,LocalDate to,BigDecimal days) {
         UUID tenant=TenantContext.get();
@@ -144,6 +144,7 @@ public class LeaveService {
                 return;
             }
         }
+        if(("ML".equals(type.getCode())||"PL".equals(type.getCode()))&&tenant!=null) throw new BusinessException(type.getCode()+" requires an active event-based benefit profile and an approved event claim");
         if(type.getAnnualEntitlement()!=null&&days.compareTo(balance(employeeId,leaveTypeId))>0) throw new BusinessException("Insufficient " + type.getCode() + " balance");
     }
 
@@ -162,7 +163,7 @@ public class LeaveService {
     }
 
     private BenefitRule benefitRule(UUID tenant,UUID profile,UUID leaveType,LocalDate date) {
-        return jdbc.query("SELECT id,profile_id,annual_entitlement,paid,convertible,carry_over_max FROM leave_benefit_entitlement WHERE tenant_id=? AND profile_id=? AND leave_type_id=? AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) ORDER BY effective_from DESC LIMIT 1",rs->rs.next()?new BenefitRule(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getBigDecimal(3),rs.getBoolean(4),rs.getBoolean(5),rs.getBigDecimal(6)):null,tenant,profile,leaveType,date,date);
+        return jdbc.query("SELECT id,profile_id,annual_entitlement,grant_basis,paid,convertible,carry_over_max FROM leave_benefit_entitlement WHERE tenant_id=? AND profile_id=? AND leave_type_id=? AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?) ORDER BY effective_from DESC LIMIT 1",rs->rs.next()?new BenefitRule(rs.getObject(1,UUID.class),rs.getObject(2,UUID.class),rs.getBigDecimal(3),rs.getString(4),rs.getBoolean(5),rs.getBoolean(6),rs.getBigDecimal(7)):null,tenant,profile,leaveType,date,date);
     }
 
     private LeaveRequest load(UUID id) {

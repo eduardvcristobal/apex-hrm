@@ -37,7 +37,7 @@ public class LeaveBenefitProfileController {
                                @NotBlank @Size(max=40) String employeeClass,
                                @Size(max=1000) String description) {}
     public record EntitlementInput(@NotNull UUID leaveTypeId, @NotNull @DecimalMin("0.0") BigDecimal annualEntitlement,
-                                   boolean paid, boolean hireProrationEnabled, boolean convertible,
+                                   boolean paid, boolean hireProrationEnabled, boolean convertible, String grantBasis,
                                    @DecimalMin("0.0") BigDecimal carryOverMax, @NotNull LocalDate effectiveFrom,
                                    LocalDate effectiveTo) {}
     public record AssignmentInput(@NotNull UUID employeeId, @NotNull UUID profileId, @NotNull LocalDate effectiveFrom,
@@ -63,7 +63,7 @@ public class LeaveBenefitProfileController {
     public List<Map<String,Object>> entitlements(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID profileId) {
         return tenants.inTenant(user.tenantId(),()->{
             requireProfile(user.tenantId(),profileId);
-            return jdbc.queryForList("SELECT e.id,e.leave_type_id,t.code AS leave_code,t.name AS leave_name,e.annual_entitlement,e.paid,e.hire_proration_enabled,e.convertible,e.carry_over_max,e.effective_from,e.effective_to FROM leave_benefit_entitlement e JOIN leave_type t ON t.tenant_id=e.tenant_id AND t.id=e.leave_type_id WHERE e.tenant_id=? AND e.profile_id=? ORDER BY t.name,e.effective_from DESC",user.tenantId(),profileId);
+            return jdbc.queryForList("SELECT e.id,e.leave_type_id,t.code AS leave_code,t.name AS leave_name,e.annual_entitlement,e.grant_basis,e.paid,e.hire_proration_enabled,e.convertible,e.carry_over_max,e.effective_from,e.effective_to FROM leave_benefit_entitlement e JOIN leave_type t ON t.tenant_id=e.tenant_id AND t.id=e.leave_type_id WHERE e.tenant_id=? AND e.profile_id=? ORDER BY t.name,e.effective_from DESC",user.tenantId(),profileId);
         });
     }
 
@@ -71,12 +71,18 @@ public class LeaveBenefitProfileController {
     public Map<String,Object> saveEntitlement(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID profileId,@Valid @RequestBody EntitlementInput in) {
         return tenants.inTenant(user.tenantId(),()->{
             requireProfile(user.tenantId(),profileId);
+            String grantBasis=in.grantBasis()==null?"ANNUAL":in.grantBasis().trim().toUpperCase();
+            if(!grantBasis.equals("ANNUAL")&&!grantBasis.equals("EVENT")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Grant basis must be ANNUAL or EVENT");
+            String leaveCode=jdbc.query("SELECT code FROM leave_type WHERE tenant_id=? AND id=?",rs->rs.next()?rs.getString(1):null,user.tenantId(),in.leaveTypeId());
+            if(leaveCode==null) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Leave type not found");
+            if((leaveCode.equals("ML")||leaveCode.equals("PL"))&&!grantBasis.equals("EVENT")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Maternity and paternity benefits must be granted per qualifying event");
+            if(grantBasis.equals("EVENT")&&(in.hireProrationEnabled()||in.convertible()||in.carryOverMax()!=null)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Event-based leave cannot be hire-prorated, converted at separation, or carried over");
             if(in.effectiveTo()!=null && in.effectiveTo().isBefore(in.effectiveFrom())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Effective-to must be on or after effective-from");
             Integer historicalRule=jdbc.queryForObject("SELECT count(*) FROM leave_benefit_entitlement WHERE tenant_id=? AND profile_id=? AND leave_type_id=? AND effective_from=?",Integer.class,user.tenantId(),profileId,in.leaveTypeId(),in.effectiveFrom());
             if(historicalRule!=null&&historicalRule>0&&!in.effectiveFrom().isAfter(LocalDate.now(ZoneId.of("Asia/Manila")))) throw new ResponseStatusException(HttpStatus.CONFLICT,"An effective entitlement cannot be edited after it takes effect; add a new future-dated rule instead");
             Integer overlaps=jdbc.queryForObject("SELECT count(*) FROM leave_benefit_entitlement WHERE tenant_id=? AND profile_id=? AND leave_type_id=? AND effective_from<>? AND (effective_to IS NULL OR effective_to>=?) AND (?::date IS NULL OR effective_from<=?::date)",Integer.class,user.tenantId(),profileId,in.leaveTypeId(),in.effectiveFrom(),in.effectiveFrom(),in.effectiveTo(),in.effectiveTo());
             if(overlaps!=null&&overlaps>0) throw new ResponseStatusException(HttpStatus.CONFLICT,"This leave type already has an overlapping effective rule in the selected profile");
-            Map<String,Object> row=jdbc.queryForMap("INSERT INTO leave_benefit_entitlement(tenant_id,profile_id,leave_type_id,annual_entitlement,paid,hire_proration_enabled,convertible,carry_over_max,effective_from,effective_to) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,profile_id,leave_type_id,effective_from) DO UPDATE SET annual_entitlement=excluded.annual_entitlement,paid=excluded.paid,hire_proration_enabled=excluded.hire_proration_enabled,convertible=excluded.convertible,carry_over_max=excluded.carry_over_max,effective_to=excluded.effective_to,updated_at=now() RETURNING id,leave_type_id,annual_entitlement,paid,hire_proration_enabled,convertible,carry_over_max,effective_from,effective_to",user.tenantId(),profileId,in.leaveTypeId(),in.annualEntitlement(),in.paid(),in.hireProrationEnabled(),in.convertible(),in.carryOverMax(),in.effectiveFrom(),in.effectiveTo());
+            Map<String,Object> row=jdbc.queryForMap("INSERT INTO leave_benefit_entitlement(tenant_id,profile_id,leave_type_id,annual_entitlement,grant_basis,paid,hire_proration_enabled,convertible,carry_over_max,effective_from,effective_to) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(tenant_id,profile_id,leave_type_id,effective_from) DO UPDATE SET annual_entitlement=excluded.annual_entitlement,grant_basis=excluded.grant_basis,paid=excluded.paid,hire_proration_enabled=excluded.hire_proration_enabled,convertible=excluded.convertible,carry_over_max=excluded.carry_over_max,effective_to=excluded.effective_to,updated_at=now() RETURNING id,leave_type_id,annual_entitlement,grant_basis,paid,hire_proration_enabled,convertible,carry_over_max,effective_from,effective_to",user.tenantId(),profileId,in.leaveTypeId(),in.annualEntitlement(),grantBasis,in.paid(),in.hireProrationEnabled(),in.convertible(),in.carryOverMax(),in.effectiveFrom(),in.effectiveTo());
             jdbc.update("INSERT INTO audit_event(tenant_id,actor_id,action,entity_type,entity_id) VALUES(?,?,'LEAVE_BENEFIT_ENTITLEMENT_SAVED','leave_benefit_entitlement',?)",user.tenantId(),user.id(),row.get("id"));
             return row;
         });
