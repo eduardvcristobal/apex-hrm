@@ -19,5 +19,7 @@ public interface TimeLogRepository extends JpaRepository<TimeLog, UUID> {
 
     List<TimeLog> findByEmployeeIdAndLogTimeBetweenAndStatusOrderByLogTime(UUID employeeId, Instant from, Instant to, String status);
 
+    List<TimeLog> findByLogTimeBetweenAndStatusOrderByLogTime(Instant from, Instant to, String status);
+
     Optional<TimeLog> findFirstByEmployeeIdOrderByLogTimeDesc(UUID employeeId);
 }
