@@ -124,4 +124,32 @@ class PayrollEngineTest {
         List<PayLine> absent = AttendancePayCalculator.compute(cfg, rules(), List.of(day(DayType.ORDINARY, 0, 0, 0, 0, 0, 0, true, false)));
         assertEquals(0, absent.size());
     }
+
+    @Test
+    void weeklyMonthlySalaryProratesNewHireAcrossCalendarDays() {
+        BigDecimal weeklyPeriod = SalaryProration.periodBasic(
+                List.of(new SalaryProration.Segment(bd("52000"), LocalDate.of(2026, 11, 5), null)),
+                LocalDate.of(2026, 11, 2), LocalDate.of(2026, 11, 8), bd("52").divide(bd("12"), 10, java.math.RoundingMode.HALF_UP));
+        // Monthly salary / (52 / 12), for four employed days of a seven-day weekly period.
+        assertAmount("6857.14", Money.round(weeklyPeriod));
+    }
+
+    @Test
+    void sundayAndHolidayOvertimeUseTheirDayTypeMultipliers() {
+        Config cfg = new Config(PayBasis.DAILY, bd("800"), bd("261"), bd("8"), 2);
+        assertAmount("169.00", amountOf(AttendancePayCalculator.compute(cfg, rules(),
+                List.of(day(DayType.REST_DAY, 480, 0, 0, 0, 0, 60, false, false))), "OT"));
+        assertAmount("260.00", amountOf(AttendancePayCalculator.compute(cfg, rules(),
+                List.of(day(DayType.REGULAR_HOLIDAY, 480, 0, 0, 0, 0, 60, false, false))), "OT"));
+    }
+
+    @Test
+    void finalPayLeaveConversionUsesHourlyCompensationBasis() {
+        assertAmount("1600.00", Money.round(FinalPayCalculator.dailyRate(PayBasis.HOURLY,
+                bd("200"), bd("8"), bd("261"))));
+        assertAmount("800.00", Money.round(FinalPayCalculator.dailyRate(PayBasis.DAILY,
+                bd("800"), bd("8"), bd("261"))));
+        assertAmount("800.00", Money.round(FinalPayCalculator.dailyRate(PayBasis.MONTHLY,
+                bd("17400"), bd("8"), bd("261"))));
+    }
 }

@@ -10,6 +10,7 @@ import com.apex.hrm.payroll.domain.PayrollRun;
 import com.apex.hrm.payroll.domain.WithholdingTaxBracket;
 import com.apex.hrm.payroll.engine.FinalPayCalculator;
 import com.apex.hrm.payroll.engine.Money;
+import com.apex.hrm.payroll.engine.PayBasis;
 import com.apex.hrm.payroll.engine.PayLine;
 import com.apex.hrm.payroll.engine.WithholdingTaxCalculator;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
@@ -29,7 +30,6 @@ import com.apex.hrm.timekeeping.domain.LeaveType;
 import com.apex.hrm.timekeeping.repo.LeaveLedgerRepository;
 import com.apex.hrm.timekeeping.repo.LeaveTypeRepository;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,11 +126,8 @@ public class SettlementService {
         }
         Compensation comp = compensations.findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(emp.getId(), sep)
                 .orElseThrow(() -> new BusinessException("No compensation record effective on " + sep));
-        BigDecimal dailyRate = switch (comp.getPayBasis()) {
-            case "DAILY" -> comp.getBaseRate();
-            case "HOURLY" -> comp.getBaseRate().multiply(group.getHoursPerDay());
-            default -> comp.getBaseRate().multiply(BigDecimal.valueOf(12)).divide(group.getDaysFactor(), 6, RoundingMode.HALF_UP);
-        };
+        BigDecimal dailyRate = FinalPayCalculator.dailyRate(PayBasis.valueOf(comp.getPayBasis()), comp.getBaseRate(),
+                group.getHoursPerDay(), group.getDaysFactor());
         LocalDate from = LocalDate.of(sep.getYear(), 1, 1);
         LocalDate to = LocalDate.of(sep.getYear(), 12, 31);
 

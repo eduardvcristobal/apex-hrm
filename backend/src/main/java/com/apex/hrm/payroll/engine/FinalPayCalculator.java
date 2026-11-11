@@ -1,6 +1,7 @@
 package com.apex.hrm.payroll.engine;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -104,5 +105,14 @@ public final class FinalPayCalculator {
         }
         return new Result(lines, recoveries, Money.round(gross), Money.round(deductions), Money.round(gross.subtract(deductions)),
                 Money.round(taxableFinal), warnings);
+    }
+
+    /** Converts the active compensation basis to the daily value used for leave conversion. */
+    public static BigDecimal dailyRate(PayBasis basis, BigDecimal baseRate, BigDecimal hoursPerDay, BigDecimal daysFactor) {
+        return switch (basis) {
+            case DAILY -> baseRate;
+            case HOURLY -> baseRate.multiply(hoursPerDay);
+            case MONTHLY -> baseRate.multiply(BigDecimal.valueOf(12)).divide(daysFactor, 6, RoundingMode.HALF_UP);
+        };
     }
 }
