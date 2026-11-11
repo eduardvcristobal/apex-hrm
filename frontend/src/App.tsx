@@ -142,7 +142,7 @@ async function responseError(response: Response): Promise<string> {
     const body = await response.json() as { detail?: string; message?: string; title?: string; error?: string };
     detail = body.detail || body.message || body.title || body.error || '';
   } catch { /* The service may return an empty response. */ }
-  if (response.status === 429) return 'Too many sign-in attempts. Please wait a few minutes and try again.';
+  if (response.status === 429) return 'Too many requests. Wait a few minutes before trying again.';
   if (response.status === 403 && /authenticator enrollment required/i.test(detail)) {
     return 'This account needs authenticator setup before administrator tools are available. Sign in to open the setup page.';
   }

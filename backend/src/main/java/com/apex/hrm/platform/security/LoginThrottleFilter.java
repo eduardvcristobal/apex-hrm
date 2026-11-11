@@ -13,7 +13,7 @@ import java.util.Locale;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/** Shared PostgreSQL login-attempt counter. Client-supplied forwarded headers are intentionally ignored. */
+/** Shared PostgreSQL throttle for authentication, recovery, invitation, and MFA requests; proxy headers are not trusted. */
 public class LoginThrottleFilter extends OncePerRequestFilter {
     private final JdbcTemplate jdbc;
     private final DatabaseUserDetailsService users;
@@ -30,22 +30,22 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
             SELECT COALESCE((SELECT attempts FROM auth_login_attempt
               WHERE key_sha256=? AND window_start>now()-interval '10 minutes'),0)
             """,Integer.class,key);
-        if(attempts!=null && attempts>=10) {
+        if(attempts!=null && attempts>=limit(request)) {
             response.setHeader("Retry-After","600");
             response.setStatus(429);
             response.setContentType("application/problem+json");
             response.getWriter().write("{\"title\":\"Too Many Requests\",\"status\":429}");
             return;
         }
-        boolean valid = validCredentials(request);
+        boolean throttledEndpoint=throttledEndpoint(request);
+        boolean valid = !throttledEndpoint && validCredentials(request);
         if(valid) {
             jdbc.update("DELETE FROM auth_login_attempt WHERE key_sha256=?",key);
             chain.doFilter(request,response);
             return;
         }
-        // Count only invalid credentials, not valid credentials rejected by MFA/authorization.
-        // Count attempted Basic authentication before invoking Spring Security:
-        // failed authentication may exit the chain by an exception path.
+        // Count anonymous high-risk endpoint requests and invalid Basic credentials before
+        // invoking Spring Security: authentication failures may exit the chain by exception.
         jdbc.update("""
             INSERT INTO auth_login_attempt(key_sha256,attempts,window_start,updated_at)
             VALUES (?,1,now(),now())
@@ -72,11 +72,7 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
         } catch(Exception ex) {return false;}
     }
     static String key(HttpServletRequest request) {
-        if("POST".equals(request.getMethod())
-                && ("/api/v1/security/platform-admin/google".equals(request.getRequestURI())
-                || "/api/v1/security/google".equals(request.getRequestURI())
-                || "/api/v1/security/signup".equals(request.getRequestURI())
-                || "/api/v1/security/signup/google".equals(request.getRequestURI()))) {
+        if(throttledEndpoint(request)) {
             try {
                 var digest=MessageDigest.getInstance("SHA-256").digest(
                     (request.getRemoteAddr()+"|"+request.getRequestURI()).getBytes(StandardCharsets.UTF_8));
@@ -94,5 +90,27 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
                 (request.getRemoteAddr()+"|"+user).getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(digest);
         } catch(Exception ex) {return null;}
+    }
+
+    private static boolean throttledEndpoint(HttpServletRequest request){
+        if(!"POST".equals(request.getMethod())) return false;
+        String path=request.getRequestURI();
+        return "/api/v1/security/platform-admin/google".equals(path)
+                || "/api/v1/security/google".equals(path)
+                || "/api/v1/security/signup".equals(path)
+                || "/api/v1/security/signup/google".equals(path)
+                || "/api/v1/security/password-reset/request".equals(path)
+                || "/api/v1/security/password-reset/confirm".equals(path)
+                || "/api/v1/invitations/accept".equals(path)
+                || "/api/v1/invitations/accept/google".equals(path)
+                || "/api/v1/security/mfa/confirm".equals(path)
+                || path.startsWith("/api/v1/platform-admin/mfa/");
+    }
+
+    private static int limit(HttpServletRequest request){
+        String path=request.getRequestURI();
+        if("/api/v1/security/password-reset/request".equals(path)) return 5;
+        if("/api/v1/security/mfa/confirm".equals(path)||path.startsWith("/api/v1/platform-admin/mfa/")) return 8;
+        return 10;
     }
 }
