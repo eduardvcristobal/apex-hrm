@@ -1862,6 +1862,38 @@ select:not([multiple]) option:checked { color: #007f75; background: #edf7f4; }
 .approval-empty > span { display: grid; width: 43px; height: 43px; place-items: center; border-radius: 50%; color: #267664; background: #e9f6f0; font-size: 20px; }
 .approval-empty h2 { margin: 13px 0 5px; color: #294542; font: 700 17px 'Manrope',sans-serif; }
 .approval-empty p { margin: 0; color: #82938f; font-size: 12px; }
+.payroll-adjustments-workspace { max-width: 1500px; }
+.payroll-adjustment-metrics { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin: 0 0 14px; }
+.payroll-adjustment-metrics article { display: grid; gap: 5px; min-height: 76px; padding: 15px 17px; border: 1px solid #e0eae7; border-radius: 12px; background: #fff; }
+.payroll-adjustment-metrics article span { color: #84938f; font-size: 10px; font-weight: 800; letter-spacing: .08em; }
+.payroll-adjustment-metrics article strong { color: #294542; font: 700 23px 'Manrope',sans-serif; }
+.payroll-adjustment-layout { display: grid; grid-template-columns: minmax(330px,.8fr) minmax(460px,1.2fr); gap: 14px; align-items: start; }
+.payroll-adjustment-form { display: grid; gap: 0; }
+.payroll-adjustment-form .payroll-panel-heading { margin-bottom: 12px; }
+.payroll-adjustment-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.payroll-adjustment-fields .payroll-field { min-width: 0; }
+.payroll-adjustment-form .payroll-field input,.payroll-adjustment-form .payroll-field textarea,.payroll-adjustment-form .payroll-field select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid #dce7e4; border-radius: 8px; color: #334d49; background: #fbfdfc; font: 12px 'DM Sans',sans-serif; }
+.payroll-adjustment-form .payroll-field textarea { min-height: 86px; resize: vertical; }
+.payroll-adjustment-form .benefits-taxable { display: flex; align-items: center; gap: 8px; margin: 0 0 13px; color: #526965; font-size: 12px; font-weight: 700; }
+.payroll-adjustment-form .benefits-taxable input { width: 16px; height: 16px; margin: 0; accent-color: #087b73; }
+.payroll-adjustment-form > .security-submit { min-height: 40px; margin-top: 3px; }
+.payroll-adjustment-form .payroll-help { margin: 12px 0; }
+.payroll-adjustment-workflow-link { justify-self: start; padding-left: 0; }
+.payroll-adjustment-history { min-width: 0; }
+.payroll-adjustment-list { display: grid; }
+.payroll-adjustment-row { padding: 14px 1px; border-top: 1px solid #edf2f0; }
+.payroll-adjustment-row-heading,.payroll-adjustment-row-detail { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.payroll-adjustment-row-heading > div { display: grid; gap: 4px; min-width: 0; }
+.payroll-adjustment-row-heading strong { color: #344a47; font: 700 13px 'Manrope',sans-serif; }
+.payroll-adjustment-row-heading small,.payroll-adjustment-row > small { color: #82938f; font-size: 11px; line-height: 1.5; }
+.payroll-adjustment-row-detail { align-items: center; margin-top: 9px; color: #647873; font-size: 11px; }
+.payroll-adjustment-row-detail strong { color: #294542; font-size: 13px; }
+.payroll-adjustment-row > p { margin: 8px 0 5px; color: #526965; font-size: 12px; line-height: 1.5; }
+.payroll-adjustment-status { flex: 0 0 auto; padding: 4px 8px; border-radius: 99px; color: #8a672b; background: #fff5df; font-size: 9px; font-weight: 800; letter-spacing: .06em; }
+.payroll-adjustment-status.status-approved { color: #287457; background: #eaf7ef; }
+.payroll-adjustment-status.status-applied { color: #346894; background: #edf5fb; }
+.payroll-adjustment-status.status-rejected { color: #9e5149; background: #fff0ed; }
+.payroll-adjustments-workspace .payroll-empty { padding: 28px 10px; color: #879793; font-size: 12px; text-align: center; }
 @media (max-width: 760px) {
   .reports-heading-actions { flex-wrap: wrap; }
   .reports-heading-actions .security-submit { flex: 1; }
@@ -1871,6 +1903,12 @@ select:not([multiple]) option:checked { color: #007f75; background: #edf7f4; }
   .reports-bar-row { grid-template-columns: minmax(82px,115px) minmax(50px,1fr) 32px; gap: 7px; }
   .pay-setup-grid { grid-template-columns: 1fr; }
   .pay-setup-two-col { grid-template-columns: 1fr; gap: 0; }
+  .payroll-adjustment-metrics { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 7px; }
+  .payroll-adjustment-metrics article { min-height: 68px; padding: 11px 9px; }
+  .payroll-adjustment-metrics article span { font-size: 8px; line-height: 1.4; }
+  .payroll-adjustment-metrics article strong { font-size: 19px; }
+  .payroll-adjustment-layout { grid-template-columns: 1fr; gap: 0; }
+  .payroll-adjustment-fields { grid-template-columns: 1fr; gap: 0; }
   .pay-setup-filter { min-width: 0; width: 100%; }
   .approval-toolbar { align-items: stretch; flex-direction: column; }
   .approval-toolbar .timekeeping-tabs,.approval-toolbar .timekeeping-search { width: 100%; flex-basis: auto; }

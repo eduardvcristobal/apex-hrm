@@ -31,4 +31,5 @@ public class Adjustment extends BaseEntity {
     private UUID requestedBy;
     private UUID approvedBy;
     private Instant approvedAt;
+    private UUID approvalInstanceId;
 }

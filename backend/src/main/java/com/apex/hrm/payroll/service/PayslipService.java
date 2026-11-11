@@ -32,6 +32,10 @@ public class PayslipService {
         this.mapper = mapper;
     }
 
+    public List<Payslip> findByRunId(java.util.UUID runId) {
+        return payslips.findByRunId(runId);
+    }
+
     @Transactional
     public Payslip issue(PayrollRun run, PayPeriod period, PayrollEmployee pe, List<PayrollLine> lines) {
         Employee emp = employees.findById(pe.getEmployeeId()).orElseThrow();

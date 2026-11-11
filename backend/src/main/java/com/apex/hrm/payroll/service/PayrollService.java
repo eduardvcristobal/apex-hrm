@@ -281,16 +281,37 @@ public class PayrollService {
         return runs.save(run);
     }
 
-    /** Freezes the period: issues payslips, reduces loan balances and locks the DTR days that were paid. */
+    /** Issues employee-visible payslip snapshots and opens the acknowledgement window. */
     @Transactional
-    public PayrollRun lock(UUID runId) {
+    public PayrollRun publishForEmployeeReview(UUID runId) {
         PayrollRun run = load(runId);
         requireStatus(run, "APPROVED");
         PayPeriod period = periods.findById(run.getPayPeriodId()).orElseThrow();
         List<PayrollEmployee> pes = payrollEmployees.findByRunId(runId);
         Map<UUID, List<PayrollLine>> byEmployee = new LinkedHashMap<>();
+        for (PayrollLine line : lines.findByRunId(runId)) {
+            byEmployee.computeIfAbsent(line.getPayrollEmployeeId(), key -> new ArrayList<>()).add(line);
+        }
+        for (PayrollEmployee pe : pes) {
+            payslips.issue(run, period, pe, byEmployee.getOrDefault(pe.getId(), List.of()));
+        }
+        run.setStatus("EMPLOYEE_REVIEW");
+        audit.log("PayrollRun", runId, "PUBLISH_FOR_EMPLOYEE_REVIEW", pes.size() + " payslips published");
+        return runs.save(run);
+    }
+
+    /** Freezes an acknowledged run, reduces loan balances, and locks the DTR days that were paid. */
+    @Transactional
+    public PayrollRun lock(UUID runId) {
+        PayrollRun run = load(runId);
+        requireStatus(run, "EMPLOYEE_REVIEW");
+        PayPeriod period = periods.findById(run.getPayPeriodId()).orElseThrow();
+        List<PayrollEmployee> pes = payrollEmployees.findByRunId(runId);
+        List<com.apex.hrm.payroll.domain.Payslip> employeeSlips = payslipsForRun(runId);
+        if (employeeSlips.size() != pes.size() || employeeSlips.stream().anyMatch(slip -> slip.getAcknowledgedAt() == null)) {
+            throw new BusinessException("Every employee must acknowledge their published payslip before payroll can be closed");
+        }
         for (PayrollLine l : lines.findByRunId(runId)) {
-            byEmployee.computeIfAbsent(l.getPayrollEmployeeId(), k -> new ArrayList<>()).add(l);
             if ("LOAN".equals(l.getSourceType()) && l.getSourceId() != null) {
                 Loan loan = loans.findById(l.getSourceId()).orElseThrow();
                 loan.setBalance(loan.getBalance().subtract(l.getAmount()).max(BigDecimal.ZERO));
@@ -301,7 +322,6 @@ public class PayrollService {
             }
         }
         for (PayrollEmployee pe : pes) {
-            payslips.issue(run, period, pe, byEmployee.getOrDefault(pe.getId(), List.of()));
             if (isRegularPeriodRun(run.getRunType())) {
                 for (DtrDay d : dtrDays.findByEmployeeIdAndWorkDateBetween(pe.getEmployeeId(), period.getStartDate(), period.getEndDate())) {
                     d.setStatus("LOCKED");
@@ -315,8 +335,18 @@ public class PayrollService {
         }
         run.setStatus("LOCKED");
         run.setLockedAt(Instant.now());
-        audit.log("PayrollRun", runId, "LOCK", pes.size() + " payslips issued");
+        audit.log("PayrollRun", runId, "LOCK", pes.size() + " employee payslips acknowledged; payroll closed");
         return runs.save(run);
+    }
+
+    private List<com.apex.hrm.payroll.domain.Payslip> payslipsForRun(UUID runId) {
+        return payslips.findByRunId(runId);
+    }
+
+    public Map<String, Integer> employeeAcknowledgementCounts(UUID runId) {
+        List<com.apex.hrm.payroll.domain.Payslip> slips = payslipsForRun(runId);
+        int acknowledged = (int) slips.stream().filter(slip -> slip.getAcknowledgedAt() != null).count();
+        return Map.of("acknowledged", acknowledged, "total", slips.size(), "pending", slips.size() - acknowledged);
     }
 
     @Transactional

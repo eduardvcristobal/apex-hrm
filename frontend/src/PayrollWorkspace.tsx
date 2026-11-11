@@ -12,10 +12,11 @@ type BankFile = { id: string; runId: string; bankTemplateId: string; fileName: s
 type BankCreditResult = { id: string; employeeNo: string; amount: number; creditStatus: 'ACCEPTED' | 'REJECTED'; bankReference: string };
 type BankSettlement = { id: string; runId: string; bankFileId: string; bankReference: string; acknowledgedAmount: number; evidenceReference: string; status: 'RECORDED' | 'CONFIRMED' | 'REJECTED' | 'REVERSED'; recordedBy: string; confirmedBy: string | null; exceptionReason: string | null; exceptionEvidenceReference: string | null };
 type SettlementSummary = { expected: number; confirmed: number; outstanding: number; status: string; acknowledgments: BankSettlement[] };
+type EmployeeAcknowledgements = { acknowledged: number; total: number; pending: number };
 
 const money = (amount: number) => new Intl.NumberFormat(undefined, { style: 'currency', currency: 'PHP' }).format(Number(amount || 0));
 const date = (value: string) => new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`));
-const stages = ['DRAFT', 'COMPUTED', 'REVIEWED', 'APPROVED', 'LOCKED', 'PAID'];
+const stages = ['DRAFT', 'COMPUTED', 'REVIEWED', 'APPROVED', 'EMPLOYEE_REVIEW', 'LOCKED', 'PAID'];
 
 export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onOpenSecurity: () => void }) {
   const [periods, setPeriods] = useState<PayPeriod[]>([]);
@@ -29,6 +30,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
   const [bankFiles, setBankFiles] = useState<BankFile[]>([]);
   const [bankOutcomes, setBankOutcomes] = useState<Record<string, BankCreditResult[]>>({});
   const [settlementSummary, setSettlementSummary] = useState<SettlementSummary | null>(null);
+  const [employeeAcknowledgements, setEmployeeAcknowledgements] = useState<EmployeeAcknowledgements | null>(null);
   const [bankTemplateId, setBankTemplateId] = useState('');
   const [bankReference, setBankReference] = useState('');
   const [evidenceReference, setEvidenceReference] = useState('');
@@ -107,6 +109,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
       const outcomes = await Promise.all(files.map(file => request<BankCreditResult[]>(`/api/payroll/bank-results/${file.id}`)));
       setRunEmployees(employeeRows); setLines(lineRows);
       setBankFiles(files); setSettlementSummary(summary);
+      setEmployeeAcknowledgements(run.status === 'EMPLOYEE_REVIEW' ? await request<EmployeeAcknowledgements>(`/api/payroll/runs/${run.id}/employee-acknowledgements`) : null);
       setBankOutcomes(Object.fromEntries(files.map((file, index) => [file.id, outcomes[index]])));
     } catch (reason) { setRunEmployees([]); setLines([]); setBankFiles([]); setBankOutcomes({}); setSettlementSummary(null); setError(reason instanceof Error ? reason.message : 'Could not load payroll run details.'); }
   }
@@ -279,7 +282,8 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
     DRAFT: { action: 'compute', label: 'Compute payroll' },
     COMPUTED: { action: 'review', label: 'Mark reviewed' },
     REVIEWED: { action: 'approve', label: 'Approve run', confirm: 'Approve this payroll run? This records you as the approver.' },
-    APPROVED: { action: 'lock', label: 'Lock & issue payslips', confirm: 'Lock this payroll run? Payslips will be issued and the period’s DTR and pay period will be frozen.' },
+    APPROVED: { action: 'publish-for-employee-review', label: 'Publish payslips for employee review', confirm: 'Publish payslips to employees? Payroll remains open until every employee acknowledges their payslip.' },
+    EMPLOYEE_REVIEW: { action: 'lock', label: 'Close payroll after acknowledgements', confirm: 'Close and freeze this payroll run? Every employee must have acknowledged their payslip.' },
     LOCKED: { action: 'pay', label: 'Mark paid', confirm: 'Confirm that this payroll run has been paid?' },
   };
   const action = selected ? lifecycleAction[selected.status] : undefined;
@@ -314,6 +318,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
       {action?.action === 'pay' && settlementSummary && (settlementSummary.expected <= 0 || settlementSummary.confirmed !== settlementSummary.expected) && <p className="payroll-help">Mark as paid is available after confirmed bank acknowledgments cover the full payroll net amount.</p>}
       {selected.remarks && <div className="payroll-warning">{selected.remarks}</div>}
       <div className="payroll-lifecycle">{stages.map((stage, index) => <div key={stage} className={stages.indexOf(selected.status) >= index ? 'complete' : ''}><i>{stages.indexOf(selected.status) >= index ? '✓' : index + 1}</i><span>{stage.replaceAll('_', ' ')}</span></div>)}</div>
+      {selected.status === 'EMPLOYEE_REVIEW' && <p className="payroll-help">Employee payslip acknowledgements: <strong>{employeeAcknowledgements?.acknowledged ?? 0} / {employeeAcknowledgements?.total ?? selected.employeeCount}</strong>{(employeeAcknowledgements?.pending ?? selected.employeeCount) > 0 ? ` · ${employeeAcknowledgements?.pending ?? selected.employeeCount} still pending` : ' · all employees acknowledged'}</p>}
       <section className="payroll-panel">
         <div className="payroll-panel-heading"><div><p className="eyebrow">BANK SETTLEMENT</p><h2>Payment reconciliation</h2></div><span>{settlementSummary?.status || 'UNSETTLED'}</span></div>
         <p className="payroll-help">Bank files are payment instructions, not proof of payment. Record a bank acknowledgment only after checking the external bank evidence; another payroll administrator must confirm it before this run can be marked paid.</p>
@@ -358,7 +363,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
       <div className="payroll-panel-heading payroll-register-heading"><div><p className="eyebrow">EMPLOYEE REGISTER</p><h2>Employee calculations</h2></div><span>{runEmployees.length} employees</span></div>
       {runEmployees.length ? <div className="timekeeping-table-wrap"><table className="timekeeping-table payroll-employee-table"><thead><tr><th>EMPLOYEE</th><th>GROSS</th><th>REGULAR TAXABLE</th><th>SUPPLEMENTARY TAXABLE</th><th>TAXABLE TOTAL</th><th>DEDUCTIONS</th><th>NET PAY</th><th>EMPLOYER COST</th></tr></thead><tbody>{runEmployees.map(item => { const employee = employeeById.get(item.employeeId); return <tr key={item.id}><td><strong>{employee ? `${employee.firstName} ${employee.lastName}` : 'Employee'}</strong><small>{employee?.employeeNo || item.employeeId}</small>{item.warnings && <small className="payroll-warning-text">{item.warnings}</small>}</td><td>{money(item.gross)}</td><td>{money(item.regularTaxableIncome)}</td><td>{money(item.supplementaryTaxableIncome)}</td><td>{money(item.taxableIncome)}</td><td>{money(item.totalDeductions)}</td><td><strong>{money(item.netPay)}</strong></td><td>{money(item.employerCost)}</td></tr>; })}</tbody></table></div> : <div className="timekeeping-empty">{selected.status === 'DRAFT' ? 'Compute the run to create employee calculations.' : 'No employees were included in this run.'}</div>}
       {runEmployees.length > 0 && <details className="payroll-lines-details"><summary>View {lines.length} payroll line items</summary><div className="timekeeping-table-wrap"><table className="timekeeping-table"><thead><tr><th>EMPLOYEE</th><th>CODE</th><th>DESCRIPTION</th><th>CATEGORY</th><th>TAXABLE</th><th>AMOUNT</th></tr></thead><tbody>{lines.map(line => { const employee = employeeById.get(line.employeeId); return <tr key={line.id}><td>{employee ? `${employee.firstName} ${employee.lastName}` : 'Employee'}</td><td>{line.itemCode}</td><td>{line.description}</td><td>{line.category}</td><td>{line.taxable ? 'Yes' : 'No'}</td><td>{money(line.amount)}</td></tr>; })}</tbody></table></div></details>}
-      <p className="timekeeping-footnote">The sequence is DRAFT → COMPUTED → REVIEWED → APPROVED → LOCKED → PAID. Locking issues payslips and freezes the regular pay period and included DTR days.</p>
+      <p className="timekeeping-footnote">The sequence is DRAFT → COMPUTED → REVIEWED → APPROVED → EMPLOYEE REVIEW → LOCKED → PAID. Publishing issues payslips in self service; closing is blocked until each employee acknowledges. Closing freezes the regular pay period and included DTR days.</p>
     </section>}
     {selected && !action && selected.status === 'PAID' && <p className="payroll-complete-note">This run is paid and complete.</p>}
     <p className="timekeeping-footnote">Pay groups and pay periods are managed through the payroll setup API. This screen does not create missing pay configuration automatically.</p>

@@ -22,4 +22,5 @@ public class Payslip extends BaseEntity {
     private Integer versionNo = 1;
     private String snapshot;
     private Instant issuedAt;
+    private Instant acknowledgedAt;
 }

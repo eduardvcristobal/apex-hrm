@@ -14,6 +14,7 @@ import java.util.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -45,8 +46,22 @@ public class SelfServiceController {
         authenticated(user); return tenants.inTenant(user.tenantId(),()->{ EmployeeRef ids=employee(user); Map<String,Object> profile=employeeRow(ids.personnelId(),user.tenantId());
             List<Map<String,Object>> balances=jdbc.queryForList("SELECT t.id,t.code,t.name,t.paid,t.annual_entitlement AS annual_entitlement,coalesce(sum(l.days),0) AS balance FROM leave_type t LEFT JOIN leave_ledger l ON l.tenant_id=t.tenant_id AND l.leave_type_id=t.id AND l.employee_id=? WHERE t.tenant_id=? GROUP BY t.id ORDER BY t.name",ids.timekeepingId(),user.tenantId());
             List<Map<String,Object>> dtr=jdbc.queryForList("SELECT work_date,day_type,first_in,last_out,regular_minutes,late_minutes,undertime_minutes,ot_approved_minutes,absent,paid_leave,status FROM dtr_day WHERE tenant_id=? AND employee_id=? AND work_date>=current_date-30 ORDER BY work_date DESC",user.tenantId(),ids.timekeepingId());
-            List<Map<String,Object>> payroll=jdbc.queryForList("SELECT p.id,r.run_type AS run_type,pp.start_date AS period_start,pp.end_date AS period_end,pp.pay_date AS pay_date,pe.net_pay AS net_pay FROM payslip p JOIN payroll_run r ON r.tenant_id=p.tenant_id AND r.id=p.run_id JOIN pay_period pp ON pp.tenant_id=r.tenant_id AND pp.id=r.pay_period_id JOIN payroll_employee pe ON pe.tenant_id=p.tenant_id AND pe.id=p.payroll_employee_id WHERE p.tenant_id=? AND p.employee_id=? ORDER BY pp.pay_date DESC LIMIT 12",user.tenantId(),ids.timekeepingId());
+            List<Map<String,Object>> payroll=jdbc.queryForList("SELECT p.id,p.snapshot,p.acknowledged_at,r.status AS run_status,r.run_type AS run_type,pp.start_date AS period_start,pp.end_date AS period_end,pp.pay_date AS pay_date,pe.net_pay AS net_pay FROM payslip p JOIN payroll_run r ON r.tenant_id=p.tenant_id AND r.id=p.run_id JOIN pay_period pp ON pp.tenant_id=r.tenant_id AND pp.id=r.pay_period_id JOIN payroll_employee pe ON pe.tenant_id=p.tenant_id AND pe.id=p.payroll_employee_id WHERE p.tenant_id=? AND p.employee_id=? AND r.status IN ('EMPLOYEE_REVIEW','LOCKED','PAID') ORDER BY pp.pay_date DESC LIMIT 1000",user.tenantId(),ids.timekeepingId());
             return Map.of("profile",profile,"leaveBalances",balances,"attendance",dtr,"payslips",payroll,"leaveRequests",jdbc.queryForList("SELECT r.id,r.date_from,r.date_to,r.days,r.reason,r.status,t.name AS leave_type FROM leave_request r JOIN leave_type t ON t.tenant_id=r.tenant_id AND t.id=r.leave_type_id WHERE r.tenant_id=? AND r.employee_id=? ORDER BY r.created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()),"overtimeRequests",jdbc.queryForList("SELECT id,work_date,minutes_requested,approved_minutes,reason,status FROM overtime_request WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()),"attendanceCorrections",jdbc.queryForList("SELECT id,work_date,requested_in,requested_out,reason,status FROM attendance_correction WHERE tenant_id=? AND employee_id=? ORDER BY created_at DESC LIMIT 100",user.tenantId(),ids.timekeepingId()));
+        });
+    }
+    @PostMapping("/payslips/{payslipId}/acknowledge")
+    @Transactional
+    public Map<String,Object> acknowledgePayslip(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID payslipId) {
+        authenticated(user); return tenants.inTenant(user.tenantId(),()->{
+            UUID employeeId=employee(user).timekeepingId();
+            int changed=jdbc.update("UPDATE payslip p SET acknowledged_at=coalesce(p.acknowledged_at,now()),updated_at=now() FROM payroll_run r WHERE p.tenant_id=? AND p.id=? AND p.employee_id=? AND r.tenant_id=p.tenant_id AND r.id=p.run_id AND r.status='EMPLOYEE_REVIEW'",user.tenantId(),payslipId,employeeId);
+            if(changed==1) jdbc.update("INSERT INTO audit_event(tenant_id,actor_id,action,entity_type,entity_id) VALUES(?,?,'PAYSLIP_ACKNOWLEDGED','payslip',?)",user.tenantId(),user.id(),payslipId);
+            if(changed==0) {
+                Boolean already=jdbc.query("SELECT p.acknowledged_at IS NOT NULL FROM payslip p JOIN payroll_run r ON r.tenant_id=p.tenant_id AND r.id=p.run_id WHERE p.tenant_id=? AND p.id=? AND p.employee_id=? AND r.status IN ('LOCKED','PAID')",rs->rs.next()?rs.getBoolean(1):null,user.tenantId(),payslipId,employeeId);
+                if(!Boolean.TRUE.equals(already)) throw new ResponseStatusException(HttpStatus.CONFLICT,"This payslip is not available for acknowledgement");
+            }
+            return Map.of("id",payslipId,"acknowledged",true);
         });
     }
     @GetMapping("/leave-types") public List<Map<String,Object>> leaveTypes(@AuthenticationPrincipal HrmUserPrincipal user) {

@@ -8,6 +8,7 @@ import { LeaveWorkspace } from './LeaveWorkspace';
 import { OvertimeWorkspace } from './OvertimeWorkspace';
 import { ScheduleWorkspace } from './ScheduleWorkspace';
 import { PayrollWorkspace } from './PayrollWorkspace';
+import { PayrollAdjustmentsWorkspace } from './PayrollAdjustmentsWorkspace';
 import { BenefitsWorkspace } from './BenefitsWorkspace';
 import { PayslipsWorkspace } from './PayslipsWorkspace';
 import { TaxComplianceWorkspace } from './TaxComplianceWorkspace';
@@ -31,7 +32,7 @@ import './styles.css';
 const TOKEN_KEY = 'apexHrm.accessToken';
 const EXPIRY_KEY = 'apexHrm.expiresAt';
 
-const workspaceRouteSections = ['Overview','My workspace','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Headcount requests','Performance','Learning & development','My learning','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Approval workflows','Payroll','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
+const workspaceRouteSections = ['Overview','My workspace','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Headcount requests','Performance','Learning & development','My learning','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Approval workflows','Payroll','Payroll adjustments','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
 const platformRouteSections = ['Subscriptions','Payment requests','Plan maintenance','Payment QR','Module status','Mail settings','Backup & restore','Account security'];
 function sectionFromPath(pathname: string, base: string, sections: readonly string[], fallback: string) {
   const slug = pathname.replace(new RegExp(`^${base}/?`), '').split('/')[0];
@@ -465,6 +466,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
       label: 'Payroll',
       items: [
         { label: 'Payroll', displayLabel: 'Payroll runs', icon: '₱', available: canManagePayroll },
+        { label: 'Payroll adjustments', icon: '↗', available: canManagePayroll },
         { label: 'Pay groups & periods', icon: '◷', available: canManagePayroll },
         { label: 'Benefits & deductions', icon: '＋', available: canManagePayrollItems },
         { label: 'Payslips', icon: '▤', available: canManagePayroll },
@@ -739,6 +741,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
             : activeSection === 'My workspace' ? <SelfServiceWorkspace key={activeSection} token={token} />
             : activeSection === 'Schedules & shifts' && canManageTimekeeping ? <ScheduleWorkspace key={activeSection} token={token} />
             : activeSection === 'Payroll' && canManagePayroll ? <PayrollWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
+            : activeSection === 'Payroll adjustments' && canManagePayroll ? <PayrollAdjustmentsWorkspace key={activeSection} token={token} currentUserId={user.id} canConfigureWorkflows={user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role))} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} onOpenApprovalWorkflows={() => { setActiveModule('Personnel management'); setActiveSection('Approval workflows'); }} />
             : activeSection === 'Pay groups & periods' && canManagePayroll ? <PaySetupWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Benefits & deductions' && canManagePayrollItems ? <BenefitsWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
             : activeSection === 'Payslips' && canManagePayroll ? <PayslipsWorkspace key={activeSection} token={token} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />

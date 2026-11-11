@@ -26,6 +26,7 @@ import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.Page;
@@ -59,7 +60,8 @@ public class PayrollController {
     }
 
     public record AdjustmentRequest(UUID employeeId, String itemCode, String description, String category, BigDecimal amount,
-                                    Boolean taxable, String reason, UUID sourcePeriodId, UUID targetPeriodId, UUID requestedBy) {
+                                    Boolean taxable, String reason, UUID sourcePeriodId, UUID targetPeriodId,
+                                    String incomeClass) {
     }
 
     public record BankFileSummary(UUID id, UUID runId, UUID bankTemplateId, String fileName, UUID recoverySourceFileId,
@@ -345,6 +347,16 @@ public class PayrollController {
         return payroll.lock(id);
     }
 
+    @PostMapping("/runs/{id}/publish-for-employee-review")
+    public PayrollRun publishForEmployeeReview(@PathVariable UUID id) {
+        return payroll.publishForEmployeeReview(id);
+    }
+
+    @GetMapping("/runs/{id}/employee-acknowledgements")
+    public Map<String, Integer> employeeAcknowledgements(@PathVariable UUID id) {
+        return payroll.employeeAcknowledgementCounts(id);
+    }
+
     @PostMapping("/runs/{id}/pay")
     public PayrollRun pay(@PathVariable UUID id) {
         return payroll.markPaid(id);
@@ -395,9 +407,10 @@ public class PayrollController {
 
     @PostMapping("/adjustments")
     @ResponseStatus(HttpStatus.CREATED)
-    public Adjustment createAdjustment(@RequestBody AdjustmentRequest r) {
-        return adjustments.create(r.employeeId(), r.itemCode(), r.description(), r.category(), r.amount(),
-                r.taxable() == null || r.taxable(), r.reason(), r.sourcePeriodId(), r.targetPeriodId(), r.requestedBy());
+    public Adjustment createAdjustment(@RequestBody AdjustmentRequest r, @AuthenticationPrincipal HrmUserPrincipal user) {
+        return adjustments.create(user.tenantId(), r.employeeId(), r.itemCode(), r.description(), r.category(), r.amount(),
+                r.taxable() == null || r.taxable(), r.reason(), r.sourcePeriodId(), r.targetPeriodId(),
+                r.incomeClass(), user.id());
     }
 
     @PostMapping("/adjustments/{id}/approve")
