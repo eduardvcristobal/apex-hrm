@@ -2,6 +2,7 @@ package com.apex.hrm.timekeeping.domain;
 
 import com.apex.hrm.common.BaseEntity;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Column;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -22,6 +23,7 @@ public class TimeLog extends BaseEntity {
     private String source;
     private BigDecimal latitude;
     private BigDecimal longitude;
+    @Column(name = "location_accuracy_m")
     private BigDecimal locationAccuracyM;
     private String deviceId;
     private String photoRef;
