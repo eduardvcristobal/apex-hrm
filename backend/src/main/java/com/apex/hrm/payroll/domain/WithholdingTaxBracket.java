@@ -16,6 +16,7 @@ import lombok.Setter;
 @Getter
 @Setter
 public class WithholdingTaxBracket extends GlobalEntity {
+    private String sourceReference;
     private LocalDate effectiveFrom;
     private String periodType;
     private BigDecimal lowerBound;

@@ -17,6 +17,7 @@ import lombok.Setter;
 @Setter
 public class StatutoryContributionRule extends GlobalEntity {
     private String agency;
+    private String sourceReference;
     private LocalDate effectiveFrom;
     private LocalDate effectiveTo;
     private BigDecimal employeeRate;

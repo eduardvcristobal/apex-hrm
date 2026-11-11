@@ -16,6 +16,7 @@ import lombok.Setter;
 @Getter
 @Setter
 public class PremiumRule extends GlobalEntity {
+    private String sourceReference;
     private String dayType;
     private BigDecimal workedMultiplier;
     private BigDecimal otMultiplier;
