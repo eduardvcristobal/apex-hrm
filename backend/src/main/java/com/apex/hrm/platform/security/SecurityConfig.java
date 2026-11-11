@@ -195,6 +195,8 @@ public class SecurityConfig {
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers(HttpMethod.POST, "/api/reference/rule-proposals")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_PAYROLL_OFFICER"))
+                .requestMatchers(HttpMethod.PATCH, "/api/reference/rule-proposals/notifications/*/read")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers(HttpMethod.POST, "/api/reference/**")
                     .denyAll()
                 .requestMatchers(HttpMethod.PUT, "/api/reference/**")

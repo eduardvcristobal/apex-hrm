@@ -30,11 +30,12 @@ public class AuditLogController {
             @RequestParam(defaultValue = "250") int limit) {
         int safeLimit = Math.min(500, Math.max(1, limit));
         return tenants.inTenant(actor.tenantId(), () -> jdbc.query("""
-                SELECT event.id,event.occurred_at,identity.email AS actor_email,
+                SELECT event.id,event.occurred_at,coalesce(identity.email,platform_admin.email) AS actor_email,
                        event.action,event.entity_type,event.entity_id
                 FROM audit_event event
                 LEFT JOIN auth_identity identity
                   ON identity.id=event.actor_id AND identity.tenant_id=event.tenant_id
+                LEFT JOIN auth_platform_admin platform_admin ON platform_admin.id=event.actor_id
                 WHERE event.tenant_id=?
                 ORDER BY event.occurred_at DESC,event.id DESC
                 LIMIT ?

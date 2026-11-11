@@ -9,18 +9,22 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Tenant submissions are proposals only; shared reference rules change after platform review. */
@@ -38,6 +42,10 @@ public class StatutoryRuleProposalController {
 
     public record Submission(String ruleType,LocalDate effectiveFrom,Map<String,Object> payload){}
     public record Decision(boolean approve,String note){}
+    public record Notification(UUID id,UUID proposalId,String status,String message,Instant createdAt,Instant readAt){}
+    public record DecisionHistory(UUID id,String workspaceName,String ruleType,LocalDate effectiveFrom,String status,
+            String submitterEmail,Instant submittedAt,String reviewerEmail,Instant reviewedAt,String reviewNote,
+            UUID appliedRuleId,String payload){}
     public record Proposal(UUID id,UUID tenantId,String workspaceName,String ruleType,LocalDate effectiveFrom,String payload,String status,
                            OffsetDateTime submittedAt,UUID submittedBy,UUID reviewedBy,OffsetDateTime reviewedAt,
                            String reviewNote,UUID appliedRuleId){}
@@ -61,8 +69,23 @@ public class StatutoryRuleProposalController {
         return tenants.inTenant(user.tenantId(),()->{
             UUID id=UUID.randomUUID();
             jdbc.update("INSERT INTO statutory_rule_proposal(id,tenant_id,submitted_by,rule_type,effective_from,payload) VALUES (?,?,?,?,?,?::jsonb)",id,user.tenantId(),user.id(),type,input.effectiveFrom(),json);
+            jdbc.update("INSERT INTO audit_event(tenant_id,actor_id,action,entity_type,entity_id,metadata) VALUES(?,?,'STATUTORY_RULE_PROPOSAL_SUBMITTED','statutory_rule_proposal',?,jsonb_build_object('rule_type',?,'effective_from',?::text))",user.tenantId(),user.id(),id,type,input.effectiveFrom().toString());
             return jdbc.queryForObject("SELECT p.id,p.tenant_id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.payload::text,p.status,p.submitted_at,p.submitted_by,p.reviewed_by,p.reviewed_at,p.review_note,p.applied_rule_id FROM statutory_rule_proposal p JOIN tenant t ON t.id=p.tenant_id WHERE p.id=?",(rs,n)->map(rs),id);
         });
+    }
+
+    @GetMapping("/api/reference/rule-proposals/notifications")
+    public List<Notification> notifications(@AuthenticationPrincipal HrmUserPrincipal user){
+        return tenants.inTenant(user.tenantId(),()->jdbc.query("""
+            SELECT id,proposal_id,status,message,created_at,read_at FROM statutory_rule_notification
+            WHERE tenant_id=? AND recipient_id=? ORDER BY created_at DESC LIMIT 100
+            """,(rs,n)->new Notification(rs.getObject("id",UUID.class),rs.getObject("proposal_id",UUID.class),rs.getString("status"),rs.getString("message"),rs.getTimestamp("created_at").toInstant(),rs.getTimestamp("read_at")==null?null:rs.getTimestamp("read_at").toInstant()),user.tenantId(),user.id()));
+    }
+
+    @PatchMapping("/api/reference/rule-proposals/notifications/{id}/read")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void markNotificationRead(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID id){
+        tenants.inTenant(user.tenantId(),()->jdbc.update("UPDATE statutory_rule_notification SET read_at=now() WHERE id=? AND tenant_id=? AND recipient_id=? AND read_at IS NULL",id,user.tenantId(),user.id()));
     }
 
     @GetMapping("/api/v1/platform-admin/statutory-rule-proposals")
@@ -73,6 +96,22 @@ public class StatutoryRuleProposalController {
             SELECT p.id,p.tenant_id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.payload::text,p.status,p.submitted_at,p.submitted_by,p.reviewed_by,p.reviewed_at,p.review_note,p.applied_rule_id
             FROM statutory_rule_proposal p JOIN tenant t ON t.id=p.tenant_id WHERE p.status='PENDING' ORDER BY p.submitted_at
             """,(rs,n)->map(rs));
+    }
+
+    @GetMapping("/api/v1/platform-admin/statutory-rule-proposals/history")
+    @Transactional(readOnly=true)
+    public List<DecisionHistory> history(@AuthenticationPrincipal PlatformAdminPrincipal admin){
+        platformScope();
+        return jdbc.query("""
+            SELECT p.id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.status,
+                   submitter.email AS submitter_email,p.submitted_at,reviewer.email AS reviewer_email,
+                   p.reviewed_at,p.review_note,p.applied_rule_id,p.payload::text AS payload
+            FROM statutory_rule_proposal p
+            JOIN tenant t ON t.id=p.tenant_id
+            LEFT JOIN auth_identity submitter ON submitter.id=p.submitted_by AND submitter.tenant_id=p.tenant_id
+            LEFT JOIN auth_platform_admin reviewer ON reviewer.id=p.reviewed_by
+            WHERE p.status<>'PENDING' ORDER BY p.reviewed_at DESC,p.id DESC LIMIT 500
+            """,(rs,n)->new DecisionHistory(rs.getObject("id",UUID.class),rs.getString("workspace_name"),rs.getString("rule_type"),rs.getObject("effective_from",LocalDate.class),rs.getString("status"),rs.getString("submitter_email"),rs.getTimestamp("submitted_at").toInstant(),rs.getString("reviewer_email"),rs.getTimestamp("reviewed_at").toInstant(),rs.getString("review_note"),rs.getObject("applied_rule_id",UUID.class),rs.getString("payload")));
     }
 
     @PostMapping("/api/v1/platform-admin/statutory-rule-proposals/{id}/decision")
@@ -93,6 +132,14 @@ public class StatutoryRuleProposalController {
         }
         jdbc.update("UPDATE statutory_rule_proposal SET status=?,reviewed_by=?,reviewed_at=now(),review_note=?,applied_rule_id=? WHERE id=? AND status='PENDING'",
                 decision.approve()?"APPROVED":"REJECTED",admin.id(),decision.note().trim(),applied,id);
+        String result=decision.approve()?"APPROVED":"REJECTED";
+        String message="Your "+proposal.ruleType().replace('_',' ').toLowerCase(java.util.Locale.ROOT)+" proposal effective "+proposal.effectiveFrom()+" was "+result.toLowerCase(java.util.Locale.ROOT)+". Reviewer note: "+decision.note().trim();
+        tenants.inTenant(proposal.tenantId(),()->{
+            jdbc.update("INSERT INTO statutory_rule_notification(tenant_id,recipient_id,proposal_id,status,message) VALUES(?,?,?,?,?)",proposal.tenantId(),proposal.submittedBy(),proposal.id(),result,message);
+            jdbc.update("INSERT INTO audit_event(tenant_id,actor_id,action,entity_type,entity_id,metadata) VALUES(?,?,?,?,?,jsonb_build_object('reviewer_email',?,'review_note',?,'status',?))",
+                    proposal.tenantId(),admin.id(),"STATUTORY_RULE_PROPOSAL_"+result,"statutory_rule_proposal",proposal.id(),admin.email(),decision.note().trim(),result);
+            return null;
+        });
         return jdbc.queryForObject("SELECT p.id,p.tenant_id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.payload::text,p.status,p.submitted_at,p.submitted_by,p.reviewed_by,p.reviewed_at,p.review_note,p.applied_rule_id FROM statutory_rule_proposal p JOIN tenant t ON t.id=p.tenant_id WHERE p.id=?",(rs,n)->map(rs),id);
     }
 
