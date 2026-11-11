@@ -8,7 +8,7 @@ type Review = { id: string; cycleId: string; rating?: number; finalRating?:numbe
 type Appeal = { id:string; reviewId:string; reason:string; status:string; resolution?:string; adjustedRating?:number };
 type ReviewApproval = { approvalId:string; reviewId:string; employeeId:string; firstName:string; lastName:string; cycleName:string; rating:number|null };
 type TeamGoal = { id: string; employeeId: string; title: string; actualValue?: number; status: string };
-type TeamReview = { id: string; employeeId: string; reviewerId: string; rating?: number; status: string };
+type TeamReview = { id: string; employeeId: string; reviewerId: string; rating?: number; status: string; recommendationId?:string; currentAmount?:number; proposedAmount?:number; payBasis?:string; effectiveDate?:string; recommendationStatus?:string };
 type Assignment = { employeeId: string; firstName: string; lastName: string; cycleId: string; cycleName: string };
 async function api<T>(token: string, path: string, method = 'GET', payload?: unknown): Promise<T> {
   const response = await fetch('/api/v1/performance' + path, { method,
@@ -31,6 +31,7 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
   const [selectedAssignment, setSelectedAssignment] = useState('');
   const [managerRatings, setManagerRatings] = useState<Record<string, string>>({});
   const [managerComments, setManagerComments] = useState<Record<string, string>>({});
+  const [recommendations, setRecommendations] = useState<Record<string,{amount:string;effectiveDate:string;reason:string}>>({});
   const [values, setValues] = useState<Record<string,string>>({});
   const [notes, setNotes] = useState<Record<string,string>>({});
   const [appealReasons, setAppealReasons] = useState<Record<string,string>>({});
@@ -105,6 +106,13 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
             <textarea aria-label="Manager assessment" placeholder="Evidence, achievements and development feedback" maxLength={5000} value={managerComments[r.id]||''} onChange={e=>setManagerComments(v=>({...v,[r.id]:e.target.value}))}/>
             <button disabled={busy}>Submit manager evaluation</button>
           </form>}
+          {r.status==='FINALIZED'&&!r.recommendationId&&<form onSubmit={e=>{e.preventDefault();const value=recommendations[r.id]||{amount:'',effectiveDate:new Date().toISOString().slice(0,10),reason:''};void run(()=>api(token,`/reviews/${r.id}/compensation-recommendations`,'POST',{proposedAmount:Number(value.amount),effectiveDate:value.effectiveDate,reason:value.reason}));}}>
+            <h4>Recommend a salary increase</h4><p>Current compensation is checked from the employee's effective-dated pay history. The recommendation requires a configured Compensation change approval workflow.</p>
+            <label>Proposed new pay rate<input type="number" min="0.01" step="0.01" required value={recommendations[r.id]?.amount||''} onChange={e=>setRecommendations(v=>({...v,[r.id]:{amount:e.target.value,effectiveDate:v[r.id]?.effectiveDate||new Date().toISOString().slice(0,10),reason:v[r.id]?.reason||''}}))}/></label>
+            <label>Effective date<input type="date" required value={recommendations[r.id]?.effectiveDate||new Date().toISOString().slice(0,10)} onChange={e=>setRecommendations(v=>({...v,[r.id]:{amount:v[r.id]?.amount||'',effectiveDate:e.target.value,reason:v[r.id]?.reason||''}}))}/></label>
+            <label>Business rationale<textarea required maxLength={4000} value={recommendations[r.id]?.reason||''} onChange={e=>setRecommendations(v=>({...v,[r.id]:{amount:v[r.id]?.amount||'',effectiveDate:v[r.id]?.effectiveDate||new Date().toISOString().slice(0,10),reason:e.target.value}}))}/></label><button disabled={busy}>Submit for approval</button>
+          </form>}
+          {r.recommendationId&&<p>Salary increase recommendation: {r.currentAmount} → {r.proposedAmount} {r.payBasis}, effective {r.effectiveDate} · {r.recommendationStatus}</p>}
         </div>)}
       </div>}
       {isManager&&<div className="performance-panel"><h2>Reviews awaiting my approval</h2>{approvals.length===0?<p>No review approvals are assigned to you.</p>:approvals.map(a=><article key={a.approvalId} className="performance-review-item"><strong>{a.firstName} {a.lastName} · {a.cycleName}</strong><p>Manager rating: {a.rating??'Pending'} / 5</p><label>Approval note<input maxLength={2000} value={approvalNotes[a.approvalId]||''} onChange={e=>setApprovalNotes(v=>({...v,[a.approvalId]:e.target.value}))}/></label><button disabled={busy} onClick={()=>void run(()=>api(token,`/reviews/${a.reviewId}/approvals/${a.approvalId}/approve`,'POST',{note:approvalNotes[a.approvalId]||''}))}>Approve review</button></article>)}</div>}

@@ -2,6 +2,7 @@ package com.apex.hrm.performance;
 
 import com.apex.hrm.platform.security.HrmUserPrincipal;
 import com.apex.hrm.platform.tenant.TenantJdbcExecutor;
+import com.apex.hrm.approvals.ApprovalWorkflowService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
@@ -21,8 +22,9 @@ import org.springframework.web.server.ResponseStatusException;
 public class PerformanceWorkflowController {
     private final JdbcTemplate jdbc;
     private final TenantJdbcExecutor tenants;
-    public PerformanceWorkflowController(JdbcTemplate jdbc,TenantJdbcExecutor tenants) {
-        this.jdbc=jdbc; this.tenants=tenants;
+    private final ApprovalWorkflowService approvals;
+    public PerformanceWorkflowController(JdbcTemplate jdbc,TenantJdbcExecutor tenants,ApprovalWorkflowService approvals) {
+        this.jdbc=jdbc; this.tenants=tenants; this.approvals=approvals;
     }
     public record LinkInput(@NotNull UUID employeeId,@NotNull UUID identityId) {}
     public record ProgressInput(@NotNull @DecimalMin("0") BigDecimal actualValue,
@@ -180,20 +182,60 @@ public class PerformanceWorkflowController {
             UUID manager=employee(user);
             if(!hr(user)&&manager==null) throw denied();
             if(hr(user)) return jdbc.queryForList("""
-                SELECT id,employee_id AS "employeeId",reviewer_id AS "reviewerId",rating,status FROM performance_review
-                WHERE tenant_id=? ORDER BY created_at DESC LIMIT 500
+                SELECT r.id,r.employee_id AS "employeeId",r.reviewer_id AS "reviewerId",r.rating,r.status,
+                  cr.id AS "recommendationId",cr.current_amount AS "currentAmount",cr.proposed_amount AS "proposedAmount",cr.pay_basis AS "payBasis",cr.effective_date AS "effectiveDate",cr.status AS "recommendationStatus"
+                FROM performance_review r LEFT JOIN performance_compensation_recommendation cr ON cr.tenant_id=r.tenant_id AND cr.review_id=r.id
+                WHERE r.tenant_id=? ORDER BY r.created_at DESC LIMIT 500
                 """,user.tenantId());
             return jdbc.queryForList("""
                 SELECT r.id,r.employee_id AS "employeeId",r.reviewer_id AS "reviewerId",r.rating,r.status,
+                  cr.id AS "recommendationId",cr.current_amount AS "currentAmount",cr.proposed_amount AS "proposedAmount",cr.pay_basis AS "payBasis",cr.effective_date AS "effectiveDate",cr.status AS "recommendationStatus",
                   (SELECT count(*) FROM performance_review_approval a WHERE a.tenant_id=r.tenant_id AND a.review_id=r.id) AS "approvalCount",
                   (SELECT count(*) FROM performance_review_approval a WHERE a.tenant_id=r.tenant_id AND a.review_id=r.id AND a.status='APPROVED') AS "approvedCount"
                 FROM performance_review r JOIN personnel_employee e
                 ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
+                LEFT JOIN performance_compensation_recommendation cr ON cr.tenant_id=r.tenant_id AND cr.review_id=r.id
                 WHERE r.tenant_id=? AND e.supervisor_id=? AND r.reviewer_id=?
                 ORDER BY r.created_at DESC LIMIT 500
                 """,user.tenantId(),manager,user.id());
         });
     }
+    @PostMapping("/reviews/{reviewId}/compensation-recommendations")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String,Object> recommendCompensation(@AuthenticationPrincipal HrmUserPrincipal user,
+            @PathVariable UUID reviewId,@Valid @RequestBody CompensationRecommendationInput input) {
+        authenticated(user);
+        if(!has(user,"ROLE_MANAGER")&&!hr(user)) throw denied();
+        return tenants.inTenant(user.tenantId(),()->{
+            UUID manager=employee(user);
+            List<Map<String,Object>> rows=jdbc.queryForList("""
+                SELECT r.employee_id,e.supervisor_id FROM performance_review r
+                JOIN personnel_employee e ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
+                WHERE r.tenant_id=? AND r.id=? AND r.status='FINALIZED' AND r.reviewer_id=?
+                """,user.tenantId(),reviewId,user.id());
+            if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"Finalize the appraisal before recommending a compensation change");
+            UUID target=(UUID)rows.get(0).get("employee_id");
+            if(!hr(user)&&(manager==null||!manager.equals(rows.get(0).get("supervisor_id")))) throw denied();
+            List<Map<String,Object>> compensation=jdbc.queryForList("""
+                SELECT amount,currency_code,pay_basis FROM personnel_compensation_history
+                WHERE tenant_id=? AND employee_id=? AND effective_date<=? ORDER BY effective_date DESC LIMIT 1
+                """,user.tenantId(),target,input.effectiveDate());
+            if(compensation.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"The employee needs an effective compensation record before a raise can be recommended");
+            BigDecimal current=(BigDecimal)compensation.get(0).get("amount");
+            if(input.proposedAmount().compareTo(current)<=0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Proposed compensation must be greater than the current amount");
+            String basis=(String)compensation.get(0).get("pay_basis");
+            UUID id=jdbc.queryForObject("""
+                INSERT INTO performance_compensation_recommendation(tenant_id,review_id,employee_id,current_amount,proposed_amount,currency_code,pay_basis,effective_date,reason,created_by)
+                VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id
+                """,UUID.class,user.tenantId(),reviewId,target,current,input.proposedAmount(),compensation.get(0).get("currency_code"),basis,input.effectiveDate(),input.reason().trim(),user.id());
+            UUID approvalId=approvals.start(user.tenantId(),user.id(),manager==null?target:manager,"COMPENSATION_CHANGE","performance_compensation_recommendation",id,
+                "Compensation increase recommendation: "+current+" to "+input.proposedAmount()+" "+basis+" effective "+input.effectiveDate()+". Reason: "+input.reason().trim());
+            jdbc.update("UPDATE performance_compensation_recommendation SET approval_instance_id=? WHERE tenant_id=? AND id=?",approvalId,user.tenantId(),id);
+            audit(user,"PERFORMANCE_COMPENSATION_RECOMMENDED","performance_compensation_recommendation",id);
+            return Map.of("id",id,"approvalId",approvalId,"status","PENDING","currentAmount",current,"proposedAmount",input.proposedAmount(),"payBasis",basis);
+        });
+    }
+
     @GetMapping("/team/goals")
     public List<Map<String,Object>> teamGoals(@AuthenticationPrincipal HrmUserPrincipal user) {
         authenticated(user);
@@ -257,6 +299,9 @@ public class PerformanceWorkflowController {
     public record ManagerReviewInput(@NotNull @DecimalMin("1") @DecimalMax("5") BigDecimal rating,
                                      @Size(max=5000) String strengths,@Size(max=5000) String improvements,
                                      @Size(max=5000) String comments) {}
+    public record CompensationRecommendationInput(@NotNull @DecimalMin("0.01") BigDecimal proposedAmount,
+                                     @NotNull java.time.LocalDate effectiveDate,
+                                     @NotBlank @Size(max=4000) String reason) {}
     @PostMapping("/reviews/drafts")
     @ResponseStatus(HttpStatus.CREATED)
     public Map<String,Object> draftReview(@AuthenticationPrincipal HrmUserPrincipal user,

@@ -141,6 +141,7 @@ public class SecurityConfig {
                     "/api/v1/performance/reviews/*/approvals/*/approve",
                     "/api/v1/performance/goals/*/progress",
                     "/api/v1/performance/reviews/*/self-assessment",
+                    "/api/v1/performance/reviews/*/compensation-recommendations",
                     "/api/v1/performance/reviews/drafts", "/api/v1/performance/reviews/*/submit",
                     "/api/v1/performance/reviews/*/acknowledge",
                     "/api/v1/performance/plans/*/status",
