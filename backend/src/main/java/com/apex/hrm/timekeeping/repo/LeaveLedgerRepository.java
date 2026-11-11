@@ -19,4 +19,7 @@ public interface LeaveLedgerRepository extends JpaRepository<LeaveLedger, UUID> 
 
     @Query("select coalesce(sum(l.days), 0) from LeaveLedger l where l.employeeId = :e and l.leaveTypeId = :t")
     BigDecimal balance(@Param("e") UUID employeeId, @Param("t") UUID leaveTypeId);
+
+    @Query("select coalesce(sum(l.days), 0) from LeaveLedger l where l.employeeId = :e and l.leaveTypeId = :t and l.entryDate <= :date")
+    BigDecimal balanceAt(@Param("e") UUID employeeId, @Param("t") UUID leaveTypeId, @Param("date") LocalDate date);
 }

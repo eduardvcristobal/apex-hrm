@@ -2,6 +2,7 @@ package com.apex.hrm.payroll.service;
 
 import com.apex.hrm.common.BusinessException;
 import com.apex.hrm.common.NotFoundException;
+import com.apex.hrm.common.TenantContext;
 import com.apex.hrm.payroll.domain.PayGroup;
 import com.apex.hrm.payroll.domain.PayPeriod;
 import com.apex.hrm.payroll.domain.PayrollEmployee;
@@ -40,6 +41,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -63,12 +65,14 @@ public class SettlementService {
     private final PayrollRunRepository runs;
     private final WithholdingTaxBracketRepository taxBrackets;
     private final StatutoryContributionRuleRepository statutoryRules;
+    private final JdbcTemplate jdbc;
 
     public SettlementService(EmployeeRepository employees, CompensationRepository compensations,
                              EmploymentRecordRepository employment, LeaveTypeRepository leaveTypes,
                              LeaveLedgerRepository ledger, LoanRepository loans, PayPeriodRepository periods,
                              PayrollEmployeeRepository payrollEmployees, PayrollLineRepository lines, PayrollRunRepository runs,
-                             WithholdingTaxBracketRepository taxBrackets, StatutoryContributionRuleRepository statutoryRules) {
+                             WithholdingTaxBracketRepository taxBrackets, StatutoryContributionRuleRepository statutoryRules,
+                             JdbcTemplate jdbc) {
         this.employees = employees;
         this.compensations = compensations;
         this.employment = employment;
@@ -81,6 +85,7 @@ public class SettlementService {
         this.runs = runs;
         this.taxBrackets = taxBrackets;
         this.statutoryRules = statutoryRules;
+        this.jdbc = jdbc;
     }
 
     @Transactional
@@ -141,9 +146,10 @@ public class SettlementService {
 
         List<FinalPayCalculator.LeaveBalance> leave = new ArrayList<>();
         for (LeaveType t : leaveTypes.findAll()) {
-            if (Boolean.TRUE.equals(t.getConvertible()) && Boolean.TRUE.equals(t.getPaid())) {
-                BigDecimal days = ledger.balance(emp.getId(), t.getId());
-                if (days != null && t.getCarryOverMax() != null) days = days.min(t.getCarryOverMax());
+            LeaveConversionRule rule = leaveConversionRule(emp.getId(), t, sep);
+            if (rule.convertible() && rule.paid()) {
+                BigDecimal days = ledger.balanceAt(emp.getId(), t.getId(), sep);
+                if (days != null && rule.carryOverMax() != null) days = days.min(rule.carryOverMax());
                 if (days != null && days.signum() > 0) {
                     leave.add(new FinalPayCalculator.LeaveBalance(t.getCode(), days));
                 }
@@ -241,6 +247,19 @@ public class SettlementService {
             out.add(new PayLine(code, description + " (separation-month balance)", category,
                     null, null, remainder, false));
         }
+    }
+
+    private record LeaveConversionRule(boolean paid, boolean convertible, BigDecimal carryOverMax) {}
+
+    private LeaveConversionRule leaveConversionRule(UUID employeeId, LeaveType type, LocalDate date) {
+        UUID tenant = TenantContext.get();
+        if (tenant != null) {
+            List<LeaveConversionRule> rules = jdbc.query("SELECT e.paid,e.convertible,e.carry_over_max FROM employee_leave_benefit_assignment a JOIN leave_benefit_entitlement e ON e.tenant_id=a.tenant_id AND e.profile_id=a.profile_id AND e.leave_type_id=? WHERE a.tenant_id=? AND a.employee_id=? AND a.effective_from<=? AND (a.effective_to IS NULL OR a.effective_to>=?) AND e.effective_from<=? AND (e.effective_to IS NULL OR e.effective_to>=?) ORDER BY a.effective_from DESC,e.effective_from DESC LIMIT 1", (rs,n) -> new LeaveConversionRule(rs.getBoolean(1),rs.getBoolean(2),rs.getBigDecimal(3)), type.getId(),tenant,employeeId,date,date,date,date);
+            if (!rules.isEmpty()) return rules.get(0);
+            Boolean assigned = jdbc.queryForObject("SELECT EXISTS(SELECT 1 FROM employee_leave_benefit_assignment WHERE tenant_id=? AND employee_id=? AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?))", Boolean.class,tenant,employeeId,date,date);
+            if (Boolean.TRUE.equals(assigned)) return new LeaveConversionRule(false,false,null);
+        }
+        return new LeaveConversionRule(Boolean.TRUE.equals(type.getPaid()),Boolean.TRUE.equals(type.getConvertible()),type.getCarryOverMax());
     }
 
     private List<WithholdingTaxCalculator.Bracket> annualBrackets(LocalDate asOf) {

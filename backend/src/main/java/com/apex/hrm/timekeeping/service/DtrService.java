@@ -53,12 +53,14 @@ public class DtrService {
     private final LeaveTypeRepository leaveTypes;
     private final EmployeeRepository employees;
     private final EmploymentRecordRepository employment;
+    private final LeaveService leaveBenefits;
     private final ZoneId zone;
 
     public DtrService(EmployeeScheduleRepository assignments, WorkScheduleRepository schedules, HolidayRepository holidays,
                       TimeLogRepository timeLogs, DtrDayRepository dtrDays, OvertimeRequestRepository overtime,
                       LeaveRequestRepository leaveRequests, LeaveTypeRepository leaveTypes, EmployeeRepository employees,
-                      EmploymentRecordRepository employment, @Value("${hrm.timezone:Asia/Manila}") String timezone) {
+                      EmploymentRecordRepository employment, LeaveService leaveBenefits,
+                      @Value("${hrm.timezone:Asia/Manila}") String timezone) {
         this.assignments = assignments;
         this.schedules = schedules;
         this.holidays = holidays;
@@ -69,6 +71,7 @@ public class DtrService {
         this.leaveTypes = leaveTypes;
         this.employees = employees;
         this.employment = employment;
+        this.leaveBenefits = leaveBenefits;
         this.zone = ZoneId.of(timezone);
     }
 
@@ -133,7 +136,7 @@ public class DtrService {
                 for (LeaveRequest lr : leaveRequests.findByEmployeeIdAndStatusAndDateFromLessThanEqualAndDateToGreaterThanEqual(
                         empId, "APPROVED", d, d)) {
                     LeaveType lt = leaveTypeCache.computeIfAbsent(lr.getLeaveTypeId(), id -> leaveTypes.findById(id).orElseThrow());
-                    paidLeave = paidLeave || Boolean.TRUE.equals(lt.getPaid());
+                    paidLeave = paidLeave || leaveBenefits.paidFor(empId,lr.getLeaveTypeId(),d,Boolean.TRUE.equals(lt.getPaid()));
                 }
                 boolean worked = r.regularMinutes() > 0;
 

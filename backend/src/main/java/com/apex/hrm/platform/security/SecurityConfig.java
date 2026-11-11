@@ -218,7 +218,7 @@ public class SecurityConfig {
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER"))
                 .requestMatchers("/api/attendance/**", "/api/dtr/**", "/api/dtr-days/**", "/api/dtr-daies/**",
                     "/api/leave/**", "/api/leave-requests/**", "/api/leave-ledgers/**",
-                    "/api/leave-types/**", "/api/overtime/**", "/api/overtime-requests/**",
+                    "/api/leave-types/**", "/api/leave-benefit-profiles/**", "/api/overtime/**", "/api/overtime-requests/**",
                     "/api/time-logs/**", "/api/attendance-corrections/**", "/api/work-schedules/**",
                     "/api/employee-schedules/**", "/api/holidays/**", "/api/holidaies/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))

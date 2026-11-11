@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController("saasEmployeeController")
 @RequestMapping("/api/v1/personnel/employees")
@@ -30,7 +31,8 @@ public class EmployeeController {
         @NotBlank @Size(max=50) @Pattern(regexp="[A-Za-z0-9_-]+") String employeeNumber,
         @NotBlank @Size(max=120) String firstName,
         @NotBlank @Size(max=120) String lastName,
-        @NotNull @PastOrPresent LocalDate hireDate
+        @NotNull @PastOrPresent LocalDate hireDate,
+        UUID leaveBenefitProfileId
     ) {}
     @GetMapping
     public List<Employee> list(@AuthenticationPrincipal HrmUserPrincipal user,
@@ -128,6 +130,7 @@ public class EmployeeController {
     private record SeedRole(UUID nodeId,UUID companyId,String nodeType,String name,String title) {}
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @Transactional
     public Employee create(@AuthenticationPrincipal HrmUserPrincipal user,
              @Valid @RequestBody CreateEmployee input) {
         return tenants.inTenant(user.tenantId(),()->{
@@ -144,18 +147,24 @@ public class EmployeeController {
                           NULL::varchar AS position_name
                 """,(rs,i)->row(rs),user.tenantId(),input.companyId(),input.employeeNumber(),
                 input.firstName().trim(),input.lastName().trim(),input.hireDate());
+            if(input.leaveBenefitProfileId()!=null) {
+                Integer profileCount=jdbc.queryForObject("SELECT count(*) FROM leave_benefit_profile WHERE tenant_id=? AND id=? AND active",Integer.class,user.tenantId(),input.leaveBenefitProfileId());
+                Integer ruleCount=jdbc.queryForObject("SELECT count(*) FROM leave_benefit_entitlement WHERE tenant_id=? AND profile_id=? AND effective_from<=? AND (effective_to IS NULL OR effective_to>=?)",Integer.class,user.tenantId(),input.leaveBenefitProfileId(),input.hireDate(),input.hireDate());
+                if(profileCount==null||profileCount==0||ruleCount==null||ruleCount==0) throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,"Choose an active leave benefit profile with effective entitlements on the hire date");
+            }
             String legacyNumber=jdbc.queryForObject("""
                 SELECT CASE WHEN EXISTS(SELECT 1 FROM employee WHERE tenant_id=? AND employee_no=?)
                     THEN c.company_code||'-'||? ELSE ? END
                 FROM company c WHERE c.tenant_id=? AND c.id=?
                 """,String.class,user.tenantId(),input.employeeNumber(),input.employeeNumber(),input.employeeNumber(),user.tenantId(),input.companyId());
-            jdbc.update("""
+            int inserted=jdbc.update("""
                 INSERT INTO employee(id,tenant_id,company_id,employee_no,first_name,last_name,hire_date,status)
-                VALUES(?,?,?,?,?,?,?,'ACTIVE') ON CONFLICT(tenant_id,employee_no) DO NOTHING
+                VALUES(?,?,?,?,?,?,?,'ACTIVE')
                 """,employee.id(),user.tenantId(),employee.companyId(),legacyNumber,employee.firstName(),employee.lastName(),employee.hireDate());
-            UUID timekeepingId=jdbc.queryForObject("SELECT id FROM employee WHERE tenant_id=? AND company_id=? AND employee_no=?",UUID.class,user.tenantId(),employee.companyId(),legacyNumber);
-            jdbc.update("INSERT INTO personnel_timekeeping_employee(tenant_id,personnel_employee_id,employee_id) VALUES(?,?,?) ON CONFLICT(tenant_id,personnel_employee_id) DO NOTHING",user.tenantId(),employee.id(),timekeepingId);
-            jdbc.update("""
+            if(inserted!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Could not create the linked timekeeping employee record");
+            UUID timekeepingId=employee.id();
+            jdbc.update("INSERT INTO personnel_timekeeping_employee(tenant_id,personnel_employee_id,employee_id) VALUES(?,?,?)",user.tenantId(),employee.id(),timekeepingId);
+            if(input.leaveBenefitProfileId()==null) jdbc.update("""
                 INSERT INTO leave_ledger(tenant_id,employee_id,leave_type_id,entry_date,entry_type,days,reference_type,reference_id,remarks)
                 SELECT ?,?,t.id,?,'ACCRUAL',round(t.annual_entitlement *
                     ((make_date(extract(year from ?::date)::int,12,31) - ?::date + 1)::numeric /
@@ -165,6 +174,10 @@ public class EmployeeController {
                 WHERE t.tenant_id=? AND t.hire_proration_enabled AND t.annual_entitlement>0
                 ON CONFLICT (tenant_id,employee_id,leave_type_id) WHERE reference_type='HIRE_PRORATION' DO NOTHING
                 """,user.tenantId(),timekeepingId,input.hireDate(),input.hireDate(),input.hireDate(),input.hireDate(),employee.id(),user.tenantId());
+            else {
+                UUID assignment=jdbc.queryForObject("INSERT INTO employee_leave_benefit_assignment(tenant_id,employee_id,profile_id,effective_from,assigned_by,reason) VALUES(?,?,?,? ,?,'INITIAL_HIRE') RETURNING id",UUID.class,user.tenantId(),timekeepingId,input.leaveBenefitProfileId(),input.hireDate(),user.id());
+                jdbc.update("INSERT INTO leave_ledger(tenant_id,employee_id,leave_type_id,entry_date,entry_type,days,reference_type,reference_id,remarks) SELECT ?,?,e.leave_type_id,?,'ACCRUAL',CASE WHEN e.hire_proration_enabled THEN round(e.annual_entitlement*((make_date(extract(year from ?::date)::int,12,31)-?::date+1)::numeric/extract(doy from make_date(extract(year from ?::date)::int,12,31))::numeric),4) ELSE e.annual_entitlement END,'BENEFIT_PROFILE_ASSIGNMENT',?,p.name||' initial hire benefit proration' FROM leave_benefit_entitlement e JOIN leave_benefit_profile p ON p.tenant_id=e.tenant_id AND p.id=e.profile_id WHERE e.tenant_id=? AND e.profile_id=? AND e.effective_from<=? AND (e.effective_to IS NULL OR e.effective_to>=?) AND e.annual_entitlement>0",user.tenantId(),timekeepingId,input.hireDate(),input.hireDate(),input.hireDate(),input.hireDate(),assignment,user.tenantId(),input.leaveBenefitProfileId(),input.hireDate(),input.hireDate());
+            }
             jdbc.update("""
                 INSERT INTO personnel_employment_history
                   (tenant_id,employee_id,effective_date,employment_type,employment_status,reason)
