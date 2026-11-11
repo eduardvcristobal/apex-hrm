@@ -7,16 +7,21 @@ import com.apex.hrm.payroll.domain.PayPeriod;
 import com.apex.hrm.payroll.domain.PayrollEmployee;
 import com.apex.hrm.payroll.domain.PayrollLine;
 import com.apex.hrm.payroll.domain.PayrollRun;
+import com.apex.hrm.payroll.domain.StatutoryContributionRule;
 import com.apex.hrm.payroll.domain.WithholdingTaxBracket;
 import com.apex.hrm.payroll.engine.FinalPayCalculator;
 import com.apex.hrm.payroll.engine.Money;
 import com.apex.hrm.payroll.engine.PayBasis;
 import com.apex.hrm.payroll.engine.PayLine;
+import com.apex.hrm.payroll.engine.PagIbigCalculator;
+import com.apex.hrm.payroll.engine.PhilHealthCalculator;
+import com.apex.hrm.payroll.engine.SssCalculator;
 import com.apex.hrm.payroll.engine.WithholdingTaxCalculator;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
 import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
+import com.apex.hrm.payroll.repo.StatutoryContributionRuleRepository;
 import com.apex.hrm.payroll.repo.WithholdingTaxBracketRepository;
 import com.apex.hrm.personnel.domain.Compensation;
 import com.apex.hrm.personnel.domain.Employee;
@@ -30,6 +35,7 @@ import com.apex.hrm.timekeeping.domain.LeaveType;
 import com.apex.hrm.timekeeping.repo.LeaveLedgerRepository;
 import com.apex.hrm.timekeeping.repo.LeaveTypeRepository;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,12 +62,13 @@ public class SettlementService {
     private final PayrollLineRepository lines;
     private final PayrollRunRepository runs;
     private final WithholdingTaxBracketRepository taxBrackets;
+    private final StatutoryContributionRuleRepository statutoryRules;
 
     public SettlementService(EmployeeRepository employees, CompensationRepository compensations,
                              EmploymentRecordRepository employment, LeaveTypeRepository leaveTypes,
                              LeaveLedgerRepository ledger, LoanRepository loans, PayPeriodRepository periods,
                              PayrollEmployeeRepository payrollEmployees, PayrollLineRepository lines, PayrollRunRepository runs,
-                             WithholdingTaxBracketRepository taxBrackets) {
+                             WithholdingTaxBracketRepository taxBrackets, StatutoryContributionRuleRepository statutoryRules) {
         this.employees = employees;
         this.compensations = compensations;
         this.employment = employment;
@@ -73,6 +80,7 @@ public class SettlementService {
         this.lines = lines;
         this.runs = runs;
         this.taxBrackets = taxBrackets;
+        this.statutoryRules = statutoryRules;
     }
 
     @Transactional
@@ -147,13 +155,14 @@ public class SettlementService {
                 loanBalances.add(new FinalPayCalculator.LoanBalance(l.getId().toString(), l.getLoanType(), l.getBalance()));
             }
         }
+        List<PayLine> statutoryLines = separationMonthStatutoryLines(emp, comp, group, sep);
         BigDecimal otherBenefits = lines.otherExemptBenefitsYtd(emp.getId(), from, to);
         List<WithholdingTaxCalculator.Bracket> brackets = annualBrackets(sep);
         FinalPayCalculator.Result r = FinalPayCalculator.compute(new FinalPayCalculator.Input(
                 lines.basicEarned(emp.getId(), from, to), lines.thirteenthPaid(emp.getId(), from, to),
                 lines.thirteenthExemptPaid(emp.getId(), from, to), otherBenefits, dailyRate,
                 leave, payrollEmployees.taxableIncomeYtd(emp.getId(), from, to), lines.taxWithheldYtd(emp.getId(), from, to),
-                loanBalances, brackets));
+                loanBalances, brackets, statutoryLines));
 
         UUID costCenter = employment.findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(emp.getId(), sep)
                 .map(EmploymentRecord::getCostCenterId).orElse(null);
@@ -175,8 +184,63 @@ public class SettlementService {
         pe.setSupplementaryTaxableIncome(r.taxableIncome());
         pe.setTotalDeductions(r.deductions());
         pe.setNetPay(r.net());
+        pe.setEmployerCost(r.lines().stream().filter(l -> PayLine.EMPLOYER_COST.equals(l.category()))
+                .map(PayLine::amount).reduce(BigDecimal.ZERO, BigDecimal::add));
         pe.setWarnings(String.join("; ", r.warnings()));
         return List.of(payrollEmployees.save(pe));
+    }
+
+    /**
+     * Brings the separation month's configured statutory contributions to their monthly amount. Any employee or
+     * employer shares already booked in locked regular payroll are credited so a final-pay run does not double charge.
+     */
+    private List<PayLine> separationMonthStatutoryLines(Employee employee, Compensation compensation, PayGroup group,
+                                                         LocalDate separationDate) {
+        StatutoryContributionRule sssRule = applicable("SSS", separationDate);
+        StatutoryContributionRule healthRule = applicable("PHILHEALTH", separationDate);
+        StatutoryContributionRule hdmfRule = applicable("PAGIBIG", separationDate);
+        BigDecimal monthlyEquivalent = switch (PayBasis.valueOf(compensation.getPayBasis())) {
+            case MONTHLY -> compensation.getBaseRate();
+            case DAILY -> compensation.getBaseRate().multiply(group.getDaysFactor()).divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
+            case HOURLY -> compensation.getBaseRate().multiply(group.getHoursPerDay()).multiply(group.getDaysFactor())
+                    .divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
+        };
+        SssCalculator.Result sss = SssCalculator.monthly(new SssCalculator.Rule(sssRule.getEmployeeRate(),
+                sssRule.getEmployerRate(), sssRule.getMinBase(), sssRule.getMaxBase(), sssRule.getMscStep(),
+                sssRule.getEcLow(), sssRule.getEcHigh(), sssRule.getEcThreshold()), monthlyEquivalent);
+        PhilHealthCalculator.Result health = PhilHealthCalculator.monthly(new PhilHealthCalculator.Rule(
+                healthRule.getEmployeeRate(), healthRule.getEmployerRate(), healthRule.getMinBase(), healthRule.getMaxBase()),
+                monthlyEquivalent);
+        PagIbigCalculator.Result hdmf = PagIbigCalculator.monthly(new PagIbigCalculator.Rule(hdmfRule.getEmployeeRate(),
+                hdmfRule.getEmployerRate(), hdmfRule.getMaxBase(), hdmfRule.getLowIncomeThreshold(),
+                hdmfRule.getLowIncomeEmployeeRate()), monthlyEquivalent);
+
+        LocalDate monthStart = separationDate.withDayOfMonth(1);
+        LocalDate monthEnd = separationDate.withDayOfMonth(separationDate.lengthOfMonth());
+        List<PayLine> result = new ArrayList<>();
+        addRemaining(result, employee, "SSS_EE", "SSS contribution", PayLine.DEDUCTION, sss.employee(), monthStart, monthEnd);
+        addRemaining(result, employee, "PHIC_EE", "PhilHealth contribution", PayLine.DEDUCTION, health.employee(), monthStart, monthEnd);
+        addRemaining(result, employee, "HDMF_EE", "Pag-IBIG contribution", PayLine.DEDUCTION, hdmf.employee(), monthStart, monthEnd);
+        addRemaining(result, employee, "SSS_ER", "SSS employer share", PayLine.EMPLOYER_COST, sss.employer(), monthStart, monthEnd);
+        addRemaining(result, employee, "SSS_EC", "SSS employees' compensation", PayLine.EMPLOYER_COST, sss.ec(), monthStart, monthEnd);
+        addRemaining(result, employee, "PHIC_ER", "PhilHealth employer share", PayLine.EMPLOYER_COST, health.employer(), monthStart, monthEnd);
+        addRemaining(result, employee, "HDMF_ER", "Pag-IBIG employer share", PayLine.EMPLOYER_COST, hdmf.employer(), monthStart, monthEnd);
+        return result;
+    }
+
+    private StatutoryContributionRule applicable(String agency, LocalDate date) {
+        return statutoryRules.findApplicable(agency, date).stream().findFirst()
+                .orElseThrow(() -> new BusinessException("No " + agency + " contribution rule effective on " + date));
+    }
+
+    private void addRemaining(List<PayLine> out, Employee employee, String code, String description, String category,
+                              BigDecimal monthlyAmount, LocalDate monthStart, LocalDate monthEnd) {
+        BigDecimal alreadyBooked = lines.lockedRegularStatutoryAmount(employee.getId(), code, monthStart, monthEnd);
+        BigDecimal remainder = Money.round(monthlyAmount.subtract(alreadyBooked).max(BigDecimal.ZERO));
+        if (remainder.signum() > 0) {
+            out.add(new PayLine(code, description + " (separation-month balance)", category,
+                    null, null, remainder, false));
+        }
     }
 
     private List<WithholdingTaxCalculator.Bracket> annualBrackets(LocalDate asOf) {

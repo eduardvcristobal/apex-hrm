@@ -23,12 +23,19 @@ public final class FinalPayCalculator {
     public record Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal thirteenthExemptPaidYtd,
                         BigDecimal otherExemptBenefitsYtd, BigDecimal dailyRate, List<LeaveBalance> unusedLeave,
                         BigDecimal ytdTaxable, BigDecimal ytdWithheld, List<LoanBalance> loans,
-                        List<WithholdingTaxCalculator.Bracket> annualBrackets) {
+                        List<WithholdingTaxCalculator.Bracket> annualBrackets, List<PayLine> statutoryLines) {
+        public Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal thirteenthExemptPaidYtd,
+                     BigDecimal otherExemptBenefitsYtd, BigDecimal dailyRate, List<LeaveBalance> unusedLeave,
+                     BigDecimal ytdTaxable, BigDecimal ytdWithheld, List<LoanBalance> loans,
+                     List<WithholdingTaxCalculator.Bracket> annualBrackets) {
+            this(basicEarnedYtd, thirteenthPaidYtd, thirteenthExemptPaidYtd, otherExemptBenefitsYtd, dailyRate,
+                    unusedLeave, ytdTaxable, ytdWithheld, loans, annualBrackets, List.of());
+        }
         public Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal otherExemptBenefitsYtd,
                      BigDecimal dailyRate, List<LeaveBalance> unusedLeave, BigDecimal ytdTaxable, BigDecimal ytdWithheld,
                      List<LoanBalance> loans, List<WithholdingTaxCalculator.Bracket> annualBrackets) {
             this(basicEarnedYtd, thirteenthPaidYtd, BigDecimal.ZERO, otherExemptBenefitsYtd, dailyRate, unusedLeave,
-                    ytdTaxable, ytdWithheld, loans, annualBrackets);
+                    ytdTaxable, ytdWithheld, loans, annualBrackets, List.of());
         }
     }
 
@@ -43,6 +50,16 @@ public final class FinalPayCalculator {
         List<String> warnings = new ArrayList<>();
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal taxableFinal = BigDecimal.ZERO;
+        BigDecimal statutoryPreTax = BigDecimal.ZERO;
+        BigDecimal deductions = BigDecimal.ZERO;
+
+        for (PayLine statutory : in.statutoryLines()) {
+            lines.add(statutory);
+            if (PayLine.DEDUCTION.equals(statutory.category())) {
+                deductions = deductions.add(statutory.amount());
+                statutoryPreTax = statutoryPreTax.add(statutory.amount());
+            }
+        }
 
         ThirteenthMonthCalculator.Result m13 = ThirteenthMonthCalculator.split(in.basicEarnedYtd(), in.thirteenthPaidYtd(),
                 in.thirteenthExemptPaidYtd(), in.otherExemptBenefitsYtd());
@@ -63,15 +80,14 @@ public final class FinalPayCalculator {
                 taxableFinal = taxableFinal.add(amount);
             }
         }
-        warnings.add("Statutory contributions for the separation month are not included; review them manually");
         warnings.add("Review other exempt benefit classifications and prior-employer compensation before final tax approval");
         if (in.annualBrackets().isEmpty()) {
             warnings.add("No annual withholding table is configured; annual tax reconciliation was skipped");
         }
 
         BigDecimal adjustment = in.annualBrackets().isEmpty() ? BigDecimal.ZERO
-                : AnnualTaxCalculator.adjustment(in.annualBrackets(), in.ytdTaxable().add(taxableFinal), in.ytdWithheld());
-        BigDecimal deductions = BigDecimal.ZERO;
+                : AnnualTaxCalculator.adjustment(in.annualBrackets(),
+                        in.ytdTaxable().add(taxableFinal).subtract(statutoryPreTax).max(BigDecimal.ZERO), in.ytdWithheld());
         if (adjustment.signum() > 0) {
             BigDecimal withheld = adjustment.min(gross);
             if (withheld.signum() > 0) {
@@ -103,8 +119,11 @@ public final class FinalPayCalculator {
         if (unrecovered.signum() > 0) {
             warnings.add("Loan balance of " + Money.round(unrecovered).toPlainString() + " could not be recovered from this settlement");
         }
+        if (gross.subtract(deductions).signum() < 0) {
+            warnings.add("Statutory, tax, and loan deductions exceed final-pay earnings; review the unrecovered balances before settlement");
+        }
         return new Result(lines, recoveries, Money.round(gross), Money.round(deductions), Money.round(gross.subtract(deductions)),
-                Money.round(taxableFinal), warnings);
+                Money.round(taxableFinal.subtract(statutoryPreTax).max(BigDecimal.ZERO)), warnings);
     }
 
     /** Converts the active compensation basis to the daily value used for leave conversion. */

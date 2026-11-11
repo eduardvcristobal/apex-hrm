@@ -77,4 +77,13 @@ public interface PayrollLineRepository extends JpaRepository<PayrollLine, UUID> 
          + "and l.itemCode not in ('TAX_REFUND') and r.status in ('LOCKED', 'PAID') "
          + "and p.endDate between :from and :to and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()}")
     BigDecimal nonTaxableCompensationYtd(@Param("e") UUID employeeId, @Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    /** Employee or employer statutory contributions already recorded in locked regular runs overlapping a month. */
+    @Query("select coalesce(sum(l.amount), 0) from PayrollLine l, PayrollRun r, PayPeriod p "
+         + "where l.runId = r.id and r.payPeriodId = p.id and l.employeeId = :e and l.itemCode = :code "
+         + "and r.runType = 'REGULAR' and r.status in ('LOCKED', 'PAID') "
+         + "and p.startDate <= :to and p.endDate >= :from "
+         + "and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()}")
+    BigDecimal lockedRegularStatutoryAmount(@Param("e") UUID employeeId, @Param("code") String code,
+                                             @Param("from") LocalDate from, @Param("to") LocalDate to);
 }

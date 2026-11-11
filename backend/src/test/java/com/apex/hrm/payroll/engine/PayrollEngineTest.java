@@ -152,4 +152,24 @@ class PayrollEngineTest {
         assertAmount("800.00", Money.round(FinalPayCalculator.dailyRate(PayBasis.MONTHLY,
                 bd("17400"), bd("8"), bd("261"))));
     }
+
+    @Test
+    void finalPayIncludesStatutoryContributionsBeforeAnnualTaxAndNetPay() {
+        List<PayLine> statutory = List.of(
+                new PayLine("SSS_EE", "SSS contribution", PayLine.DEDUCTION, null, null, bd("50"), false),
+                new PayLine("PHIC_EE", "PhilHealth contribution", PayLine.DEDUCTION, null, null, bd("20"), false),
+                new PayLine("SSS_ER", "SSS employer share", PayLine.EMPLOYER_COST, null, null, bd("100"), false));
+        List<WithholdingTaxCalculator.Bracket> annual = List.of(
+                new WithholdingTaxCalculator.Bracket(bd("0"), bd("0"), bd("0.10"), null));
+        FinalPayCalculator.Result result = FinalPayCalculator.compute(new FinalPayCalculator.Input(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, bd("100"),
+                List.of(new FinalPayCalculator.LeaveBalance("ANNUAL", bd("10"))), BigDecimal.ZERO,
+                BigDecimal.ZERO, List.of(), annual, statutory));
+        assertAmount("1000.00", result.gross());
+        assertAmount("163.00", result.deductions());
+        assertAmount("837.00", result.net());
+        assertAmount("930.00", result.taxableIncome());
+        assertAmount("50.00", result.lines().stream().filter(l -> l.code().equals("SSS_EE")).findFirst().orElseThrow().amount());
+        assertAmount("93.00", result.lines().stream().filter(l -> l.code().equals("WTAX")).findFirst().orElseThrow().amount());
+    }
 }
