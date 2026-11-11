@@ -5,6 +5,8 @@ import { MilestonePanel } from './PerformanceMilestones';
 type Item = Record<string, unknown>;
 type Cycle = { id: string; name: string; startsOn: string; endsOn: string; status: string };
 type Employee = { id: string; firstName: string; lastName: string; employeeNumber: string };
+type ReviewApproval = { approvalId:string; reviewId:string; employeeId:string; firstName:string; lastName:string; cycleName:string; rating:number|null; reviewStatus:string };
+type Appeal = { id:string; reviewId:string; employeeId:string; firstName:string; lastName:string; cycleName:string; reason:string; status:string; resolution:string|null; adjustedRating:number|null; rating:number|null };
 async function request<T>(token: string, path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await fetch('/api/v1/performance' + path, {
     method, headers: { Authorization: `Bearer ${token}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
@@ -42,6 +44,14 @@ export function PerformanceWorkspace({ token }: { token: string }) {
   const [progressNote, setProgressNote] = useState('');
   const [progressHistory, setProgressHistory] = useState<Item[]>([]);
   const [historyGoal, setHistoryGoal] = useState('');
+  const [approvals, setApprovals] = useState<ReviewApproval[]>([]);
+  const [approverDrafts, setApproverDrafts] = useState<Record<string,string>>({});
+  const [appeals, setAppeals] = useState<Appeal[]>([]);
+  const [appealResolutions, setAppealResolutions] = useState<Record<string,string>>({});
+  const [appealRatings, setAppealRatings] = useState<Record<string,string>>({});
+  const [calibrationRatings, setCalibrationRatings] = useState<Record<string,string>>({});
+  const [calibrationReasons, setCalibrationReasons] = useState<Record<string,string>>({});
+  const [calibrationHistory, setCalibrationHistory] = useState<Record<string,Item[]>>({});
   const [comments, setComments] = useState('');
   const [planTitle, setPlanTitle] = useState('');
   const [actions, setActions] = useState('');
@@ -75,6 +85,11 @@ export function PerformanceWorkspace({ token }: { token: string }) {
     if (!reviewId) { setPlans([]); return; }
     void request<Item[]>(token, '/reviews/' + reviewId + '/plans').then(setPlans).catch(e => setError(String(e)));
   }, [reviewId, token]);
+  useEffect(() => {
+    void Promise.all([request<ReviewApproval[]>(token,'/my/approvals'),request<Appeal[]>(token,'/appeals')])
+      .then(([items,appealItems])=>{setApprovals(items);setAppeals(appealItems);})
+      .catch(e=>setError(String(e)));
+  },[token]);
   async function run(action: () => Promise<unknown>) {
     setBusy(true); setError(''); setNotice('');
     try {
@@ -85,6 +100,8 @@ export function PerformanceWorkspace({ token }: { token: string }) {
         setGoals(g); setReviews(r); setScores(sc);
       }
       if (reviewId) setPlans(await request<Item[]>(token, '/reviews/' + reviewId + '/plans'));
+      const [approvalItems,appealItems]=await Promise.all([request<ReviewApproval[]>(token,'/my/approvals'),request<Appeal[]>(token,'/appeals')]);
+      setApprovals(approvalItems);setAppeals(appealItems);
       setNotice('Saved successfully.');
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setBusy(false); }
@@ -156,10 +173,14 @@ export function PerformanceWorkspace({ token }: { token: string }) {
         </form>
         <button type="button" disabled={busy || !active || !employeeId} onClick={() => void run(() => request(token, '/reviews/drafts', 'POST', { cycleId, employeeId }))}>Create review draft (self-assessment workflow)</button>
         <ul>{reviews.map(r => <li key={String(r.id)}>
-          {employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating ?? 'Pending')} / 5 · {String(r.status)}
+          {employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · Manager {String(r.rating ?? 'Pending')} / 5 · Final {String(r.finalRating ?? '—')} / 5 · {String(r.status)}
+          {r.status === 'DRAFT' && <form onSubmit={e=>{e.preventDefault();const identityIds=(approverDrafts[String(r.id)]||'').split(',').map(x=>x.trim()).filter(Boolean);void run(()=>request(token,'/reviews/'+String(r.id)+'/approvers','POST',{identityIds}));}}><label>Additional approver account UUIDs (comma separated)<input value={approverDrafts[String(r.id)]||''} onChange={e=>setApproverDrafts(v=>({...v,[String(r.id)]:e.target.value}))} placeholder="Optional reviewer UUIDs"/></label><button disabled={busy}>Save review panel</button></form>}
           {r.status === 'ACKNOWLEDGED' && <button type="button" disabled={busy} onClick={() => void run(() => request(token, '/reviews/' + String(r.id) + '/finalize', 'POST'))}>Finalize</button>}
+          {r.status === 'ACKNOWLEDGED' && <form onSubmit={e=>{e.preventDefault();void run(()=>request(token,'/reviews/'+String(r.id)+'/calibration','POST',{rating:Number(calibrationRatings[String(r.id)]||r.rating||3),reason:calibrationReasons[String(r.id)]||''}));}}><h4>HR rating calibration</h4><label>Final rating <input type="number" min="1" max="5" step=".5" required value={calibrationRatings[String(r.id)]??String(r.finalRating??r.rating??3)} onChange={e=>setCalibrationRatings(v=>({...v,[String(r.id)]:e.target.value}))}/></label><textarea aria-label="Calibration rationale" required maxLength={4000} placeholder="Document the reason for calibration" value={calibrationReasons[String(r.id)]||''} onChange={e=>setCalibrationReasons(v=>({...v,[String(r.id)]:e.target.value}))}/><button disabled={busy}>Save calibration</button><button type="button" disabled={busy} onClick={()=>void request<Item[]>(token,'/reviews/'+String(r.id)+'/calibrations').then(items=>setCalibrationHistory(v=>({...v,[String(r.id)]:items}))).catch(e=>setError(String(e)))}>Calibration history</button>{calibrationHistory[String(r.id)]?.map((entry,i)=><p key={i}>{String(entry.previousRating)} → {String(entry.calibratedRating)} · {String(entry.reason)}</p>)}</form>}
         </li>)}</ul>
       </div>
+      <div className="performance-panel"><h2>Assigned review approvals</h2>{approvals.length===0?<p>No pending reviews assigned to your account.</p>:approvals.map(item=><article key={item.approvalId}><strong>{item.firstName} {item.lastName} · {item.cycleName}</strong><p>Manager rating: {item.rating??'Pending'} / 5</p><button disabled={busy} onClick={()=>void run(()=>request(token,`/reviews/${item.reviewId}/approvals/${item.approvalId}/approve`,'POST',{}))}>Approve review</button></article>)}</div>
+      <div className="performance-panel"><h2>Employee appeals</h2>{appeals.length===0?<p>No appeals have been submitted.</p>:appeals.map(item=><article key={item.id}><strong>{item.firstName} {item.lastName} · {item.cycleName}</strong><p>{item.reason}</p><p>Status: {item.status} · Current rating: {item.rating??'—'}{item.adjustedRating?` · Requested adjustment: ${item.adjustedRating}`:''}</p>{item.status==='OPEN'&&<><label>Resolution<textarea required maxLength={4000} value={appealResolutions[item.id]||''} onChange={e=>setAppealResolutions(v=>({...v,[item.id]:e.target.value}))}/></label><label>Adjusted rating (only when adjusting)<input type="number" min="1" max="5" step=".5" value={appealRatings[item.id]||''} onChange={e=>setAppealRatings(v=>({...v,[item.id]:e.target.value}))}/></label>{(['UPHELD','ADJUSTED','REJECTED'] as const).map(decision=><button type="button" key={decision} disabled={busy} onClick={()=>void run(()=>request(token,`/appeals/${item.id}/decision`,'POST',{decision,resolution:appealResolutions[item.id],adjustedRating:decision==='ADJUSTED'?Number(appealRatings[item.id]):null}))}>{decision==='UPHELD'?'Uphold rating':decision==='ADJUSTED'?'Adjust rating':'Reject appeal'}</button>)}</>}</article>)}</div>
       <div className="performance-panel"><h2>Development plans</h2>
         <label>Review <select value={reviewId} onChange={e => setReviewId(e.target.value)}><option value="">Select review</option>{reviews.map(r => <option key={String(r.id)} value={String(r.id)}>{employees.find(e => e.id === r.employeeId)?.firstName || 'Employee'} · {String(r.rating)}/5</option>)}</select></label>
         <form onSubmit={e => { e.preventDefault(); void run(() => request(token, '/reviews/' + reviewId + '/plans', 'POST', { title: planTitle, actionItems: actions })); }}>

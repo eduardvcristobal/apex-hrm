@@ -4,7 +4,9 @@ import { MilestonePanel } from './PerformanceMilestones';
 
 type Plan = { id: string; title: string; status: string; actionItems: string; targetDate?: string };
 type Goal = { id: string; title: string; metric?: string; targetValue?: number; actualValue?: number; status: string };
-type Review = { id: string; cycleId: string; rating?: number; selfRating?: number; status: string; managerComments?: string };
+type Review = { id: string; cycleId: string; rating?: number; finalRating?:number; selfRating?: number; status: string; managerComments?: string; approvalCount?:number; approvedCount?:number };
+type Appeal = { id:string; reviewId:string; reason:string; status:string; resolution?:string; adjustedRating?:number };
+type ReviewApproval = { approvalId:string; reviewId:string; employeeId:string; firstName:string; lastName:string; cycleName:string; rating:number|null };
 type TeamGoal = { id: string; employeeId: string; title: string; actualValue?: number; status: string };
 type TeamReview = { id: string; employeeId: string; reviewerId: string; rating?: number; status: string };
 type Assignment = { employeeId: string; firstName: string; lastName: string; cycleId: string; cycleName: string };
@@ -24,20 +26,24 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
   const [teamGoals, setTeamGoals] = useState<TeamGoal[]>([]);
   const [teamReviews, setTeamReviews] = useState<TeamReview[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [approvals, setApprovals] = useState<ReviewApproval[]>([]);
+  const [appeals, setAppeals] = useState<Appeal[]>([]);
   const [selectedAssignment, setSelectedAssignment] = useState('');
   const [managerRatings, setManagerRatings] = useState<Record<string, string>>({});
   const [managerComments, setManagerComments] = useState<Record<string, string>>({});
   const [values, setValues] = useState<Record<string,string>>({});
   const [notes, setNotes] = useState<Record<string,string>>({});
+  const [appealReasons, setAppealReasons] = useState<Record<string,string>>({});
+  const [approvalNotes, setApprovalNotes] = useState<Record<string,string>>({});
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
   async function reload() {
-    const [g, r, p] = await Promise.all([api<Goal[]>(token, '/my/goals'),api<Review[]>(token, '/my/reviews'),api<Plan[]>(token, '/my/plans')]);
-    setGoals(g);setReviews(r);setPlans(p);
+    const [g, r, p, a] = await Promise.all([api<Goal[]>(token, '/my/goals'),api<Review[]>(token, '/my/reviews'),api<Plan[]>(token, '/my/plans'),api<Appeal[]>(token,'/my/appeals')]);
+    setGoals(g);setReviews(r);setPlans(p);setAppeals(a);
     if (isManager) {
-      const [tg, tr, ta] = await Promise.all([api<TeamGoal[]>(token,'/team/goals'),api<TeamReview[]>(token,'/team/reviews'),api<Assignment[]>(token,'/team/assignments')]);
-      setTeamGoals(tg);setTeamReviews(tr);setAssignments(ta);
+      const [tg, tr, ta, ra] = await Promise.all([api<TeamGoal[]>(token,'/team/goals'),api<TeamReview[]>(token,'/team/reviews'),api<Assignment[]>(token,'/team/assignments'),api<ReviewApproval[]>(token,'/my/approvals')]);
+      setTeamGoals(tg);setTeamReviews(tr);setAssignments(ta);setApprovals(ra);
     }
   }
   useEffect(() => { void reload().catch(e => setError(String(e))); }, [token,isManager]);
@@ -65,13 +71,14 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
       <div className="performance-panel"><h2>My evaluations</h2>
         {reviews.length===0 && <p>No reviews assigned.</p>}
         {reviews.map(r=><div key={r.id}>
-          <h3>Review · {r.status}</h3><p>Manager rating: {r.rating??'Not yet submitted'} / 5</p>
+          <h3>Review · {r.status}</h3><p>Manager rating: {r.rating??'Not yet submitted'} / 5 · Final rating: {r.finalRating??'—'} / 5</p>
           {r.status==='DRAFT' && <form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/self-assessment','POST',{rating:Number(values[r.id]??3),assessment:notes[r.id]??''}));}}>
             <label>Self-rating <input type="number" min="1" max="5" step=".5" required value={values[r.id]??'3'} onChange={e=>setValues(v=>({...v,[r.id]:e.target.value}))}/></label>
             <textarea aria-label="Self-assessment" placeholder="Achievements, challenges, evidence" required value={notes[r.id]??''} onChange={e=>setNotes(v=>({...v,[r.id]:e.target.value}))}/>
             <button disabled={busy}>Save self-assessment</button>
           </form>}
-          {r.status==='SUBMITTED' && <><p>{r.managerComments||'No manager comments recorded.'}</p><button disabled={busy} onClick={()=>void run(()=>api(token,'/reviews/'+r.id+'/acknowledge','POST'))}>Acknowledge review</button></>}
+          {r.status==='SUBMITTED' && <><p>{r.managerComments||'No manager comments recorded.'}</p>{Number(r.approvalCount||0)>0&&<p>Additional reviewers approved: {r.approvedCount||0} / {r.approvalCount}</p>}<button disabled={busy||Number(r.approvedCount||0)<Number(r.approvalCount||0)} onClick={()=>void run(()=>api(token,'/reviews/'+r.id+'/acknowledge','POST'))}>Acknowledge review</button></>}
+          {r.status==='FINALIZED'&&!appeals.some(a=>a.reviewId===r.id)&&<form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/appeals','POST',{reason:appealReasons[r.id]}));}}><label>Appeal this finalized review (available for 30 days)<textarea required maxLength={10000} value={appealReasons[r.id]||''} onChange={e=>setAppealReasons(v=>({...v,[r.id]:e.target.value}))}/></label><button disabled={busy}>Submit appeal</button></form>}
         </div>)}
       </div>
       <div className="performance-panel"><h2>My development plans</h2>
@@ -100,6 +107,8 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
           </form>}
         </div>)}
       </div>}
+      {isManager&&<div className="performance-panel"><h2>Reviews awaiting my approval</h2>{approvals.length===0?<p>No review approvals are assigned to you.</p>:approvals.map(a=><article key={a.approvalId} className="performance-review-item"><strong>{a.firstName} {a.lastName} · {a.cycleName}</strong><p>Manager rating: {a.rating??'Pending'} / 5</p><label>Approval note<input maxLength={2000} value={approvalNotes[a.approvalId]||''} onChange={e=>setApprovalNotes(v=>({...v,[a.approvalId]:e.target.value}))}/></label><button disabled={busy} onClick={()=>void run(()=>api(token,`/reviews/${a.reviewId}/approvals/${a.approvalId}/approve`,'POST',{note:approvalNotes[a.approvalId]||''}))}>Approve review</button></article>)}</div>}
+      <div className="performance-panel"><h2>My appeals</h2>{appeals.length===0?<p>No review appeals have been submitted.</p>:appeals.map(a=><article key={a.id}><p>Status: {a.status}</p><p>{a.reason}</p>{a.resolution&&<p>HR response: {a.resolution}{a.adjustedRating?` · Adjusted rating ${a.adjustedRating}/5`:''}</p>}</article>)}</div>
     </div>
   </section>;
 }

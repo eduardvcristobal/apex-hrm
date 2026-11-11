@@ -23,6 +23,7 @@ import { RecruitmentWorkspace } from './RecruitmentWorkspace';
 import { SelfServiceWorkspace } from './SelfServiceWorkspace';
 import { ApprovalWorkflowWorkspace } from './ApprovalWorkflowWorkspace';
 import { HeadcountWorkspace } from './HeadcountWorkspace';
+import { HrPoliciesWorkspace } from './HrPoliciesWorkspace';
 import { SelectField } from './SelectField';
 import { routePath, routeSlug } from './routePaths';
 import './styles.css';
@@ -439,9 +440,9 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
         { label: 'My workspace', icon: '♙', available: true },
         { label: 'People', displayLabel: 'Employee directory', icon: '♙', available: user.roles.includes('ROLE_TENANT_ADMIN') },
         { label: 'Onboarding', icon: '✳', available: isWorkspaceOwner },
-        { label: 'Organization', icon: '▦', available: user.roles.includes('ROLE_TENANT_ADMIN') },
+        { label: 'Organization', icon: '▦', available: isWorkspaceOwner },
         { label: 'Documents', icon: '▤', available: isWorkspaceOwner },
-        { label: 'HR policies', icon: '⚖', available: user.roles.includes('ROLE_TENANT_ADMIN') },
+        { label: 'HR policies', icon: '⚖', available: true },
         { label: 'Approval workflows', icon: '⇢', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) },
         { label: 'Recruitment', icon: '⊕', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) },
         { label: 'Headcount requests', icon: '＋', available: user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN', 'ROLE_MANAGER'].includes(role)) },
@@ -492,6 +493,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
   const sidebarOpen = navigationOpen || navigationDocked;
   const activeModuleForView = sidebarOpen ? activeModule : activeSection === 'Overview' ? 'Overview' : activeGroupForPage || activeModule;
   const moduleLabels: Record<string, string> = { 'Personnel management': 'Personnel', Timekeeping: 'Timekeeping', Payroll: 'Payroll', Insights: 'Insights', 'Global settings & maintenance': 'Administration' };
+  const moduleIcons: Record<string, string> = { Overview: '⌂', 'Personnel management': '♙', Timekeeping: '◷', Payroll: '₱', Insights: '▥', 'Global settings & maintenance': '⚙' };
   const openModule = (groupLabel: string) => { setActiveModule(groupLabel); setNavigationOpen(!navigationDocked); };
 
   useEffect(() => {
@@ -705,8 +707,8 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
             </div>}
           </div></div></div>
           <nav className="workspace-module-nav" aria-label="Main sections">
-            <button type="button" className={activeModuleForView === 'Overview' ? 'active' : ''} aria-current={activeModuleForView === 'Overview' ? 'page' : undefined} onClick={() => { setActiveSection('Overview'); setNavigationOpen(false); }}>Overview</button>
-            {navigationGroups.map(group => <button type="button" key={group.label} className={activeModuleForView === group.label ? 'active' : ''} aria-expanded={sidebarOpen && activeModule === group.label} onClick={() => openModule(group.label)}>{moduleLabels[group.label]}</button>)}
+            <button type="button" className={activeModuleForView === 'Overview' ? 'active' : ''} aria-current={activeModuleForView === 'Overview' ? 'page' : undefined} onClick={() => { setActiveSection('Overview'); setNavigationOpen(false); }}><span className="workspace-module-icon" aria-hidden="true">{moduleIcons.Overview}</span>Overview</button>
+            {navigationGroups.map(group => <button type="button" key={group.label} className={activeModuleForView === group.label ? 'active' : ''} aria-expanded={sidebarOpen && activeModule === group.label} onClick={() => openModule(group.label)}><span className="workspace-module-icon" aria-hidden="true">{moduleIcons[group.label]}</span>{moduleLabels[group.label]}</button>)}
           </nav>
         </header>}
         <main className="workspace-content">
@@ -724,7 +726,9 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
             </section>
             <div className="dashboard-lower-grid"><section className="dashboard-info-card"><div className="info-card-heading"><span className="info-card-icon people-icon">♙</span><span className="info-card-kicker">YOUR PEOPLE</span></div><h3>Your team starts here</h3><p>When you’re ready, invite your team and bring your people operations into one place.</p><button type="button" className="quiet-link" onClick={() => setActiveSection('Users & staff')}>Manage users &amp; staff <span>→</span></button></section><section className="dashboard-info-card workspace-status-card"><div className="info-card-heading"><span className="info-card-icon shield-icon">◇</span><span className="info-card-kicker">ACCOUNT SECURITY</span></div><h3>{mfaEnabled ? 'Your account is protected' : 'Secure your account (optional)'}</h3><p>{mfaEnabled ? 'Your authenticator is requested when you sign in.' : 'Enable an authenticator for an extra sign-in check. Your workspace access is based on your role.'}</p><span className={`security-status${mfaEnabled ? ' is-secure' : ''}`}><i />{mfaEnabled ? 'Authenticator enabled' : privileged ? 'Role-based access' : 'Workspace active'}</span></section></div>
           </> : activeSection === 'Users & staff' && user.roles.some(role => ['ROLE_TENANT_ADMIN', 'ROLE_HR_ADMIN'].includes(role)) ? <StaffAdministration token={token} isWorkspaceOwner={user.roles.includes('ROLE_TENANT_ADMIN')} />
-            : ['People', 'Organization', 'HR policies', 'Onboarding', 'Documents'].includes(activeSection) && user.roles.includes('ROLE_TENANT_ADMIN') ? <PersonnelWorkspace key={activeSection} token={token} roles={user.roles} currentUserId={user.id} workspaceName={user.workspaceName} initialPage={activeSection === 'Organization' ? 'organization' : activeSection === 'HR policies' ? 'policy' : activeSection === 'Onboarding' ? 'onboarding' : activeSection === 'Documents' ? 'documents' : 'people'} onOpenNavigation={() => { setActiveModule(activeGroupForPage || 'Personnel management'); setNavigationOpen(true); }} />
+            : activeSection === 'People' && isWorkspaceOwner ? <PersonnelWorkspace key={activeSection} token={token} roles={user.roles} currentUserId={user.id} workspaceName={user.workspaceName} initialPage="people" onOpenNavigation={() => { setActiveModule(activeGroupForPage || 'Personnel management'); setNavigationOpen(true); }} />
+            : activeSection === 'HR policies' ? <HrPoliciesWorkspace key={activeSection} token={token} canManage={user.roles.some(role => ['ROLE_TENANT_ADMIN','ROLE_HR_ADMIN'].includes(role))} onOpenSecurity={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }} />
+            : ['Organization', 'Onboarding', 'Documents'].includes(activeSection) && canManageTimekeeping ? <PersonnelWorkspace key={activeSection} token={token} roles={user.roles} currentUserId={user.id} workspaceName={user.workspaceName} initialPage={activeSection === 'Organization' ? 'organization' : activeSection === 'Onboarding' ? 'onboarding' : 'documents'} onOpenNavigation={() => { setActiveModule(activeGroupForPage || 'Personnel management'); setNavigationOpen(true); }} />
             : activeSection === 'Time & attendance' && canManageTimekeeping ? <TimekeepingWorkspace key={activeSection} token={token} />
             : activeSection === 'Leave management' && canManageTimekeeping ? <LeaveWorkspace key={activeSection} token={token} />
             : activeSection === 'Overtime' && canManageTimekeeping ? <OvertimeWorkspace key={activeSection} token={token} />

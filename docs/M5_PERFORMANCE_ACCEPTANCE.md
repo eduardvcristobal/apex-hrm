@@ -10,7 +10,7 @@
 
 ## Important limitations
 - HR-managed review creation remains available as a legacy one-step SUBMITTED endpoint; use draft->self-assessment->submit->acknowledge->finalize for the full workflow.
-- No automatic notification, talent-calibration, employee appeal, progress approvals or certification of compliance.
+- No automatic notification, progress approvals or certification of compliance.
 - Explicit login/employee links are intentionally never guessed by employee email. HR must supply an existing tenant identity UUID.
 - Performance schema migrations are V54–V56 on current `main`; do not rewrite their checksums after application.
 
@@ -33,6 +33,7 @@
 - M5.14: Individual development milestones with immutable evidence records (V56), completion lifecycle and self-service UI.
 - M5.15: Cycle-level HR reporting: goals, review statuses, average rating.
 - M5.16: Current `.github/workflows/m3-4-ci.yml` provides Maven, PostgreSQL/Flyway startup, frontend build, browser smoke, dependency audit and secret-scanning checks.
+- M5.17: HR rating calibration with append-only rationale history, employee appeals within 30 days of finalization, and optional multi-review approvals required before employee acknowledgment (V65).
 
 ## Adaptation to current main
 - The branch's V90/V91/V92 migrations were renumbered to V54/V55/V56 because current `main` had already applied through V53.
@@ -43,6 +44,6 @@
 ## Known certification gaps and limitations
 - M5.16 is **not complete** until GitHub Actions succeeds and the M5-specific API and browser scenarios are exercised.
 - Real authorization/tenant-isolation API tests, concurrent KPI updates, RBAC and MFA regression, and browser E2E are still required.
-- Manager UI supports draft creation and submission, but dedicated HR calibration/appeals and multi-review approval are not implemented.
-- Goal progress history UI currently indicates record count rather than exposing a detailed audit timeline.
+- Manager UI supports draft creation and submission. HR calibration, employee appeals, and multi-review approval are implemented in V65; their role-level API and browser flows still need integration verification.
+- Performance APIs now expose detailed goal progress history; concurrent updates and cross-tenant access still need regression coverage.
 - Do not renumber or rewrite V54/V55/V56 after they have been applied to shared databases; only add later forward migrations for schema corrections.

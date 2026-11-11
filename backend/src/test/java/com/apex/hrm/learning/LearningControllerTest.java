@@ -92,4 +92,22 @@ class LearningControllerTest {
         verifyNoInteractions(jdbc);
     }
 
+    @Test
+    void employeeIdLookupOnlyReturnsRowsFromAuthenticatedTenant() {
+        UUID employeeId=UUID.randomUUID();
+        when(jdbc.queryForList(contains("WHERE tenant_id=? AND id=?"),eq(user.tenantId()),eq(employeeId)))
+            .thenReturn(List.of());
+        assertThrows(ResponseStatusException.class,()->controller.employee(user,employeeId));
+        verify(jdbc).queryForList(contains("WHERE tenant_id=? AND id=?"),eq(user.tenantId()),eq(employeeId));
+    }
+
+    @Test
+    void employeeIdLookupReturnsTheTenantScopedEmployee() {
+        UUID employeeId=UUID.randomUUID();
+        var employee=java.util.Map.<String,Object>of("id",employeeId,"name","Example Employee");
+        when(jdbc.queryForList(contains("WHERE tenant_id=? AND id=?"),eq(user.tenantId()),eq(employeeId)))
+            .thenReturn(List.of(employee));
+        assertEquals(employee,controller.employee(user,employeeId));
+    }
+
 }

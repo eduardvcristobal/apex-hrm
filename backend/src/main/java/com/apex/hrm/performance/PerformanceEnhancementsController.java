@@ -187,7 +187,7 @@ public class PerformanceEnhancementsController {
               COUNT(DISTINCT r.id) FILTER (WHERE r.status='DRAFT') AS "draftCount",
               COUNT(DISTINCT r.id) FILTER (WHERE r.status='SUBMITTED') AS "submittedCount",
               COUNT(DISTINCT r.id) FILTER (WHERE r.status='ACKNOWLEDGED') AS "acknowledgedCount",
-              ROUND(AVG(r.rating),2) AS "averageRating"
+              ROUND(AVG(COALESCE(r.final_rating,r.rating)),2) AS "averageRating"
             FROM performance_cycle c
             LEFT JOIN performance_goal g ON g.tenant_id=c.tenant_id AND g.cycle_id=c.id AND g.status<>'CANCELLED'
             LEFT JOIN performance_review r ON r.tenant_id=c.tenant_id AND r.cycle_id=c.id

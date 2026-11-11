@@ -171,7 +171,7 @@ public class PerformanceController {
         authorize(user);
         return tenant.inTenant(user.tenantId(),()->jdbc.queryForList("""
             SELECT id,cycle_id AS "cycleId",employee_id AS "employeeId",
-              reviewer_id AS "reviewerId",rating,strengths,improvements,
+              reviewer_id AS "reviewerId",rating,final_rating AS "finalRating",strengths,improvements,
               manager_comments AS "managerComments",status,submitted_at AS "submittedAt"
             FROM performance_review WHERE tenant_id=? AND cycle_id=?
             ORDER BY created_at DESC LIMIT 500

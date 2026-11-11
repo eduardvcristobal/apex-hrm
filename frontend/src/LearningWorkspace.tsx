@@ -12,7 +12,7 @@ const titles: Record<Section, string> = {
 };
 const fields: Record<Section, { name: string; label: string; type?: string; required?: boolean; options?: string[] }[]> = {
   courses: [
-    { name: 'companyId', label: 'Company ID', required: true }, { name: 'code', label: 'Course code', required: true },
+    { name: 'companyId', label: 'Company', required: true }, { name: 'code', label: 'Course code', required: true },
     { name: 'title', label: 'Course title', required: true }, { name: 'description', label: 'Description' },
     { name: 'deliveryMode', label: 'Delivery mode', options: ['ONLINE', 'CLASSROOM', 'BLENDED', 'SELF_PACED'] },
     { name: 'durationHours', label: 'Duration (hours)', type: 'number', required: true },

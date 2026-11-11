@@ -103,6 +103,10 @@ public class SecurityConfig {
                     .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER", "ROLE_MANAGER", "ROLE_EMPLOYEE", "ROLE_AUDITOR")
                 .requestMatchers(HttpMethod.PUT, "/api/v1/learning/accounts")
                     .access(requireAll("ROLE_TENANT_ADMIN", "ROLE_MFA_VERIFIED"))
+                .requestMatchers(HttpMethod.GET, "/api/v1/learning/companies", "/api/v1/learning/employees", "/api/v1/learning/employees/*")
+                    .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_AUDITOR")
+                .requestMatchers(HttpMethod.GET, "/api/v1/learning/reports/**")
+                    .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_AUDITOR")
                 .requestMatchers(HttpMethod.POST, "/api/v1/learning/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
                 .requestMatchers(HttpMethod.PATCH, "/api/v1/learning/**")
@@ -117,6 +121,13 @@ public class SecurityConfig {
                 .requestMatchers("/api/v1/approvals/**").denyAll()
                 .requestMatchers("/api/v1/recruitment/headcount-requests", "/api/v1/recruitment/headcount-requests/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_MANAGER"))
+                .requestMatchers(HttpMethod.GET, "/api/v1/hr-policies", "/api/v1/hr-policies/**")
+                    .hasAnyAuthority("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_PAYROLL_OFFICER", "ROLE_MANAGER", "ROLE_EMPLOYEE", "ROLE_AUDITOR")
+                .requestMatchers(HttpMethod.POST, "/api/v1/hr-policies", "/api/v1/hr-policies/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
+                .requestMatchers(HttpMethod.PUT, "/api/v1/hr-policies/**")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
+                .requestMatchers("/api/v1/hr-policies/**").denyAll()
                 .requestMatchers("/api/v1/recruitment/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
                 .requestMatchers("/api/v1/self-service/manager/**")
@@ -126,6 +137,8 @@ public class SecurityConfig {
                 // Performance self-service has manager/employee route access, with employee
                 // and direct-report scoping enforced again by the controllers.
                 .requestMatchers("/api/v1/performance/my/**", "/api/v1/performance/team/**",
+                    "/api/v1/performance/reviews/*/appeals",
+                    "/api/v1/performance/reviews/*/approvals/*/approve",
                     "/api/v1/performance/goals/*/progress",
                     "/api/v1/performance/reviews/*/self-assessment",
                     "/api/v1/performance/reviews/drafts", "/api/v1/performance/reviews/*/submit",
@@ -134,6 +147,12 @@ public class SecurityConfig {
                     "/api/v1/performance/plans/*/milestones",
                     "/api/v1/performance/milestones/*/status", "/api/v1/performance/milestones/*/evidence")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN", "ROLE_MANAGER", "ROLE_EMPLOYEE"))
+                .requestMatchers(HttpMethod.POST, "/api/v1/performance/reviews/*/approvers",
+                    "/api/v1/performance/reviews/*/calibration", "/api/v1/performance/appeals/*/decision")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
+                .requestMatchers(HttpMethod.GET, "/api/v1/performance/appeals",
+                    "/api/v1/performance/reviews/*/approvers", "/api/v1/performance/reviews/*/calibrations")
+                    .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
                 .requestMatchers("/api/v1/performance/**")
                     .access(requireAnyWithMfa("ROLE_TENANT_ADMIN", "ROLE_HR_ADMIN"))
                 .requestMatchers("/api/v1/personnel/**")

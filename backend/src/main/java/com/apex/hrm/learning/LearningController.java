@@ -57,6 +57,16 @@ public class LearningController {
             "SELECT id,first_name || ' ' || last_name AS \"name\",employee_number AS \"employeeNumber\" FROM personnel_employee WHERE tenant_id=? AND company_id=? ORDER BY last_name,first_name LIMIT 500",
             user.tenantId(),companyId));
     }
+    @GetMapping("/employees/{employeeId}")
+    public Map<String,Object> employee(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID employeeId) {
+        return tenants.inTenant(user.tenantId(),()->{
+            List<Map<String,Object>> rows=jdbc.queryForList(
+                "SELECT id,company_id AS \"companyId\",first_name || ' ' || last_name AS \"name\",employee_number AS \"employeeNumber\" FROM personnel_employee WHERE tenant_id=? AND id=?",
+                user.tenantId(),employeeId);
+            if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND,"Employee not found in this workspace");
+            return rows.get(0);
+        });
+    }
     @GetMapping("/courses")
     public List<Map<String,Object>> courses(@AuthenticationPrincipal HrmUserPrincipal user) {
         return tenants.inTenant(user.tenantId(),()->jdbc.queryForList(

@@ -5,6 +5,7 @@ import com.apex.hrm.platform.tenant.TenantJdbcExecutor;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -29,6 +30,14 @@ public class PerformanceWorkflowController {
     public record SelfAssessmentInput(@NotNull @DecimalMin("1") @DecimalMax("5") BigDecimal rating,
                                       @NotBlank @Size(max=10000) String assessment) {}
     public record PlanStatusInput(@NotBlank @Pattern(regexp="PLANNED|IN_PROGRESS|COMPLETED|CANCELLED") String status) {}
+    public record ReviewerInput(@NotNull @Size(max=10) List<@NotNull UUID> identityIds) {}
+    public record ApprovalInput(@Size(max=2000) String note) {}
+    public record CalibrationInput(@NotNull @DecimalMin("1") @DecimalMax("5") BigDecimal rating,
+                                   @NotBlank @Size(max=4000) String reason) {}
+    public record AppealInput(@NotBlank @Size(max=10000) String reason) {}
+    public record AppealDecisionInput(@NotBlank @Pattern(regexp="UPHELD|ADJUSTED|REJECTED") String decision,
+                                      @NotBlank @Size(max=4000) String resolution,
+                                      @DecimalMin("1") @DecimalMax("5") BigDecimal adjustedRating) {}
     private static ResponseStatusException denied() {
         return new ResponseStatusException(HttpStatus.FORBIDDEN,"Not authorized for this employee");
     }
@@ -110,9 +119,11 @@ public class PerformanceWorkflowController {
             UUID id=employee(user);
             if(id==null) throw denied();
             return jdbc.queryForList("""
-               SELECT id,cycle_id AS "cycleId",rating,self_rating AS "selfRating",
+               SELECT id,cycle_id AS "cycleId",rating,final_rating AS "finalRating",self_rating AS "selfRating",
                 self_assessment AS "selfAssessment",manager_comments AS "managerComments",
-                status,employee_acknowledged_at AS "acknowledgedAt"
+                status,employee_acknowledged_at AS "acknowledgedAt",
+                (SELECT count(*) FROM performance_review_approval a WHERE a.tenant_id=performance_review.tenant_id AND a.review_id=performance_review.id) AS "approvalCount",
+                (SELECT count(*) FROM performance_review_approval a WHERE a.tenant_id=performance_review.tenant_id AND a.review_id=performance_review.id AND a.status='APPROVED') AS "approvedCount"
                FROM performance_review WHERE tenant_id=? AND employee_id=?
                  AND status IN ('DRAFT','SUBMITTED','ACKNOWLEDGED','FINALIZED')
                ORDER BY created_at DESC LIMIT 100
@@ -173,7 +184,9 @@ public class PerformanceWorkflowController {
                 WHERE tenant_id=? ORDER BY created_at DESC LIMIT 500
                 """,user.tenantId());
             return jdbc.queryForList("""
-                SELECT r.id,r.employee_id AS "employeeId",r.reviewer_id AS "reviewerId",r.rating,r.status
+                SELECT r.id,r.employee_id AS "employeeId",r.reviewer_id AS "reviewerId",r.rating,r.status,
+                  (SELECT count(*) FROM performance_review_approval a WHERE a.tenant_id=r.tenant_id AND a.review_id=r.id) AS "approvalCount",
+                  (SELECT count(*) FROM performance_review_approval a WHERE a.tenant_id=r.tenant_id AND a.review_id=r.id AND a.status='APPROVED') AS "approvedCount"
                 FROM performance_review r JOIN personnel_employee e
                 ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
                 WHERE r.tenant_id=? AND e.supervisor_id=? AND r.reviewer_id=?
@@ -323,8 +336,11 @@ public class PerformanceWorkflowController {
             int count=jdbc.update("""
                UPDATE performance_review SET status='ACKNOWLEDGED',employee_acknowledged_at=now(),updated_at=now()
                WHERE tenant_id=? AND id=? AND employee_id=? AND status='SUBMITTED'
+                 AND NOT EXISTS(SELECT 1 FROM performance_review_approval a
+                   WHERE a.tenant_id=performance_review.tenant_id AND a.review_id=performance_review.id
+                     AND a.status<>'APPROVED')
                """,user.tenantId(),reviewId,linked);
-            if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Submitted review unavailable");
+            if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Review is unavailable or assigned reviewers have not all approved");
             audit(user,"PERFORMANCE_REVIEW_ACKNOWLEDGED","performance_review",reviewId);
             return null;
         });
@@ -340,6 +356,141 @@ public class PerformanceWorkflowController {
             if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Acknowledgment required before finalization");
             audit(user,"PERFORMANCE_REVIEW_FINALIZED","performance_review",reviewId);
             return null;
+        });
+    }
+
+    @PostMapping("/reviews/{reviewId}/approvers")
+    public List<Map<String,Object>> assignApprovers(@AuthenticationPrincipal HrmUserPrincipal user,
+            @PathVariable UUID reviewId,@Valid @RequestBody ReviewerInput input) {
+        requireHr(user);
+        if(new HashSet<>(input.identityIds()).size()!=input.identityIds().size())
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Reviewer accounts must be unique");
+        return tenants.inTenant(user.tenantId(),()->{
+            List<UUID> employeeIds=jdbc.query("SELECT employee_id FROM performance_review WHERE tenant_id=? AND id=? AND status='DRAFT' FOR UPDATE",
+                (rs,i)->rs.getObject(1,UUID.class),user.tenantId(),reviewId);
+            if(employeeIds.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"Review must be a draft before reviewers are assigned");
+            for(UUID identityId:input.identityIds()) {
+                if(!exists("SELECT EXISTS(SELECT 1 FROM auth_identity i JOIN auth_identity_role r ON r.identity_id=i.id WHERE i.tenant_id=? AND i.id=? AND i.enabled AND r.role IN ('TENANT_ADMIN','HR_ADMIN','MANAGER'))",user.tenantId(),identityId)
+                    || exists("SELECT EXISTS(SELECT 1 FROM performance_review WHERE tenant_id=? AND id=? AND reviewer_id=?)",user.tenantId(),reviewId,identityId)
+                    || exists("SELECT EXISTS(SELECT 1 FROM performance_employee_identity WHERE tenant_id=? AND employee_id=? AND identity_id=?)",user.tenantId(),employeeIds.get(0),identityId))
+                    throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Each approver must be an active HR administrator or manager distinct from the employee and manager reviewer");
+            }
+            jdbc.update("DELETE FROM performance_review_approval WHERE tenant_id=? AND review_id=?",user.tenantId(),reviewId);
+            for(UUID identityId:input.identityIds()) jdbc.update("INSERT INTO performance_review_approval(tenant_id,review_id,approver_id,assigned_by) VALUES(?,?,?,?)",user.tenantId(),reviewId,identityId,user.id());
+            audit(user,"PERFORMANCE_REVIEW_APPROVERS_ASSIGNED","performance_review",reviewId);
+            return jdbc.queryForList("SELECT a.id AS \"approvalId\",a.approver_id AS \"approverId\",i.email AS \"approverEmail\",a.status FROM performance_review_approval a JOIN auth_identity i ON i.tenant_id=a.tenant_id AND i.id=a.approver_id WHERE a.tenant_id=? AND a.review_id=? ORDER BY i.email",user.tenantId(),reviewId);
+        });
+    }
+
+    @GetMapping("/reviews/{reviewId}/approvers")
+    public List<Map<String,Object>> approvers(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId) {
+        requireHr(user);
+        return tenants.inTenant(user.tenantId(),()->jdbc.queryForList("SELECT a.id AS \"approvalId\",a.approver_id AS \"approverId\",i.email AS \"approverEmail\",a.status,a.decision_note AS \"decisionNote\",a.assigned_at AS \"assignedAt\",a.decided_at AS \"decidedAt\" FROM performance_review_approval a JOIN auth_identity i ON i.tenant_id=a.tenant_id AND i.id=a.approver_id WHERE a.tenant_id=? AND a.review_id=? ORDER BY i.email",user.tenantId(),reviewId));
+    }
+
+    @GetMapping("/my/approvals")
+    public List<Map<String,Object>> myApprovals(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authenticated(user);
+        if(!hr(user)&&!has(user,"ROLE_MANAGER")) throw denied();
+        return tenants.inTenant(user.tenantId(),()->jdbc.queryForList("""
+            SELECT a.id AS "approvalId",a.review_id AS "reviewId",e.id AS "employeeId",
+              e.first_name AS "firstName",e.last_name AS "lastName",c.name AS "cycleName",
+              r.rating,r.status AS "reviewStatus",a.assigned_at AS "assignedAt"
+            FROM performance_review_approval a JOIN performance_review r
+              ON r.tenant_id=a.tenant_id AND r.id=a.review_id
+            JOIN personnel_employee e ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
+            JOIN performance_cycle c ON c.tenant_id=r.tenant_id AND c.id=r.cycle_id
+            WHERE a.tenant_id=? AND a.approver_id=? AND a.status='PENDING' AND r.status='SUBMITTED'
+            ORDER BY a.assigned_at LIMIT 200
+            """,user.tenantId(),user.id()));
+    }
+
+    @PostMapping("/reviews/{reviewId}/approvals/{approvalId}/approve")
+    public void approveReview(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId,
+            @PathVariable UUID approvalId,@Valid @RequestBody(required=false) ApprovalInput input) {
+        authenticated(user);
+        if(!hr(user)&&!has(user,"ROLE_MANAGER")) throw denied();
+        tenants.inTenant(user.tenantId(),()->{
+            int count=jdbc.update("""
+                UPDATE performance_review_approval a SET status='APPROVED',decision_note=?,decided_at=now()
+                FROM performance_review r
+                WHERE a.tenant_id=? AND a.review_id=? AND a.id=? AND a.approver_id=? AND a.status='PENDING'
+                  AND r.tenant_id=a.tenant_id AND r.id=a.review_id AND r.status='SUBMITTED'
+                """,input==null?null:input.note(),user.tenantId(),reviewId,approvalId,user.id());
+            if(count!=1) throw new ResponseStatusException(HttpStatus.CONFLICT,"Approval is not assigned, pending, or awaiting manager submission");
+            audit(user,"PERFORMANCE_REVIEW_APPROVED","performance_review",reviewId);
+            return null;
+        });
+    }
+
+    @PostMapping("/reviews/{reviewId}/calibration")
+    public Map<String,Object> calibrate(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId,
+            @Valid @RequestBody CalibrationInput input) {
+        requireHr(user);
+        return tenants.inTenant(user.tenantId(),()->{
+            List<BigDecimal> ratings=jdbc.query("SELECT COALESCE(final_rating,rating) FROM performance_review WHERE tenant_id=? AND id=? AND status='ACKNOWLEDGED' FOR UPDATE",
+                (rs,i)->rs.getBigDecimal(1),user.tenantId(),reviewId);
+            if(ratings.isEmpty()||ratings.get(0)==null) throw new ResponseStatusException(HttpStatus.CONFLICT,"Only acknowledged reviews with a manager rating can be calibrated");
+            BigDecimal previous=ratings.get(0);
+            jdbc.update("UPDATE performance_review SET final_rating=?,updated_at=now() WHERE tenant_id=? AND id=?",input.rating(),user.tenantId(),reviewId);
+            jdbc.update("INSERT INTO performance_review_calibration(tenant_id,review_id,previous_rating,calibrated_rating,reason,calibrated_by) VALUES(?,?,?,?,?,?)",user.tenantId(),reviewId,previous,input.rating(),input.reason().trim(),user.id());
+            audit(user,"PERFORMANCE_REVIEW_CALIBRATED","performance_review",reviewId);
+            return Map.of("reviewId",reviewId,"previousRating",previous,"finalRating",input.rating());
+        });
+    }
+
+    @GetMapping("/reviews/{reviewId}/calibrations")
+    public List<Map<String,Object>> calibrations(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId) {
+        requireHr(user);
+        return tenants.inTenant(user.tenantId(),()->jdbc.queryForList("SELECT c.id,c.previous_rating AS \"previousRating\",c.calibrated_rating AS \"calibratedRating\",c.reason,c.source,c.calibrated_by AS \"calibratedBy\",i.email AS \"calibratedByEmail\",c.calibrated_at AS \"calibratedAt\" FROM performance_review_calibration c JOIN auth_identity i ON i.tenant_id=c.tenant_id AND i.id=c.calibrated_by WHERE c.tenant_id=? AND c.review_id=? ORDER BY c.calibrated_at DESC",user.tenantId(),reviewId));
+    }
+
+    @GetMapping("/my/appeals")
+    public List<Map<String,Object>> myAppeals(@AuthenticationPrincipal HrmUserPrincipal user) {
+        authenticated(user);
+        return tenants.inTenant(user.tenantId(),()->{ UUID linked=employee(user); if(linked==null) throw denied();
+            return jdbc.queryForList("SELECT a.id,a.review_id AS \"reviewId\",a.reason,a.status,a.resolution,a.adjusted_rating AS \"adjustedRating\",a.created_at AS \"createdAt\",a.decided_at AS \"decidedAt\" FROM performance_review_appeal a WHERE a.tenant_id=? AND a.employee_id=? ORDER BY a.created_at DESC LIMIT 100",user.tenantId(),linked); });
+    }
+
+    @PostMapping("/reviews/{reviewId}/appeals")
+    @ResponseStatus(HttpStatus.CREATED)
+    public Map<String,Object> appeal(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID reviewId,
+            @Valid @RequestBody AppealInput input) {
+        authenticated(user);
+        return tenants.inTenant(user.tenantId(),()->{
+            UUID linked=employee(user); if(linked==null) throw denied();
+            if(!exists("SELECT EXISTS(SELECT 1 FROM performance_review WHERE tenant_id=? AND id=? AND employee_id=? AND status='FINALIZED' AND finalized_at>=now()-interval '30 days')",user.tenantId(),reviewId,linked))
+                throw new ResponseStatusException(HttpStatus.CONFLICT,"Only reviews finalized within the last 30 days can be appealed");
+            UUID id=jdbc.queryForObject("INSERT INTO performance_review_appeal(tenant_id,review_id,employee_id,reason) VALUES(?,?,?,?) RETURNING id",UUID.class,user.tenantId(),reviewId,linked,input.reason().trim());
+            audit(user,"PERFORMANCE_REVIEW_APPEALED","performance_review",reviewId);
+            return Map.of("id",id,"reviewId",reviewId,"status","OPEN");
+        });
+    }
+
+    @GetMapping("/appeals")
+    public List<Map<String,Object>> appeals(@AuthenticationPrincipal HrmUserPrincipal user) {
+        requireHr(user);
+        return tenants.inTenant(user.tenantId(),()->jdbc.queryForList("SELECT a.id,a.review_id AS \"reviewId\",a.employee_id AS \"employeeId\",e.first_name AS \"firstName\",e.last_name AS \"lastName\",c.name AS \"cycleName\",a.reason,a.status,a.resolution,a.adjusted_rating AS \"adjustedRating\",COALESCE(r.final_rating,r.rating) AS rating,a.created_at AS \"createdAt\" FROM performance_review_appeal a JOIN personnel_employee e ON e.tenant_id=a.tenant_id AND e.id=a.employee_id JOIN performance_review r ON r.tenant_id=a.tenant_id AND r.id=a.review_id JOIN performance_cycle c ON c.tenant_id=r.tenant_id AND c.id=r.cycle_id WHERE a.tenant_id=? ORDER BY CASE a.status WHEN 'OPEN' THEN 0 ELSE 1 END,a.created_at DESC LIMIT 500",user.tenantId()));
+    }
+
+    @PostMapping("/appeals/{appealId}/decision")
+    public Map<String,Object> decideAppeal(@AuthenticationPrincipal HrmUserPrincipal user,@PathVariable UUID appealId,
+            @Valid @RequestBody AppealDecisionInput input) {
+        requireHr(user);
+        if(input.decision().equals("ADJUSTED")!=(input.adjustedRating()!=null))
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,"Provide an adjusted rating only for an adjusted appeal outcome");
+        return tenants.inTenant(user.tenantId(),()->{
+            List<Map<String,Object>> rows=jdbc.queryForList("SELECT a.review_id AS \"reviewId\",COALESCE(r.final_rating,r.rating) AS rating FROM performance_review_appeal a JOIN performance_review r ON r.tenant_id=a.tenant_id AND r.id=a.review_id WHERE a.tenant_id=? AND a.id=? AND a.status='OPEN' FOR UPDATE OF a,r",user.tenantId(),appealId);
+            if(rows.isEmpty()) throw new ResponseStatusException(HttpStatus.CONFLICT,"Open appeal not found");
+            UUID reviewId=(UUID)rows.get(0).get("reviewId"); BigDecimal previous=(BigDecimal)rows.get(0).get("rating");
+            if(input.decision().equals("ADJUSTED") && previous==null) throw new ResponseStatusException(HttpStatus.CONFLICT,"A review without a rating cannot be adjusted");
+            jdbc.update("UPDATE performance_review_appeal SET status=?,resolution=?,adjusted_rating=?,decided_by=?,decided_at=now() WHERE tenant_id=? AND id=?",input.decision(),input.resolution().trim(),input.adjustedRating(),user.id(),user.tenantId(),appealId);
+            if(input.decision().equals("ADJUSTED")) {
+                jdbc.update("UPDATE performance_review SET final_rating=?,updated_at=now() WHERE tenant_id=? AND id=?",input.adjustedRating(),user.tenantId(),reviewId);
+                jdbc.update("INSERT INTO performance_review_calibration(tenant_id,review_id,previous_rating,calibrated_rating,reason,source,calibrated_by) VALUES(?,?,?,?,?,'APPEAL',?)",user.tenantId(),reviewId,previous,input.adjustedRating(),input.resolution().trim(),user.id());
+            }
+            audit(user,"PERFORMANCE_REVIEW_APPEAL_DECIDED","performance_review_appeal",appealId);
+            return Map.of("id",appealId,"reviewId",reviewId,"status",input.decision());
         });
     }
     @PostMapping("/plans/{planId}/status")
