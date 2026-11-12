@@ -352,7 +352,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
       payGroupId: group.id, from, through, payDateOffsetDays: 5,
     });
     expectOk(generated);
-    const periods = await callApi('GET', '/api/pay-periods');
+    const periods = await callApi('GET', '/api/pay-periods?size=500&page=0');
     expectOk(periods);
     const period = (periods.body.content || []).find(item => item.payGroupId === group.id && item.startDate === from && item.endDate === through);
     expect(period, `pay period ${from} to ${through} for ${group.frequency}`).toBeTruthy();
@@ -392,6 +392,54 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expectOk(closed);
   expect(closed.body.status).toBe('LOCKED');
 
+  const nextWeekStartDate = new Date(`${weekEnd}T00:00:00Z`);
+  nextWeekStartDate.setUTCDate(nextWeekStartDate.getUTCDate() + 1);
+  const nextWeekStart = nextWeekStartDate.toISOString().slice(0, 10);
+  const nextWeekEndDate = new Date(`${nextWeekStart}T00:00:00Z`);
+  nextWeekEndDate.setUTCDate(nextWeekEndDate.getUTCDate() + 6);
+  const nextWeekEnd = nextWeekEndDate.toISOString().slice(0, 10);
+  const nextPeriodGenerate = await callApi('POST', '/api/pay-periods/generate', {
+    payGroupId: weeklyGroupResult.body.id, from: nextWeekStart, through: nextWeekEnd, payDateOffsetDays: 5,
+  });
+  expectOk(nextPeriodGenerate);
+  const allPeriods = await callApi('GET', '/api/pay-periods?size=500&page=0');
+  expectOk(allPeriods);
+  const finalPayPeriod = (allPeriods.body.content || []).find(item => item.payGroupId === weeklyGroupResult.body.id && item.startDate === nextWeekStart && item.endDate === nextWeekEnd);
+  expect(finalPayPeriod, 'next open weekly 13th-month and final-pay period').toBeTruthy();
+
+  // Calculate 13th-month pay from the locked basic-pay YTD lines, then issue its
+  // own employee-visible payslip and require acknowledgement before lock.
+  const thirteenthRun = await callApi('POST', '/api/payroll/runs', {
+    payPeriodId: finalPayPeriod.id, runType: 'THIRTEENTH_MONTH',
+  });
+  expectOk(thirteenthRun);
+  const thirteenthComputed = await callApi('POST', `/api/payroll/runs/${thirteenthRun.body.id}/compute`);
+  expectOk(thirteenthComputed);
+  expect(thirteenthComputed.body.status).toBe('COMPUTED');
+  const thirteenthLines = await callApi('GET', `/api/payroll/runs/${thirteenthRun.body.id}/lines`);
+  expectOk(thirteenthLines);
+  const thirteenthPayLines = thirteenthLines.body.filter(line => line.itemCode === 'THIRTEENTH_MONTH');
+  expect(thirteenthPayLines.length).toBeGreaterThan(0);
+  expect(thirteenthPayLines.reduce((total, line) => total + Number(line.amount), 0)).toBeGreaterThan(0);
+  const thirteenthReviewed = await callApi('POST', `/api/payroll/runs/${thirteenthRun.body.id}/review`);
+  expectOk(thirteenthReviewed);
+  const thirteenthApproved = await callApi('POST', `/api/payroll/runs/${thirteenthRun.body.id}/approve`);
+  expectOk(thirteenthApproved);
+  const thirteenthPublished = await callApi('POST', `/api/payroll/runs/${thirteenthRun.body.id}/publish-for-employee-review`);
+  expectOk(thirteenthPublished);
+  const thirteenthPortal = await callApi('GET', '/api/v1/self-service/me');
+  expectOk(thirteenthPortal);
+  const thirteenthPayslip = thirteenthPortal.body.payslips.find(slip => slip.run_type === 'THIRTEENTH_MONTH' && slip.run_status === 'EMPLOYEE_REVIEW');
+  expect(thirteenthPayslip, '13th-month payslip published to employee self-service').toBeTruthy();
+  const thirteenthAck = await callApi('POST', `/api/v1/self-service/payslips/${thirteenthPayslip.id}/acknowledge`);
+  expectOk(thirteenthAck);
+  const thirteenthCounts = await callApi('GET', `/api/payroll/runs/${thirteenthRun.body.id}/employee-acknowledgements`);
+  expectOk(thirteenthCounts);
+  expect(thirteenthCounts.body.pending).toBe(0);
+  const thirteenthClosed = await callApi('POST', `/api/payroll/runs/${thirteenthRun.body.id}/lock`);
+  expectOk(thirteenthClosed);
+  expect(thirteenthClosed.body.status).toBe('LOCKED');
+
   // Complete a real separation, with a distinct authorized approver and exit
   // clearance, then settle final pay in the next open weekly payroll period.
   const separation = await callApi('POST', `/api/v1/personnel/employees/${employees[0].id}/hr-cases`, {
@@ -407,20 +455,6 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   const separationDecision = await callAs(approverToken, 'POST', `/api/v1/personnel/employees/${employees[0].id}/hr-cases/${separation.body.id}/decision?decision=APPROVED`);
   expectOk(separationDecision);
   expect(separationDecision.body.status).toBe('APPROVED');
-  const nextWeekStartDate = new Date(`${weekEnd}T00:00:00Z`);
-  nextWeekStartDate.setUTCDate(nextWeekStartDate.getUTCDate() + 1);
-  const nextWeekStart = nextWeekStartDate.toISOString().slice(0, 10);
-  const nextWeekEndDate = new Date(`${nextWeekStart}T00:00:00Z`);
-  nextWeekEndDate.setUTCDate(nextWeekEndDate.getUTCDate() + 6);
-  const nextWeekEnd = nextWeekEndDate.toISOString().slice(0, 10);
-  const nextPeriodGenerate = await callApi('POST', '/api/pay-periods/generate', {
-    payGroupId: weeklyGroupResult.body.id, from: nextWeekStart, through: nextWeekEnd, payDateOffsetDays: 5,
-  });
-  expectOk(nextPeriodGenerate);
-  const allPeriods = await callApi('GET', '/api/pay-periods');
-  expectOk(allPeriods);
-  const finalPayPeriod = (allPeriods.body.content || []).find(item => item.payGroupId === weeklyGroupResult.body.id && item.startDate === nextWeekStart && item.endDate === nextWeekEnd);
-  expect(finalPayPeriod, 'next open weekly final-pay period').toBeTruthy();
   const finalPayRun = await callApi('POST', '/api/payroll/final-pay', {
     payPeriodId: finalPayPeriod.id, employeeId: employees[0].id,
   });
@@ -446,6 +480,42 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   const finalPayClosed = await callApi('POST', `/api/payroll/runs/${finalPayRun.body.id}/lock`);
   expectOk(finalPayClosed);
   expect(finalPayClosed.body.status).toBe('LOCKED');
+
+  // Prepare an annual certificate row from finalized regular, 13th-month, and
+  // final-pay lines. The application intentionally labels this as a review aid;
+  // it is not the official BIR Form 2316 or a signed filing artifact.
+  const certificateYear = today.slice(0, 4);
+  const incompleteCertificate = await callApi('GET', `/api/payroll/reports/annual-tax-certificate?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expectOk(incompleteCertificate);
+  expect(incompleteCertificate.body.readyForReview).toBe(false);
+  expect(incompleteCertificate.body.missingFields).toContain('Employee TIN');
+  const employeeTaxProfile = await callApi('PUT', `/api/payroll/employees/${employees[0].id}/tax-profile`, {
+    tin: '123-456-789', minimumWageEarner: false,
+  });
+  expectOk(employeeTaxProfile);
+  const employeeTaxDetails = await callApi('PUT', `/api/employees/${employees[0].id}`, {
+    address: '123 E2E Test Street, Manila', birthDate: '1990-05-14',
+  });
+  expectOk(employeeTaxDetails);
+  const employerTaxDetails = await callApi('PUT', `/api/companies/${company.id}`, {
+    legalName: 'Apex E2E Test Employer Inc.', tin: '987-654-321',
+    address: '100 E2E Business Avenue, Makati City', rdoCode: '050',
+  });
+  expectOk(employerTaxDetails);
+  const annualCertificate = await callApi('GET', `/api/payroll/reports/annual-tax-certificate?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expectOk(annualCertificate);
+  expect(annualCertificate.body.readyForReview).toBe(true);
+  expect(annualCertificate.body.grossCompensation).toBeGreaterThan(0);
+  expect(annualCertificate.body.taxableRuns).toBeGreaterThanOrEqual(3);
+  const annualCsv = await page.evaluate(async input => {
+    const token = sessionStorage.getItem('apexHrm.accessToken');
+    const response = await fetch(input.path, { headers: { Authorization: `Bearer ${token}` } });
+    return { status: response.status, contentType: response.headers.get('content-type'), body: await response.text() };
+  }, { path: `/api/payroll/reports/annual-tax-certificate.csv?year=${certificateYear}&employeeId=${employees[0].id}` });
+  expect(annualCsv.status).toBe(200);
+  expect(annualCsv.contentType).toContain('text/csv');
+  expect(annualCsv.body).toContain('Ready for review');
+  expect(annualCsv.body).toContain('true');
 });
 
 async function signIn(page, sample) {
