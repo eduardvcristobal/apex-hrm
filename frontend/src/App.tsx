@@ -716,9 +716,36 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
         <main className="workspace-content">
           {activeSection === 'Overview' ? <>
             <div className="dashboard-welcome"><div><p className="eyebrow">{user.workspaceName || 'YOUR WORKSPACE'}</p><h1>Good to see you, {firstName} <span>✦</span></h1><p>Here’s what’s happening with your people today.</p></div><div className="welcome-date">{new Intl.DateTimeFormat(undefined, { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date())}</div></div>
-            <section className="workspace-hero">
-              <div className="hero-copy"><span className="hero-badge"><i /> WORKSPACE CREATED</span><h2>A better way to work,<br />starts right here.</h2><p>Your workspace is set up. Complete the security step to unlock administrator tools and get your team ready.</p><button type="button" className="hero-button" onClick={() => document.getElementById('security-setup')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>Complete setup <span>→</span></button></div>
-              <div className="hero-illustration" aria-hidden="true"><div className="hero-ring ring-a" /><div className="hero-ring ring-b" /><div className="hero-card"><span className="hero-card-dot" /><span /><span /><span className="hero-card-line short" /><div className="hero-card-avatars"><i /><i /><i /><b>+</b></div></div><div className="hero-sparkle sparkle-one">✳</div><div className="hero-sparkle sparkle-two">✦</div></div>
+            <section className="people-hud" aria-label="People operations dashboard">
+              <div className="people-hud-column">
+                <button type="button" className="people-hud-card" onClick={() => setActiveSection('Profile')}>
+                  <span className="people-hud-label"><i /> WORKSPACE</span>
+                  <strong>{user.workspaceName || 'Your workspace'}</strong>
+                  <small>Organization overview <span>↗</span></small>
+                </button>
+                <button type="button" className="people-hud-card" onClick={() => setActiveSection(isWorkspaceOwner || user.roles.includes('ROLE_HR_ADMIN') ? 'Users & staff' : 'Profile')}>
+                  <span className="people-hud-label"><i /> ACCESS PROFILE</span>
+                  <strong>{roleName}</strong>
+                  <small>{isWorkspaceOwner || user.roles.includes('ROLE_HR_ADMIN') ? 'Manage workspace team' : 'View account details'} <span>↗</span></small>
+                </button>
+              </div>
+              <div className="people-hud-core" aria-hidden="true">
+                <div className="people-hud-orbit orbit-outer" /><div className="people-hud-orbit orbit-inner" />
+                <div className="people-hud-mark"><svg viewBox="0 0 120 120" fill="none"><path d="M60 14 70 43 60 55 50 43 60 14Z"/><path d="M42 43c-16 11-20 33-8 47 7 8 17 10 26 5V59L42 43Z"/><path d="M78 43c16 11 20 33 8 47-7 8-17 10-26 5V59l18-16Z"/><path d="M47 91c4 9 9 15 13 18 4-3 9-9 13-18M60 55v54"/><circle cx="60" cy="60" r="49"/></svg></div>
+                <span className="people-hud-core-caption">APEX <b>•</b> PEOPLE</span>
+              </div>
+              <div className="people-hud-column">
+                <button type="button" className="people-hud-card" onClick={() => { setActiveSection('Profile'); setProfileTab('settings'); setSecurityTab('mfa'); }}>
+                  <span className="people-hud-label"><i /> ACCOUNT SECURITY</span>
+                  <strong>{mfaEnabled ? 'Authenticator active' : 'Security setup'}</strong>
+                  <small>{mfaEnabled ? 'Your sign-in is protected' : 'Review sign-in protection'} <span>↗</span></small>
+                </button>
+                <button type="button" className="people-hud-card" onClick={() => setActiveSection(canManageTimekeeping || canManagePayroll || user.roles.some(role => ['ROLE_MANAGER','ROLE_EMPLOYEE'].includes(role)) ? 'Approval center' : 'My workspace')}>
+                  <span className="people-hud-label"><i /> WORKFLOW CENTER</span>
+                  <strong>{canManageTimekeeping || canManagePayroll || user.roles.some(role => ['ROLE_MANAGER','ROLE_EMPLOYEE'].includes(role)) ? 'Requests & approvals' : 'My workspace'}</strong>
+                  <small>Open your work area <span>↗</span></small>
+                </button>
+              </div>
             </section>
             <div className="section-heading"><div><p className="eyebrow">GETTING STARTED</p><h2>Your setup checklist</h2></div><span className="setup-progress">{privileged ? (mfaEnabled ? '2 of 2 complete' : '1 of 2 complete') : '1 of 1 complete'}</span></div>
             <section className="setup-checklist">
