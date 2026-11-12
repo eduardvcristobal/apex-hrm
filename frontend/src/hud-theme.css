@@ -356,6 +356,82 @@
   opacity: .62;
 }
 
+/* Keep overlays, popovers, and tab subviews in the same HUD palette. */
+.workspace-app .account-popover,
+.workspace-content .directory-filter-popover,
+.workspace-content .people-columns-menu,
+.workspace-content .people-directory-more-menu,
+.workspace-content .org-chart-node-menu-items {
+  border-color: var(--hud-border) !important;
+  color: var(--hud-text) !important;
+  background: #302f29 !important;
+  box-shadow: 0 16px 38px rgb(0 0 0 / 38%);
+}
+.workspace-app .account-popover :is(strong,small),
+.workspace-content .directory-filter-popover :is(button,label),
+.workspace-content .people-columns-menu label,
+.workspace-content .people-directory-more-menu button,
+.workspace-content .org-chart-node-menu-items button { color: var(--hud-text) !important; }
+.workspace-content .directory-filter-option,
+.workspace-content .directory-filter-actions button,
+.workspace-content .org-chart-node-menu-items button { background: transparent !important; }
+.workspace-content .directory-filter-option:hover,
+.workspace-content .org-chart-node-menu-items button:hover { color: var(--hud-gold-bright) !important; background: rgb(239 202 117 / 12%) !important; }
+.workspace-content .directory-filter-checkbox.checked { border-color: var(--hud-gold) !important; color: #30291b !important; background: var(--hud-gold) !important; }
+.workspace-content .directory-filter-actions,
+.workspace-content .directory-filter-all { border-color: var(--hud-border) !important; }
+.workspace-content .directory-filter-actions button.apply { border-color: var(--hud-gold) !important; color: #30291b !important; background: linear-gradient(120deg,#f4d789,#d4a84d) !important; }
+.workspace-content :is(.org-company-form,.org-extra-details,.org-entity-details,.org-section-form,.org-add-form,
+  .org-structure-panel,.org-structure-aside,.org-company-item,.org-seed-template,.org-seed-dialog,
+  .org-node-modal,.org-node-modal > .org-node-editor,.org-photo-dialog,.org-delete-dialog,.payslip-detail-dialog) {
+  border-color: var(--hud-border) !important;
+  color: var(--hud-text) !important;
+  background: linear-gradient(125deg,rgb(67 62 49 / 98%),rgb(49 49 42 / 98%)) !important;
+}
+.workspace-content :is(.org-seed-template,.org-company-item):is(:hover,.selected) {
+  border-color: var(--hud-gold-bright) !important;
+  background: rgb(239 202 117 / 12%) !important;
+  box-shadow: inset 0 0 0 1px rgb(239 202 117 / 24%);
+}
+.workspace-content :is(.org-seed-dialog,.org-photo-dialog,.org-delete-dialog) :is(h2,h3,h4,strong) { color: var(--hud-text) !important; }
+.workspace-content :is(.org-seed-template,.org-company-item) :is(strong,small,span) { color: var(--hud-text) !important; }
+.workspace-content :is(.org-company-icon,.org-seed-template-icon) { border: 1px solid var(--hud-border); color: var(--hud-gold-bright) !important; background: rgb(239 202 117 / 12%) !important; }
+.workspace-content .org-tree-row.is-section { background: rgb(255 231 178 / 5%) !important; }
+.workspace-content .org-tree-header { border-color: var(--hud-border) !important; color: var(--hud-gold) !important; }
+.workspace-content .org-detail-section + .org-detail-section,
+.workspace-content .org-entity-save,
+.workspace-content .org-extra-details { border-color: var(--hud-border) !important; }
+.workspace-content .org-company-count { border: 1px solid var(--hud-border); color: var(--hud-gold-bright) !important; background: rgb(239 202 117 / 12%) !important; }
+.workspace-content .org-status.is-active { color: var(--hud-success) !important; }
+.workspace-content .payslip-detail-dialog { background: #302f29 !important; }
+.workspace-content .payslip-dialog-actions h2 { color: var(--hud-text) !important; }
+.workspace-content .payslip-close { border-color: var(--hud-border) !important; color: var(--hud-gold-bright) !important; background: rgb(255 231 178 / 6%) !important; }
+.workspace-content .payslip-issued-tag { border-color: var(--hud-border) !important; color: var(--hud-gold-bright) !important; background: rgb(239 202 117 / 12%) !important; }
+.workspace-content .payslip-document-heading,
+.workspace-content .payslip-employee-summary,
+.workspace-content .payslip-lines > div,
+.workspace-content .payslip-lines article,
+.workspace-content .payslip-document-footer { border-color: var(--hud-border) !important; }
+.workspace-content .payslip-totals .payslip-net { color: var(--hud-text) !important; background: linear-gradient(120deg,#8b6d32,#634e28) !important; }
+.workspace-content .payslip-totals .payslip-net strong { color: var(--hud-text) !important; }
+.workspace-content :is(.org-dialog-backdrop,.payslip-detail-backdrop) { background: rgb(7 9 8 / 78%) !important; backdrop-filter: blur(4px); }
+.workspace-content :is(.org-chart-node-menu > summary,.org-chart-close,.payslip-close) { border-color: var(--hud-border) !important; color: var(--hud-gold-bright) !important; background: rgb(255 231 178 / 7%) !important; }
+.workspace-app dialog.platform-edit-dialog,
+.workspace-app dialog.platform-confirm-dialog {
+  border-color: var(--hud-border) !important;
+  color: var(--hud-text) !important;
+  background: #302f29 !important;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 48%);
+}
+.workspace-app dialog.platform-edit-dialog :is(h2,h3,strong),
+.workspace-app dialog.platform-confirm-dialog :is(h2,h3,strong) { color: var(--hud-text) !important; }
+.workspace-app dialog.platform-edit-dialog :is(input:not([type="checkbox"]),select,textarea),
+.workspace-app dialog.platform-confirm-dialog textarea { border-color: var(--hud-border) !important; color: var(--hud-text) !important; background: #252a27 !important; }
+.workspace-app dialog.platform-edit-dialog header button,
+.workspace-app dialog.platform-confirm-dialog .platform-confirm-close { border-color: var(--hud-border) !important; color: var(--hud-gold-bright) !important; background: rgb(255 231 178 / 6%) !important; }
+.workspace-app dialog.platform-confirm-dialog .platform-confirm-summary { border-color: var(--hud-border) !important; background: rgb(255 231 178 / 5%) !important; }
+.workspace-app dialog.platform-confirm-dialog .platform-confirm-icon.is-approve { color: var(--hud-success) !important; background: rgb(47 109 70 / 18%) !important; }
+
 @media (max-width: 680px) {
   .workspace-content { min-height: calc(100dvh - 58px); }
   .workspace-content::before { inset: 5px; }
