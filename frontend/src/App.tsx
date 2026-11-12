@@ -395,7 +395,6 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
     if (location.pathname !== path) navigate(path);
   };
   const [navigationOpen, setNavigationOpen] = useState(false);
-  const [navigationDocked, setNavigationDocked] = useState(false);
   const [activeModule, setActiveModule] = useState('Personnel management');
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [profileTab, setProfileTab] = useState<'profile' | 'settings' | 'plan' | 'guides'>('profile');
@@ -492,11 +491,9 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
   ];
   const activeGroupForPage = navigationGroups.find(group => group.items.some(item => item.label === activeSection))?.label
     || (['Profile', 'Settings', 'Billing', 'Audit logs'].includes(activeSection) ? 'Global settings & maintenance' : null);
-  const sidebarOpen = navigationOpen || navigationDocked;
-  const activeModuleForView = sidebarOpen ? activeModule : activeSection === 'Overview' ? 'Overview' : activeGroupForPage || activeModule;
+  const sidebarOpen = navigationOpen;
   const moduleLabels: Record<string, string> = { 'Personnel management': 'Personnel', Timekeeping: 'Timekeeping', Payroll: 'Payroll', Insights: 'Insights', 'Global settings & maintenance': 'Administration' };
   const moduleIcons: Record<string, string> = { Overview: '⌂', 'Personnel management': '♙', Timekeeping: '◷', Payroll: '₱', Insights: '▥', 'Global settings & maintenance': '⚙' };
-  const openModule = (groupLabel: string) => { setActiveModule(groupLabel); setNavigationOpen(!navigationDocked); };
 
   useEffect(() => {
     const section = sectionFromPath(location.pathname, '/dashboard', workspaceRouteSections, 'Overview');
@@ -504,13 +501,6 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
     const canonicalPath = routePath('/dashboard', section);
     if (location.pathname !== canonicalPath) navigate(canonicalPath, { replace: true });
   }, [location.pathname, navigate]);
-
-  useEffect(() => {
-    const desktop = window.matchMedia('(min-width: 1200px)');
-    const clearDockOnSmallScreens = () => { if (!desktop.matches) setNavigationDocked(false); };
-    desktop.addEventListener('change', clearDockOnSmallScreens);
-    return () => desktop.removeEventListener('change', clearDockOnSmallScreens);
-  }, []);
 
   useEffect(() => {
     if (!secret) { setMfaQrCode(''); return; }
@@ -680,22 +670,33 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
   }
 
   return (
-    <div className={`workspace-app${sidebarOpen ? ' navigation-open' : ''}${navigationDocked ? ' navigation-docked' : ''}${activeSection === 'People' ? ' people-page-no-header' : ''}`}>
-      {navigationOpen && !navigationDocked && <button type="button" className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />}
-      <aside className={`workspace-sidebar${sidebarOpen ? ' is-open' : ''}${navigationDocked ? ' is-docked' : ''}`} aria-label="Workspace navigation" aria-hidden={!sidebarOpen}>
-        <div className="workspace-brand"><BrandMark /><span><strong>Apex</strong><small>PEOPLE</small></span><button type="button" className="navigation-dock-toggle" aria-label={navigationDocked ? 'Undock navigation' : 'Dock navigation'} title={navigationDocked ? 'Undock navigation' : 'Dock navigation'} onClick={() => { setNavigationDocked(value => !value); setNavigationOpen(false); }}>{navigationDocked ? '⇤' : '⇥'}</button><button type="button" className="navigation-close" aria-label="Close navigation" onClick={() => setNavigationOpen(false)}>×</button></div>
-        <nav className="workspace-nav" aria-label="Workspace navigation">
-          {navigationGroups.filter(group => group.label === activeModule).map((group) => <section className="workspace-nav-group" key={group.label} aria-label={group.label}>
-            <p className="nav-caption">{group.label}</p>
-            {group.items.map((item) => <button key={item.label} type="button" className={`workspace-nav-item${activeSection === item.label ? ' selected' : ''}`} aria-current={activeSection === item.label ? 'page' : undefined} onClick={() => { setActiveModule(group.label); setActiveSection(item.label); setNavigationOpen(false); }}>
+    <div className={`workspace-app${sidebarOpen ? ' navigation-open' : ''}${activeSection === 'People' ? ' people-page-no-header' : ''}`}>
+      {navigationOpen && <button type="button" className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />}
+      <aside className={`workspace-sidebar${sidebarOpen ? ' is-open' : ''}`} aria-label="Workspace navigation" aria-hidden={!sidebarOpen}>
+        <div className="workspace-brand"><BrandMark /><span><strong>Apex</strong><small>PEOPLE SYSTEM</small></span><button type="button" className="navigation-close" aria-label="Close navigation" onClick={() => setNavigationOpen(false)}>×</button></div>
+        <div className="navigation-hud-heading"><p className="eyebrow">WORKSPACE CONTROL</p><h2>Choose an area</h2><p>People operations, organized around your work.</p></div>
+        <div className="navigation-hud-selector">
+          <div className="navigation-hud-column" aria-label="People and payroll modules">
+            {navigationGroups.slice(0, 3).map(group => <button type="button" key={group.label} className={`navigation-hud-card${activeModule === group.label ? ' active' : ''}`} aria-pressed={activeModule === group.label} onClick={() => setActiveModule(group.label)}><span className="navigation-hud-card-icon" aria-hidden="true">{moduleIcons[group.label]}</span><span className="navigation-hud-card-copy"><strong>{moduleLabels[group.label]}</strong><small>{group.items.filter(item => item.available).length} areas</small></span><span className="navigation-hud-arrow" aria-hidden="true">↗</span></button>)}
+          </div>
+          <div className="navigation-hud-core" aria-hidden="true"><div className="navigation-hud-ring navigation-hud-orbit-outer"/><div className="navigation-hud-ring navigation-hud-orbit-inner"/><div className="navigation-hud-emblem"><svg viewBox="0 0 120 120" fill="none"><path d="M60 14 70 43 60 55 50 43 60 14Z"/><path d="M42 43c-16 11-20 33-8 47 7 8 17 10 26 5V59L42 43Z"/><path d="M78 43c16 11 20 33 8 47-7 8-17 10-26 5V59l18-16Z"/><path d="M47 91c4 9 9 15 13 18 4-3 9-9 13-18M60 55v54"/><circle cx="60" cy="60" r="49"/></svg></div><span>APEX <b>•</b> PEOPLE</span></div>
+          <div className="navigation-hud-column" aria-label="Insights and administration modules">
+            {navigationGroups.slice(3).map(group => <button type="button" key={group.label} className={`navigation-hud-card${activeModule === group.label ? ' active' : ''}`} aria-pressed={activeModule === group.label} onClick={() => setActiveModule(group.label)}><span className="navigation-hud-card-icon" aria-hidden="true">{moduleIcons[group.label]}</span><span className="navigation-hud-card-copy"><strong>{moduleLabels[group.label]}</strong><small>{group.items.filter(item => item.available).length} areas</small></span><span className="navigation-hud-arrow" aria-hidden="true">↗</span></button>)}
+            <button type="button" className={`navigation-hud-card navigation-hud-overview${activeSection === 'Overview' ? ' active' : ''}`} aria-current={activeSection === 'Overview' ? 'page' : undefined} onClick={() => { setActiveSection('Overview'); setNavigationOpen(false); }}><span className="navigation-hud-card-icon" aria-hidden="true">{moduleIcons.Overview}</span><span className="navigation-hud-card-copy"><strong>Overview</strong><small>Workspace home</small></span><span className="navigation-hud-arrow" aria-hidden="true">↗</span></button>
+          </div>
+        </div>
+        <nav className="workspace-nav" aria-label={`${moduleLabels[activeModule]} areas`}>
+          {navigationGroups.filter(group => group.label === activeModule).map(group => <section className="workspace-nav-group" key={group.label} aria-label={group.label}>
+            <div className="navigation-area-heading"><span><i/> ACTIVE MODULE</span><strong>{moduleLabels[group.label]}</strong></div>
+            <div className="navigation-area-grid">{group.items.map(item => <button key={item.label} type="button" className={`workspace-nav-item${activeSection === item.label ? ' selected' : ''}`} aria-current={activeSection === item.label ? 'page' : undefined} onClick={() => { setActiveSection(item.label); setNavigationOpen(false); }}>
               <span className="workspace-nav-icon" aria-hidden="true">{item.icon}</span><span>{item.displayLabel || item.label}</span>{!item.available && <small>SOON</small>}
-            </button>)}
+            </button>)}</div>
           </section>)}
         </nav>
       </aside>
       <div className="workspace-main-column">
         {activeSection !== 'People' && <header className="workspace-header">
-          <div className="workspace-header-top"><div className="header-leading"><button type="button" className="navigation-toggle" aria-label={navigationDocked ? 'Undock navigation' : sidebarOpen ? 'Hide navigation' : 'Show navigation'} aria-expanded={sidebarOpen} onClick={() => { if (navigationDocked) { setNavigationDocked(false); return; } if (!navigationOpen) setActiveModule(activeGroupForPage || 'Personnel management'); setNavigationOpen((open) => !open); }}><span /><span /><span /></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{activeSection}</strong></div></div>
+          <div className="workspace-header-top"><div className="header-leading"><button type="button" className="navigation-toggle" aria-label={sidebarOpen ? 'Close workspace navigation' : 'Open workspace navigation'} aria-expanded={sidebarOpen} onClick={() => { if (!navigationOpen) setActiveModule(activeGroupForPage || 'Personnel management'); setNavigationOpen((open) => !open); }}><span /><span /><span /></button><div className="breadcrumb"><span>Workspace</span><b>/</b><strong>{activeSection}</strong></div></div>
           <div className="header-actions">{showPlanNotice && <button type="button" className={`workspace-plan-notice${billing.status === 'TRIALING' ? ' is-trial' : ' is-expiring'}`} onClick={() => setActiveSection('Billing')} aria-label={`${billing.planName} plan. ${billing.status === 'TRIALING' ? 'Trial ends' : 'Plan period ends'} ${planEndsAt ? new Date(planEndsAt).toLocaleDateString() : 'date unavailable'}`}><span className="workspace-plan-notice-icon"><AccountMenuIcon kind="billing" /></span><span className="workspace-plan-notice-copy"><strong>{billing.planName}</strong><small>{billing.status === 'TRIALING' ? 'TRIALING' : 'RENEWAL SOON'}{planEndsAt ? ` · ${billing.status === 'TRIALING' ? 'Trial' : 'Plan'} ends ${new Date(planEndsAt).toLocaleDateString()}` : ''}{planDaysRemaining !== null ? ` · ${planDaysRemaining < 0 ? 'Trial ended' : planDaysRemaining === 0 ? 'Ends today' : `${planDaysRemaining} ${planDaysRemaining === 1 ? 'day' : 'days'} left`}` : ''}</small></span></button>}<span className="header-date">{new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date())}</span><span className="header-divider" /><div className="account-menu-anchor" ref={accountMenuRef}>
             <button type="button" className={`account-trigger${accountMenuOpen ? ' is-open' : ''}`} aria-label="Open account menu" aria-haspopup="menu" aria-expanded={accountMenuOpen} onClick={() => setAccountMenuOpen((open) => !open)}><span className="header-avatar">{firstName.slice(0, 1).toUpperCase()}</span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5" /></svg></button>
             {accountMenuOpen && <div className="account-popover" role="menu" aria-label="Account menu">
@@ -708,10 +709,6 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
               <div className="account-menu-footer"><button type="button" role="menuitem" className="account-signout" onClick={onSignOut}><span className="account-menu-icon"><AccountMenuIcon kind="signout" /></span><span><strong>Sign out</strong><small>End this session</small></span></button></div>
             </div>}
           </div></div></div>
-          <nav className="workspace-module-nav" aria-label="Main sections">
-            <button type="button" className={activeModuleForView === 'Overview' ? 'active' : ''} aria-current={activeModuleForView === 'Overview' ? 'page' : undefined} onClick={() => { setActiveSection('Overview'); setNavigationOpen(false); }}><span className="workspace-module-icon" aria-hidden="true">{moduleIcons.Overview}</span>Overview</button>
-            {navigationGroups.map(group => <button type="button" key={group.label} className={activeModuleForView === group.label ? 'active' : ''} aria-expanded={sidebarOpen && activeModule === group.label} onClick={() => openModule(group.label)}><span className="workspace-module-icon" aria-hidden="true">{moduleIcons[group.label]}</span>{moduleLabels[group.label]}</button>)}
-          </nav>
         </header>}
         <main className="workspace-content">
           {activeSection === 'Overview' ? <>
