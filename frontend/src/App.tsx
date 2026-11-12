@@ -28,6 +28,7 @@ import { HrPoliciesWorkspace } from './HrPoliciesWorkspace';
 import { SelectField } from './SelectField';
 import { routePath, routeSlug } from './routePaths';
 import './styles.css';
+import './hud-theme.css';
 
 const TOKEN_KEY = 'apexHrm.accessToken';
 const EXPIRY_KEY = 'apexHrm.expiresAt';
