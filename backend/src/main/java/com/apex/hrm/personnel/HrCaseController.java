@@ -143,6 +143,13 @@ public class HrCaseController {
                     UPDATE personnel_employee SET employment_status='TERMINATED',updated_at=now()
                     WHERE tenant_id=? AND id=?
                     """,user.tenantId(),employeeId);
+                // Payroll's settlement engine reads the legacy employee record.
+                // Keep its termination state and effective date aligned with the
+                // personnel lifecycle event so approved separations can compute final pay.
+                jdbc.update("""
+                    UPDATE employee SET status='TERMINATED',separation_date=?,updated_at=now()
+                    WHERE tenant_id=? AND id=?
+                    """,p.date(),user.tenantId(),employeeId);
                 jdbc.update("""
                     INSERT INTO personnel_employment_history
                      (tenant_id,employee_id,effective_date,employment_type,employment_status,reason)
