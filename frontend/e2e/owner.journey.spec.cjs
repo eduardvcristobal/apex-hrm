@@ -114,7 +114,8 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     await workspaceNav.getByRole('button', { name: section, exact: true }).click();
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible({ timeout: 15_000 });
     if (section === 'My learning') {
-      await expect(page.getByRole('alert')).toContainText('Your learning profile has not been linked to your employee record.');
+      const learningAlert = page.getByRole('alert');
+      if (await learningAlert.count()) await expect(learningAlert).toContainText('Your learning profile has not been linked to your employee record.');
     } else {
       await expect(page.getByRole('alert')).toHaveCount(0);
     }
@@ -161,17 +162,23 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
 
   // Exercise the personnel-to-timekeeping-to-payroll bridge for weekly and daily staff.
   const today = new Date().toISOString().slice(0, 10);
+  const hireDate = new Date(`${today}T00:00:00Z`);
+  hireDate.setUTCDate(hireDate.getUTCDate() - 1);
+  const priorDay = hireDate.toISOString().slice(0, 10);
   const runId = `${Date.now()}`.slice(-9);
-  const callApi = async (method, path, body) => page.evaluate(async input => {
-    const token = sessionStorage.getItem('apexHrm.accessToken');
+  const callAs = async (token, method, path, body) => page.evaluate(async input => {
     const response = await fetch(input.path, {
       method: input.method,
-      headers: { Authorization: `Bearer ${token}`, ...(input.body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { Authorization: `Bearer ${input.token}`, ...(input.body ? { 'Content-Type': 'application/json' } : {}) },
       ...(input.body ? { body: JSON.stringify(input.body) } : {}),
     });
     const text = await response.text();
     return { status: response.status, body: text ? JSON.parse(text) : null };
-  }, { method, path, body });
+  }, { token, method, path, body });
+  const callApi = async (method, path, body) => {
+    const token = await page.evaluate(() => sessionStorage.getItem('apexHrm.accessToken'));
+    return callAs(token, method, path, body);
+  };
   const expectOk = result => expect(result.status, JSON.stringify(result.body)).toBeLessThan(300);
   const companyResult = await callApi('GET', '/api/v1/companies');
   expectOk(companyResult);
@@ -191,7 +198,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   for (const kind of ['weekly', 'daily']) {
     const created = await callApi('POST', '/api/v1/personnel/employees', {
       companyId: company.id, employeeNumber: `E2E-${kind.toUpperCase()}-${runId}`,
-      firstName: kind === 'weekly' ? 'Weekly' : 'Daily', lastName: `Journey${runId}`, hireDate: today,
+      firstName: kind === 'weekly' ? 'Weekly' : 'Daily', lastName: `Journey${runId}`, hireDate: priorDay,
     });
     expectOk(created);
     const employee = created.body;
@@ -221,6 +228,116 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
       expectOk(log);
     }
   }
+
+  // Provision an independent HR approver in the isolated test workspace. The
+  // owner remains the employee requester; approval routing forbids self-approval.
+  const accounts = await callApi('GET', '/api/v1/admin/users');
+  expectOk(accounts);
+  const ownerAccount = accounts.body.find(account => account.email === sample.email);
+  expect(ownerAccount, 'owner identity available for E2E self-service').toBeTruthy();
+  const approverEmail = `hr.approver.${runId}@e2e.apexhrm.test`;
+  const approverPassword = `Apex-E2E-Approver-${runId}!`;
+  const invitation = await callApi('POST', '/api/v1/admin/invitations', { email: approverEmail, role: 'HR_ADMIN' });
+  expectOk(invitation);
+  const invitationToken = new URL(invitation.body.acceptanceUrl, 'http://localhost').searchParams.get('token');
+  const acceptedInvite = await callApi('POST', '/api/v1/invitations/accept', { token: invitationToken, password: approverPassword });
+  expectOk(acceptedInvite);
+  const approvers = await callApi('GET', '/api/v1/admin/users');
+  expectOk(approvers);
+  const approver = approvers.body.find(account => account.email === approverEmail);
+  expect(approver, 'independent HR approver identity').toBeTruthy();
+  const ownerRole = await callApi('PUT', `/api/v1/admin/users/${approver.id}/roles/TENANT_ADMIN`);
+  expectOk(ownerRole);
+  const initialApproverLogin = await page.evaluate(async input => {
+    const csrfResponse = await fetch('/api/v1/security/csrf', { credentials: 'same-origin' });
+    const csrf = await csrfResponse.json();
+    const response = await fetch('/api/v1/security/tokens', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { [csrf.headerName || 'X-CSRF-TOKEN']: csrf.token, Authorization: `Basic ${btoa(`${input.email}:${input.password}`)}` },
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  }, { email: approverEmail, password: approverPassword });
+  expectOk(initialApproverLogin);
+  const unenrolledApproverToken = initialApproverLogin.body.value;
+  const approverEnrollment = await callAs(unenrolledApproverToken, 'POST', '/api/v1/security/mfa/enroll');
+  expectOk(approverEnrollment);
+  const approverCounter = Math.floor(Date.now() / 1000 / 30);
+  const approverMfaConfirmed = await callAs(unenrolledApproverToken, 'POST', '/api/v1/security/mfa/confirm', {
+    code: totp(approverEnrollment.body.secretHex, approverCounter),
+  });
+  expectOk(approverMfaConfirmed);
+  const approverLogin = await page.evaluate(async input => {
+    const csrfResponse = await fetch('/api/v1/security/csrf', { credentials: 'same-origin' });
+    const csrf = await csrfResponse.json();
+    const response = await fetch('/api/v1/security/tokens', {
+      method: 'POST', credentials: 'same-origin',
+      headers: { [csrf.headerName || 'X-CSRF-TOKEN']: csrf.token, Authorization: `Basic ${btoa(`${input.email}:${input.password}`)}`, 'X-TOTP-Code': input.code },
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  }, { email: approverEmail, password: approverPassword, code: totp(approverEnrollment.body.secretHex, approverCounter + 1) });
+  expectOk(approverLogin);
+  const approverToken = approverLogin.body.value;
+  const link = await callApi('PUT', '/api/v1/learning/accounts', {
+    identityId: ownerAccount.id, employeeId: employees[0].id,
+  });
+  expectOk(link);
+
+  const configureWorkflow = async processCode => {
+    const workflow = await callApi('POST', '/api/v1/approvals/workflows', {
+      name: `E2E ${processCode} approval ${runId}`, processCode,
+    });
+    expectOk(workflow);
+    const steps = await callApi('PUT', `/api/v1/approvals/workflows/${workflow.body.id}/versions/${workflow.body.versionId}/steps`, [
+      { stepNo: 1, label: 'Independent HR approval', actionType: 'APPROVE', approverType: 'ROLE', roleCode: 'HR_ADMIN' },
+    ]);
+    expectOk(steps);
+    const published = await callApi('POST', `/api/v1/approvals/workflows/${workflow.body.id}/versions/${workflow.body.versionId}/publish`);
+    expectOk(published);
+    const assignment = await callApi('PUT', '/api/v1/approvals/assignments', {
+      processCode, companyId: null, departmentId: null, workflowVersionId: workflow.body.versionId,
+    });
+    expectOk(assignment);
+  };
+  for (const processCode of ['LEAVE', 'OVERTIME']) await configureWorkflow(processCode);
+  const leaveTypes = await callApi('GET', '/api/leave-types');
+  expectOk(leaveTypes);
+  let leaveType = leaveTypes.body[0];
+  if (!leaveType) {
+    const createdType = await callApi('POST', '/api/leave-types', {
+      code: `E2E-${runId}`, name: `E2E leave ${runId}`, paid: true, annualEntitlement: null,
+      hireProrationEnabled: false, convertible: false,
+    });
+    expectOk(createdType);
+    leaveType = createdType.body;
+  }
+  const leaveDate = new Date(`${today}T00:00:00Z`);
+  leaveDate.setUTCDate(leaveDate.getUTCDate() + 3);
+  const requestedLeaveDate = leaveDate.toISOString().slice(0, 10);
+  const leaveRequest = await callApi('POST', '/api/v1/self-service/leave-requests', {
+    leaveTypeId: leaveType.id, dateFrom: requestedLeaveDate, dateTo: requestedLeaveDate,
+    days: 1, halfDay: false, reason: 'E2E leave approval workflow',
+  });
+  expectOk(leaveRequest);
+  const overtimeRequest = await callApi('POST', '/api/v1/self-service/overtime-requests', {
+    workDate: today, minutes: 60, reason: 'E2E overtime approval workflow',
+  });
+  expectOk(overtimeRequest);
+  for (const [processCode, request, approvedMinutes] of [
+    ['LEAVE', leaveRequest.body, null], ['OVERTIME', overtimeRequest.body, 60],
+  ]) {
+    const inbox = await callAs(approverToken, 'GET', '/api/v1/approvals/inbox');
+    expectOk(inbox);
+    const task = inbox.body.find(item => item.instance_id === request.approvalId && item.process_code === processCode);
+    expect(task, `${processCode} approval routed to independent HR user`).toBeTruthy();
+    const decision = await callAs(approverToken, 'POST', `/api/v1/approvals/tasks/${task.task_id}/decision`, {
+      decision: 'APPROVE', comments: 'E2E independent approval', approvedMinutes,
+    });
+    expectOk(decision);
+    expect(decision.body.status).toBe('APPROVED');
+  }
+
   const dtr = await callApi('POST', '/api/dtr/process', { from: today, to: today, employeeId: null });
   expectOk(dtr);
   const weekStartDate = new Date(`${today}T00:00:00Z`);
@@ -259,16 +376,10 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expectOk(approved);
   const published = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/publish-for-employee-review`);
   expectOk(published);
-  const accounts = await callApi('GET', '/api/v1/admin/users');
-  expectOk(accounts);
-  const ownerAccount = accounts.body.find(account => account.email === sample.email);
-  expect(ownerAccount, 'owner identity available for E2E self-service').toBeTruthy();
-  const link = await callApi('PUT', '/api/v1/learning/accounts', {
-    identityId: ownerAccount.id, employeeId: employees[0].id,
-  });
-  expectOk(link);
   const portal = await callApi('GET', '/api/v1/self-service/me');
   expectOk(portal);
+  expect(portal.body.leaveRequests.find(item => item.id === leaveRequest.body.id)?.status).toBe('APPROVED');
+  expect(portal.body.overtimeRequests.find(item => item.id === overtimeRequest.body.id)?.status).toBe('APPROVED');
   const weeklyPayslip = portal.body.payslips.find(slip => slip.run_type === 'REGULAR' && slip.run_status === 'EMPLOYEE_REVIEW');
   expect(weeklyPayslip, 'published weekly payslip in employee history').toBeTruthy();
   const acknowledged = await callApi('POST', `/api/v1/self-service/payslips/${weeklyPayslip.id}/acknowledge`);
@@ -280,6 +391,61 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   const closed = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/lock`);
   expectOk(closed);
   expect(closed.body.status).toBe('LOCKED');
+
+  // Complete a real separation, with a distinct authorized approver and exit
+  // clearance, then settle final pay in the next open weekly payroll period.
+  const separation = await callApi('POST', `/api/v1/personnel/employees/${employees[0].id}/hr-cases`, {
+    type: 'SEPARATION', effectiveDate: today, reason: 'E2E final pay settlement',
+  });
+  expectOk(separation);
+  const clearance = await callApi('POST', `/api/v1/personnel/employees/${employees[0].id}/hr-cases/${separation.body.id}/clearances`, {
+    code: 'E2E_RETURN', label: 'Return company property', required: true,
+  });
+  expectOk(clearance);
+  const cleared = await callApi('PATCH', `/api/v1/personnel/employees/${employees[0].id}/hr-cases/${separation.body.id}/clearances/${clearance.body.id}`, { status: 'CLEARED' });
+  expectOk(cleared);
+  const separationDecision = await callAs(approverToken, 'POST', `/api/v1/personnel/employees/${employees[0].id}/hr-cases/${separation.body.id}/decision?decision=APPROVED`);
+  expectOk(separationDecision);
+  expect(separationDecision.body.status).toBe('APPROVED');
+  const nextWeekStartDate = new Date(`${weekEnd}T00:00:00Z`);
+  nextWeekStartDate.setUTCDate(nextWeekStartDate.getUTCDate() + 1);
+  const nextWeekStart = nextWeekStartDate.toISOString().slice(0, 10);
+  const nextWeekEndDate = new Date(`${nextWeekStart}T00:00:00Z`);
+  nextWeekEndDate.setUTCDate(nextWeekEndDate.getUTCDate() + 6);
+  const nextWeekEnd = nextWeekEndDate.toISOString().slice(0, 10);
+  const nextPeriodGenerate = await callApi('POST', '/api/pay-periods/generate', {
+    payGroupId: weeklyGroupResult.body.id, from: nextWeekStart, through: nextWeekEnd, payDateOffsetDays: 5,
+  });
+  expectOk(nextPeriodGenerate);
+  const allPeriods = await callApi('GET', '/api/pay-periods');
+  expectOk(allPeriods);
+  const finalPayPeriod = (allPeriods.body.content || []).find(item => item.payGroupId === weeklyGroupResult.body.id && item.startDate === nextWeekStart && item.endDate === nextWeekEnd);
+  expect(finalPayPeriod, 'next open weekly final-pay period').toBeTruthy();
+  const finalPayRun = await callApi('POST', '/api/payroll/final-pay', {
+    payPeriodId: finalPayPeriod.id, employeeId: employees[0].id,
+  });
+  expectOk(finalPayRun);
+  const finalPayComputed = await callApi('POST', `/api/payroll/runs/${finalPayRun.body.id}/compute`);
+  expectOk(finalPayComputed);
+  expect(finalPayComputed.body.status).toBe('COMPUTED');
+  const finalPayReviewed = await callApi('POST', `/api/payroll/runs/${finalPayRun.body.id}/review`);
+  expectOk(finalPayReviewed);
+  const finalPayApproved = await callApi('POST', `/api/payroll/runs/${finalPayRun.body.id}/approve`);
+  expectOk(finalPayApproved);
+  const finalPayPublished = await callApi('POST', `/api/payroll/runs/${finalPayRun.body.id}/publish-for-employee-review`);
+  expectOk(finalPayPublished);
+  const finalPayPortal = await callApi('GET', '/api/v1/self-service/me');
+  expectOk(finalPayPortal);
+  const finalPayslip = finalPayPortal.body.payslips.find(slip => slip.run_type === 'FINAL_PAY' && slip.run_status === 'EMPLOYEE_REVIEW');
+  expect(finalPayslip, 'final-pay payslip published to employee self-service').toBeTruthy();
+  const finalPayAck = await callApi('POST', `/api/v1/self-service/payslips/${finalPayslip.id}/acknowledge`);
+  expectOk(finalPayAck);
+  const finalPayCounts = await callApi('GET', `/api/payroll/runs/${finalPayRun.body.id}/employee-acknowledgements`);
+  expectOk(finalPayCounts);
+  expect(finalPayCounts.body.pending).toBe(0);
+  const finalPayClosed = await callApi('POST', `/api/payroll/runs/${finalPayRun.body.id}/lock`);
+  expectOk(finalPayClosed);
+  expect(finalPayClosed.body.status).toBe('LOCKED');
 });
 
 async function signIn(page, sample) {

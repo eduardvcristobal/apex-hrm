@@ -147,7 +147,7 @@ public class HrCaseController {
                 // Keep its termination state and effective date aligned with the
                 // personnel lifecycle event so approved separations can compute final pay.
                 jdbc.update("""
-                    UPDATE employee SET status='TERMINATED',separation_date=?,updated_at=now()
+                    UPDATE employee SET status='SEPARATED',separation_date=?,updated_at=now()
                     WHERE tenant_id=? AND id=?
                     """,p.date(),user.tenantId(),employeeId);
                 jdbc.update("""
@@ -182,7 +182,11 @@ public class HrCaseController {
         return new Case(rs.getObject("id",UUID.class),rs.getString("case_type"),rs.getString("status"),
             rs.getObject("effective_date",LocalDate.class),rs.getObject("requested_by",UUID.class),
             rs.getObject("decided_by",UUID.class),rs.getObject("final_pay_due_date",LocalDate.class),
-            rs.getObject("coe_requested_at",java.time.Instant.class),rs.getObject("coe_due_date",LocalDate.class),
-            rs.getObject("coe_issued_at",java.time.Instant.class));
+            instant(rs,"coe_requested_at"),rs.getObject("coe_due_date",LocalDate.class),
+            instant(rs,"coe_issued_at"));
+    }
+    private static java.time.Instant instant(java.sql.ResultSet rs,String column) throws java.sql.SQLException {
+        java.sql.Timestamp value=rs.getTimestamp(column);
+        return value==null?null:value.toInstant();
     }
 }
