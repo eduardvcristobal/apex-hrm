@@ -11,6 +11,9 @@ import com.apex.hrm.payroll.repo.BankFileRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
 import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
+import com.apex.hrm.payroll.repo.WithholdingTaxBracketRepository;
+import com.apex.hrm.payroll.domain.WithholdingTaxBracket;
+import com.apex.hrm.payroll.engine.WithholdingTaxCalculator;
 import com.apex.hrm.payroll.service.AdjustmentService;
 import com.apex.hrm.payroll.service.BankFileService;
 import com.apex.hrm.payroll.service.JournalService;
@@ -27,6 +30,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.UUID;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.Page;
@@ -81,6 +86,14 @@ public class PayrollController {
                                        BigDecimal priorEmployerTaxableCompensation, BigDecimal priorEmployerNonTaxableCompensation,
                                        BigDecimal priorEmployerTaxWithheld,
                                        List<String> missingFields, boolean readyForReview) {}
+    public record Bir2316Draft(AnnualCertificateRow summary, Map<String,BigDecimal> compensationItems,
+                               BigDecimal taxableCompensationPresentEmployer,
+                               BigDecimal taxableCompensationPreviousEmployer,
+                               BigDecimal grossTaxableCompensation, BigDecimal taxDue,
+                               BigDecimal presentEmployerTaxWithheld, BigDecimal previousEmployerTaxWithheld,
+                               BigDecimal totalTaxesWithheld, BigDecimal peraTaxCredit,
+                               boolean minimumWageEarner, String formVersion, boolean draft,
+                               List<String> manualCompletionFields) {}
 
     private final PayrollService payroll;
     private final JournalService journals;
@@ -93,12 +106,13 @@ public class PayrollController {
     private final CompanyRepository companies;
     private final AuditService audit;
     private final PayrollRunRepository runs;
+    private final WithholdingTaxBracketRepository taxBrackets;
 
     public PayrollController(PayrollService payroll, JournalService journals, BankFileService bankFiles,
                              AdjustmentService adjustments, PayrollEmployeeRepository payrollEmployees,
                              PayrollLineRepository lines, BankFileRepository bankFileRepo,
                              EmployeeRepository employees, CompanyRepository companies, AuditService audit,
-                             PayrollRunRepository runs) {
+                             PayrollRunRepository runs, WithholdingTaxBracketRepository taxBrackets) {
         this.payroll = payroll;
         this.journals = journals;
         this.bankFiles = bankFiles;
@@ -110,6 +124,7 @@ public class PayrollController {
         this.companies = companies;
         this.audit = audit;
         this.runs = runs;
+        this.taxBrackets = taxBrackets;
     }
 
     /** Minimal employee directory for payroll staff; avoids exposing private employee fields. */
@@ -216,6 +231,92 @@ public class PayrollController {
             return certificateRow(employee, from, to);
         }
         return stream.map(employee -> certificateRow(employee, from, to)).toList();
+    }
+
+    /** Printable, unsigned BIR Form 2316 working draft. Unknown profile fields remain blank for review. */
+    @GetMapping("/reports/bir-2316-draft")
+    public Bir2316Draft bir2316Draft(@org.springframework.web.bind.annotation.RequestParam int year,
+                                     @org.springframework.web.bind.annotation.RequestParam UUID employeeId) {
+        if (year < 2000 || year > LocalDate.now().getYear() + 1) {
+            throw new com.apex.hrm.common.BusinessException("Choose a valid tax year");
+        }
+        LocalDate from=LocalDate.of(year,1,1),to=LocalDate.of(year,12,31);
+        Employee employee=employees.findById(employeeId).orElseThrow(()->new NotFoundException("Employee",employeeId));
+        AnnualCertificateRow summary=certificateRow(employee,from,to);
+        List<PayrollRun> employeeRuns=runs.findFinalizedCompensationBetweenForCompany(from,to,employee.getCompanyId()).stream()
+                .filter(run->payrollEmployees.findByRunId(run.getId()).stream().anyMatch(row->employeeId.equals(row.getEmployeeId())))
+                .toList();
+        Map<String,BigDecimal> items=bir2316CompensationItems(employee,employeeRuns);
+        BigDecimal presentTaxable=taxable2316Total(items);
+        BigDecimal previousTaxable=summary.priorEmployerTaxableCompensation()==null?BigDecimal.ZERO:summary.priorEmployerTaxableCompensation();
+        BigDecimal grossTaxable=presentTaxable.add(previousTaxable);
+        BigDecimal priorWithheld=summary.priorEmployerTaxWithheld()==null?BigDecimal.ZERO:summary.priorEmployerTaxWithheld();
+        BigDecimal presentWithheld=summary.withholdingTax().subtract(priorWithheld).max(BigDecimal.ZERO);
+        BigDecimal pera=BigDecimal.ZERO; // PERA is not yet maintained in employee tax data.
+        BigDecimal totalWithheld=presentWithheld.add(priorWithheld).add(pera);
+        return new Bir2316Draft(summary,Map.copyOf(items),presentTaxable,previousTaxable,grossTaxable,
+                annualTaxDue(to,grossTaxable),presentWithheld,priorWithheld,totalWithheld,pera,
+                Boolean.TRUE.equals(employee.getMinimumWageEarner()),"September 2021 ENCS",true,
+                List.of("Employee RDO, ZIP codes, local/foreign address, contact number, and minimum-wage rates",
+                        "Employer ZIP code and main/secondary employer classification",
+                        "Previous employer TIN, registered address, ZIP code, and supporting certificate details",
+                        "PERA tax credit, if applicable", "Authorized employer and employee signatures and signature dates"));
+    }
+
+    private Map<String,BigDecimal> bir2316CompensationItems(Employee employee,List<PayrollRun> employeeRuns) {
+        Map<String,BigDecimal> result=new LinkedHashMap<>();
+        for(int i=29;i<=51;i++) result.put(String.valueOf(i),BigDecimal.ZERO);
+        result.put("44A",BigDecimal.ZERO);result.put("44B",BigDecimal.ZERO);
+        result.put("51A",BigDecimal.ZERO);result.put("51B",BigDecimal.ZERO);
+        List<PayrollLine> employeeLines=employeeRuns.stream().flatMap(run->lines.findByRunId(run.getId()).stream())
+                .filter(line->employee.getId().equals(line.getEmployeeId())).toList();
+        BigDecimal basic=employeeLines.stream().filter(line->"EARNING".equals(line.getCategory())&&"BASIC".equals(line.getItemCode()))
+                .map(PayrollLine::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal nonTaxableBasic=Boolean.TRUE.equals(employee.getMinimumWageEarner())?basic:basic.min(new BigDecimal("250000"));
+        result.put("29",nonTaxableBasic);
+        result.put("39",basic.subtract(nonTaxableBasic).max(BigDecimal.ZERO));
+        for(PayrollLine line:employeeLines) {
+            String code=line.getItemCode();
+            BigDecimal amount=line.getAmount()==null?BigDecimal.ZERO:line.getAmount();
+            if("WTAX".equals(code)||"TAX_REFUND".equals(code)||"BASIC".equals(code)) continue;
+            if(Set.of("SSS_EE","PHIC_EE","HDMF_EE","UNION_DUES").contains(code)) { add2316(result,"36",amount);continue; }
+            if("THIRTEENTH_MONTH".equals(code)) { add2316(result,Boolean.TRUE.equals(line.getTaxable())?"48":"34",amount);continue; }
+            if("DE_MINIMIS".equals(code)) { add2316(result,"35",amount);continue; }
+            if("OT".equals(code)||"OVERTIME".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"31":"50",amount);continue; }
+            if("ND".equals(code)||"NIGHT_DIFF".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"32":"51B",amount);continue; }
+            if("HAZARD_PAY".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"33":"49",amount);continue; }
+            if("HOLIDAY_PAY".equals(code)||"PREMIUM".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"30":"51B",amount);continue; }
+            if(!"EARNING".equals(line.getCategory())) continue;
+            if(!Boolean.TRUE.equals(line.getTaxable())) { add2316(result,"37",amount);continue; }
+            String item=switch(code) {
+                case "REPRESENTATION" -> "40"; case "TRANSPORTATION" -> "41"; case "COLA" -> "42";
+                case "HOUSING" -> "43"; case "COMMISSION" -> "45"; case "PROFIT_SHARING" -> "46";
+                case "DIRECTOR_FEES" -> "47"; default -> "51B";
+            };
+            add2316(result,item,amount);
+        }
+        BigDecimal nonTaxable=BigDecimal.ZERO;
+        for(int i=29;i<=37;i++) nonTaxable=nonTaxable.add(result.get(String.valueOf(i)));
+        result.put("38",nonTaxable);
+        return result;
+    }
+
+    private static BigDecimal taxable2316Total(Map<String,BigDecimal> items) {
+        return List.of("39","40","41","42","43","44A","44B","45","46","47","48","49","50","51A","51B")
+                .stream().map(items::get).filter(value -> value != null).reduce(BigDecimal.ZERO,BigDecimal::add);
+    }
+
+    private static void add2316(Map<String,BigDecimal> items,String key,BigDecimal amount) {
+        items.put(key,items.getOrDefault(key,BigDecimal.ZERO).add(amount));
+    }
+
+    private BigDecimal annualTaxDue(LocalDate asOf,BigDecimal taxable) {
+        List<WithholdingTaxBracket> all=taxBrackets.findByPeriodTypeAndEffectiveFromLessThanEqual("ANNUAL",asOf);
+        LocalDate effective=all.stream().map(WithholdingTaxBracket::getEffectiveFrom).max(LocalDate::compareTo)
+                .orElseThrow(()->new com.apex.hrm.common.BusinessException("No annual withholding tax table is configured"));
+        List<WithholdingTaxCalculator.Bracket> brackets=all.stream().filter(b->effective.equals(b.getEffectiveFrom()))
+                .map(b->new WithholdingTaxCalculator.Bracket(b.getLowerBound(),b.getBaseTax(),b.getRate(),b.getUpperBound())).toList();
+        return WithholdingTaxCalculator.tax(brackets,taxable);
     }
 
     @GetMapping(value = "/reports/annual-tax-certificate.csv", produces = "text/csv")
