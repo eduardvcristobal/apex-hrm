@@ -2,6 +2,7 @@ package com.apex.hrm.personnel.domain;
 
 import com.apex.hrm.common.BaseEntity;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Column;
 import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -48,11 +49,13 @@ public class Employee extends BaseEntity {
     private BigDecimal priorNontaxOvertimePay = BigDecimal.ZERO;
     private BigDecimal priorNontaxNightDiff = BigDecimal.ZERO;
     private BigDecimal priorNontaxHazardPay = BigDecimal.ZERO;
+    @Column(name = "prior_nontax_13th_month")
     private BigDecimal priorNontax13thMonth = BigDecimal.ZERO;
     private BigDecimal priorNontaxDeminimis = BigDecimal.ZERO;
     private BigDecimal priorNontaxSssEtc = BigDecimal.ZERO;
     private BigDecimal priorNontaxSalaries = BigDecimal.ZERO;
     private BigDecimal priorTaxableBasicSalary = BigDecimal.ZERO;
+    @Column(name = "prior_taxable_13th_month")
     private BigDecimal priorTaxable13thMonth = BigDecimal.ZERO;
     private BigDecimal priorTaxableSalaries = BigDecimal.ZERO;
     private String sssNo;
