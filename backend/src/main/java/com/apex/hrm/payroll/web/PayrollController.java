@@ -24,6 +24,7 @@ import com.apex.hrm.org.domain.Company;
 import com.apex.hrm.org.repo.CompanyRepository;
 import com.apex.hrm.platform.security.HrmUserPrincipal;
 import com.apex.hrm.platform.service.AuditService;
+import com.apex.hrm.platform.tenant.TenantJdbcExecutor;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +33,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -71,8 +76,14 @@ public class PayrollController {
 
     public record BankFileSummary(UUID id, UUID runId, UUID bankTemplateId, String fileName, UUID recoverySourceFileId,
                                   int recordCount, BigDecimal totalAmount) {}
-    public record TaxProfile(String tin, Boolean minimumWageEarner) {}
+    public record TaxProfile(String tin, Boolean minimumWageEarner, String employeeRdoCode, String registeredZipCode,
+                             String localHomeAddress, String localHomeZipCode, String foreignAddress,
+                             BigDecimal statutoryMinimumWageDaily, BigDecimal statutoryMinimumWageMonthly,
+                             String mobile) {}
+    public record EmployerTaxProfile(UUID companyId, String legalName, String tin, String address, String rdoCode,
+                                    String zipCode, String employerType, Boolean mainEmployer) {}
     public record PriorEmployerProfile(String priorEmployerName, String priorEmployerTin, String priorEmployerAddress,
+                                      String priorEmployerRdoCode, String priorEmployerZipCode,
                                       BigDecimal priorEmployerCompensation, BigDecimal priorEmployerTaxableCompensation,
                                       BigDecimal priorEmployerNonTaxableCompensation, BigDecimal priorEmployerTaxWithheld,
                                       Boolean priorEmployerCertificateReceived) {}
@@ -93,7 +104,13 @@ public class PayrollController {
                                BigDecimal presentEmployerTaxWithheld, BigDecimal previousEmployerTaxWithheld,
                                BigDecimal totalTaxesWithheld, BigDecimal peraTaxCredit,
                                boolean minimumWageEarner, String formVersion, boolean draft,
-                               List<String> manualCompletionFields) {}
+                               List<String> manualCompletionFields, TaxProfile employeeTaxProfile,
+                               EmployerTaxProfile employerTaxProfile, PriorEmployerProfile priorEmployerTaxProfile,
+                               String reviewStatus) {}
+    public record ReviewDecision(String decision, String note) {}
+    public record ReviewStatus(UUID id, UUID employeeId, String employeeNo, String employeeName, int taxYear,
+                               String status, UUID submittedBy, java.time.Instant submittedAt,
+                               UUID decidedBy, java.time.Instant decidedAt, String decisionNote, boolean stale) {}
 
     private final PayrollService payroll;
     private final JournalService journals;
@@ -107,12 +124,15 @@ public class PayrollController {
     private final AuditService audit;
     private final PayrollRunRepository runs;
     private final WithholdingTaxBracketRepository taxBrackets;
+    private final JdbcTemplate jdbc;
+    private final TenantJdbcExecutor tenantSql;
 
     public PayrollController(PayrollService payroll, JournalService journals, BankFileService bankFiles,
                              AdjustmentService adjustments, PayrollEmployeeRepository payrollEmployees,
                              PayrollLineRepository lines, BankFileRepository bankFileRepo,
                              EmployeeRepository employees, CompanyRepository companies, AuditService audit,
-                             PayrollRunRepository runs, WithholdingTaxBracketRepository taxBrackets) {
+                             PayrollRunRepository runs, WithholdingTaxBracketRepository taxBrackets, JdbcTemplate jdbc,
+                             TenantJdbcExecutor tenantSql) {
         this.payroll = payroll;
         this.journals = journals;
         this.bankFiles = bankFiles;
@@ -125,13 +145,15 @@ public class PayrollController {
         this.audit = audit;
         this.runs = runs;
         this.taxBrackets = taxBrackets;
+        this.jdbc = jdbc;
+        this.tenantSql = tenantSql;
     }
 
     /** Minimal employee directory for payroll staff; avoids exposing private employee fields. */
-    public record EmployeeSummary(UUID id, String employeeNo, String firstName, String lastName, String status,
+    public record EmployeeSummary(UUID id, UUID companyId, String employeeNo, String firstName, String lastName, String status,
                                   LocalDate separationDate, Boolean minimumWageEarner) {
         static EmployeeSummary from(Employee employee) {
-            return new EmployeeSummary(employee.getId(), employee.getEmployeeNo(), employee.getFirstName(),
+            return new EmployeeSummary(employee.getId(), employee.getCompanyId(), employee.getEmployeeNo(), employee.getFirstName(),
                     employee.getLastName(), employee.getStatus(), employee.getSeparationDate(), employee.getMinimumWageEarner());
         }
     }
@@ -144,7 +166,7 @@ public class PayrollController {
     @GetMapping("/employees/{employeeId}/tax-profile")
     public TaxProfile taxProfile(@PathVariable UUID employeeId) {
         Employee employee = employees.findById(employeeId).orElseThrow(() -> new NotFoundException("Employee", employeeId));
-        return new TaxProfile(employee.getTin(), employee.getMinimumWageEarner());
+        return taxProfile(employee);
     }
 
     @PutMapping("/employees/{employeeId}/tax-profile")
@@ -155,15 +177,44 @@ public class PayrollController {
             throw new com.apex.hrm.common.BusinessException("minimumWageEarner must be explicitly set");
         }
         String tin = input.tin() == null || input.tin().isBlank() ? null : input.tin().trim();
-        String tinDigits = tin == null ? "" : tin.replace("-", "");
-        if (tin != null && (!tin.matches("[0-9-]+") || (tinDigits.length() != 9 && tinDigits.length() != 12))) {
-            throw new com.apex.hrm.common.BusinessException("TIN must contain 9 to 12 digits, optionally separated by hyphens");
-        }
+        validateTin(tin,"TIN");
+        validateZip(input.registeredZipCode()); validateZip(input.localHomeZipCode()); validateRdo(input.employeeRdoCode());
+        nonNegative(input.statutoryMinimumWageDaily(), "Daily minimum wage");
+        nonNegative(input.statutoryMinimumWageMonthly(), "Monthly minimum wage");
         employee.setTin(tin);
         employee.setMinimumWageEarner(input.minimumWageEarner());
+        employee.setEmployeeRdoCode(clean(input.employeeRdoCode()));
+        employee.setRegisteredZipCode(clean(input.registeredZipCode()));
+        employee.setLocalHomeAddress(clean(input.localHomeAddress()));
+        employee.setLocalHomeZipCode(clean(input.localHomeZipCode()));
+        employee.setForeignAddress(clean(input.foreignAddress()));
+        employee.setStatutoryMinimumWageDaily(input.statutoryMinimumWageDaily());
+        employee.setStatutoryMinimumWageMonthly(input.statutoryMinimumWageMonthly());
+        employee.setMobile(clean(input.mobile()));
         employees.save(employee);
-        audit.log("EmployeeTaxProfile", employeeId, "UPDATE", "TIN and minimum-wage-earner tax status updated by " + actor.id());
-        return new TaxProfile(employee.getTin(), employee.getMinimumWageEarner());
+        audit.log("EmployeeTaxProfile", employeeId, "UPDATE", "Employee 2316 tax profile updated by " + actor.id());
+        return taxProfile(employee);
+    }
+
+    @GetMapping("/companies/{companyId}/tax-profile")
+    public EmployerTaxProfile employerTaxProfile(@PathVariable UUID companyId) {
+        return employerTaxProfile(companies.findById(companyId).orElseThrow(() -> new NotFoundException("Company", companyId)));
+    }
+
+    @PutMapping("/companies/{companyId}/tax-profile")
+    public EmployerTaxProfile updateEmployerTaxProfile(@PathVariable UUID companyId, @RequestBody EmployerTaxProfile input,
+                                                       @AuthenticationPrincipal HrmUserPrincipal actor) {
+        Company company=companies.findById(companyId).orElseThrow(() -> new NotFoundException("Company", companyId));
+        validateZip(input.zipCode()); validateRdo(input.rdoCode());
+        validateTin(clean(input.tin()),"Employer TIN");
+        if (input.mainEmployer()==null) throw new com.apex.hrm.common.BusinessException("mainEmployer must be explicitly set");
+        if (clean(input.employerType())!=null && !Set.of("PRIVATE","GOVERNMENT","NONPROFIT","OTHER").contains(input.employerType().trim().toUpperCase()))
+            throw new com.apex.hrm.common.BusinessException("Employer type must be private, government, nonprofit, or other");
+        company.setTin(clean(input.tin())); company.setAddress(clean(input.address())); company.setRdoCode(clean(input.rdoCode()));
+        company.setZipCode(clean(input.zipCode())); company.setEmployerType(clean(input.employerType())==null?null:input.employerType().trim().toUpperCase());
+        company.setMainEmployer(input.mainEmployer()); companies.save(company);
+        audit.log("CompanyTaxProfile", companyId, "UPDATE", "Employer 2316 tax profile updated by " + actor.id());
+        return employerTaxProfile(company);
     }
 
     @GetMapping("/employees/{employeeId}/prior-employer")
@@ -182,7 +233,7 @@ public class PayrollController {
         BigDecimal withheld = amount(input.priorEmployerTaxWithheld());
         if (taxable.add(nonTaxable).compareTo(compensation) > 0) throw new com.apex.hrm.common.BusinessException("Taxable and non-taxable compensation cannot exceed prior-employer compensation");
         String tin = input.priorEmployerTin() == null || input.priorEmployerTin().isBlank() ? null : input.priorEmployerTin().trim();
-        if (tin != null && !tin.matches("[0-9-]{9,16}")) throw new com.apex.hrm.common.BusinessException("Prior-employer TIN must be 9 to 12 digits, optionally separated by hyphens");
+        validateTin(tin,"Prior-employer TIN");
         boolean hasEmployer = !blank(input.priorEmployerName()) || tin != null || !blank(input.priorEmployerAddress())
                 || compensation.signum() > 0 || taxable.signum() > 0 || nonTaxable.signum() > 0 || withheld.signum() > 0;
         if (hasEmployer && !Boolean.TRUE.equals(input.priorEmployerCertificateReceived()))
@@ -190,6 +241,9 @@ public class PayrollController {
         employee.setPriorEmployerName(blank(input.priorEmployerName()) ? null : input.priorEmployerName().trim());
         employee.setPriorEmployerTin(tin);
         employee.setPriorEmployerAddress(blank(input.priorEmployerAddress()) ? null : input.priorEmployerAddress().trim());
+        validateZip(input.priorEmployerZipCode()); validateRdo(input.priorEmployerRdoCode());
+        employee.setPriorEmployerZipCode(clean(input.priorEmployerZipCode()));
+        employee.setPriorEmployerRdoCode(clean(input.priorEmployerRdoCode()));
         employee.setPriorEmployerCompensation(compensation);
         employee.setPriorEmployerTaxableCompensation(taxable);
         employee.setPriorEmployerNonTaxableCompensation(nonTaxable);
@@ -208,10 +262,25 @@ public class PayrollController {
 
     private static PriorEmployerProfile priorProfile(Employee employee) {
         return new PriorEmployerProfile(employee.getPriorEmployerName(), employee.getPriorEmployerTin(), employee.getPriorEmployerAddress(),
+                employee.getPriorEmployerRdoCode(), employee.getPriorEmployerZipCode(),
                 employee.getPriorEmployerCompensation(), employee.getPriorEmployerTaxableCompensation(),
                 employee.getPriorEmployerNonTaxableCompensation(), employee.getPriorEmployerTaxWithheld(),
                 employee.getPriorEmployerCertificateReceived());
     }
+
+    private static TaxProfile taxProfile(Employee e) {
+        return new TaxProfile(e.getTin(),e.getMinimumWageEarner(),e.getEmployeeRdoCode(),e.getRegisteredZipCode(),
+                e.getLocalHomeAddress(),e.getLocalHomeZipCode(),e.getForeignAddress(),e.getStatutoryMinimumWageDaily(),
+                e.getStatutoryMinimumWageMonthly(),e.getMobile());
+    }
+    private static EmployerTaxProfile employerTaxProfile(Company c) {
+        return new EmployerTaxProfile(c.getId(),c.getLegalName(),c.getTin(),c.getAddress(),c.getRdoCode(),c.getZipCode(),c.getEmployerType(),c.getMainEmployer());
+    }
+    private static String clean(String value) { return value==null||value.isBlank()?null:value.trim(); }
+    private static void validateZip(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{4}"))throw new com.apex.hrm.common.BusinessException("ZIP code must contain four digits"); }
+    private static void validateRdo(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{1,3}"))throw new com.apex.hrm.common.BusinessException("RDO code must contain one to three digits"); }
+    private static void validateTin(String value,String label) { if(value==null)return;String digits=value.replace("-","");if(!value.matches("[0-9-]+")||(digits.length()!=9&&digits.length()!=12))throw new com.apex.hrm.common.BusinessException(label+" must contain 9 or 12 digits, optionally separated by hyphens"); }
+    private static void nonNegative(BigDecimal value,String name) { if(value!=null&&(value.signum()<0||value.scale()>2))throw new com.apex.hrm.common.BusinessException(name+" must be non-negative and limited to cents"); }
 
     @GetMapping("/reports/annual-tax-certificate")
     public Object annualTaxCertificate(@org.springframework.web.bind.annotation.RequestParam int year,
@@ -254,13 +323,109 @@ public class PayrollController {
         BigDecimal presentWithheld=summary.withholdingTax().subtract(priorWithheld).max(BigDecimal.ZERO);
         BigDecimal pera=BigDecimal.ZERO; // PERA is not yet maintained in employee tax data.
         BigDecimal totalWithheld=presentWithheld.add(priorWithheld).add(pera);
+        Company company=companies.findById(employee.getCompanyId()).orElseThrow(() -> new NotFoundException("Company",employee.getCompanyId()));
+        TaxProfile personal=taxProfile(employee); EmployerTaxProfile employerProfile=employerTaxProfile(company);
+        List<String> manual=new ArrayList<>();
+        if(hasPriorEmployer(employee)&&!Boolean.TRUE.equals(employee.getPriorEmployerCertificateReceived())) manual.add("Verify prior-employer figures against its Form 2316");
+        manual.add("Verify aggregate ₱90,000 exemption limit for 13th-month pay and other benefits");
+        manual.add("Verify and enter PERA 5% tax credit, if applicable");
+        manual.add("Present employer and employee signatures and dates");
+        manual.add("Substituted filing declaration, when applicable");
         return new Bir2316Draft(summary,Map.copyOf(items),presentTaxable,previousTaxable,grossTaxable,
                 annualTaxDue(to,grossTaxable),presentWithheld,priorWithheld,totalWithheld,pera,
                 Boolean.TRUE.equals(employee.getMinimumWageEarner()),"September 2021 ENCS",true,
-                List.of("Employee RDO, ZIP codes, local/foreign address, contact number, and minimum-wage rates",
-                        "Employer ZIP code and main/secondary employer classification",
-                        "Previous employer TIN, registered address, ZIP code, and supporting certificate details",
-                        "PERA tax credit, if applicable", "Authorized employer and employee signatures and signature dates"));
+                List.copyOf(manual),personal,employerProfile,priorProfile(employee),"NOT_SUBMITTED");
+    }
+
+    @GetMapping("/reports/bir-2316-issued")
+    public Bir2316Draft issuedBir2316(@org.springframework.web.bind.annotation.RequestParam int year,
+                                      @org.springframework.web.bind.annotation.RequestParam UUID employeeId,
+                                      @AuthenticationPrincipal HrmUserPrincipal actor) {
+        return tenantSql.inTenant(actor.tenantId(),()->{
+            Bir2316Draft draft=bir2316Draft(year,employeeId);
+            List<Map<String,Object>> rows=jdbc.queryForList("SELECT status,source_fingerprint FROM bir2316_review WHERE tenant_id=? AND employee_id=? AND tax_year=?",actor.tenantId(),employeeId,year);
+            if(rows.isEmpty()||!"APPROVED".equals(rows.get(0).get("status"))||!reviewFingerprint(draft).equals(rows.get(0).get("source_fingerprint")))
+                throw new com.apex.hrm.common.BusinessException("Form 2316 must be reviewed and approved against the current payroll and tax profile before printing");
+            return withReviewStatus(draft,"APPROVED");
+        });
+    }
+
+    @GetMapping("/reports/bir-2316-reviews")
+    public List<ReviewStatus> bir2316Reviews(@org.springframework.web.bind.annotation.RequestParam int year,
+                                             @AuthenticationPrincipal HrmUserPrincipal actor) {
+        if(year<2000||year>LocalDate.now().getYear()+1) throw new com.apex.hrm.common.BusinessException("Choose a valid tax year");
+        return tenantSql.inTenant(actor.tenantId(),()->jdbc.query("""
+SELECT r.id,r.employee_id,e.employee_no,concat_ws(' ',e.last_name,e.first_name,e.middle_name,e.suffix) employee_name,
+ r.tax_year,r.status,r.submitted_by,r.submitted_at,r.decided_by,r.decided_at,r.decision_note,r.source_fingerprint
+FROM bir2316_review r JOIN employee e ON e.tenant_id=r.tenant_id AND e.id=r.employee_id
+WHERE r.tenant_id=? AND r.tax_year=? ORDER BY e.last_name,e.first_name,e.employee_no
+""",(rs,n)->{
+            UUID employeeId=rs.getObject("employee_id",UUID.class);
+            Bir2316Draft current=bir2316Draft(year,employeeId);
+            return new ReviewStatus(rs.getObject("id",UUID.class),employeeId,rs.getString("employee_no"),rs.getString("employee_name"),
+                    rs.getInt("tax_year"),rs.getString("status"),rs.getObject("submitted_by",UUID.class),rs.getTimestamp("submitted_at").toInstant(),
+                    rs.getObject("decided_by",UUID.class),rs.getTimestamp("decided_at")==null?null:rs.getTimestamp("decided_at").toInstant(),
+                    rs.getString("decision_note"),!reviewFingerprint(current).equals(rs.getString("source_fingerprint")));
+        },actor.tenantId(),year));
+    }
+
+    @PostMapping("/reports/bir-2316-reviews")
+    public ReviewStatus submitBir2316Review(@org.springframework.web.bind.annotation.RequestParam int year,
+                                            @org.springframework.web.bind.annotation.RequestParam UUID employeeId,
+                                            @AuthenticationPrincipal HrmUserPrincipal actor) {
+        requirePayrollRole(actor);
+        return tenantSql.inTenant(actor.tenantId(),()->{
+        Bir2316Draft draft=bir2316Draft(year,employeeId);
+        if(!draft.summary().readyForReview()) throw new com.apex.hrm.common.BusinessException("Complete required employee, employer, and prior-employer tax profile fields before submitting Form 2316 for review");
+        String fingerprint=reviewFingerprint(draft);
+        jdbc.update("""
+INSERT INTO bir2316_review(tenant_id,employee_id,tax_year,status,source_fingerprint,submitted_by)
+VALUES(?,?,?,'PENDING',?,?)
+ON CONFLICT(tenant_id,tax_year,employee_id) DO UPDATE SET status='PENDING',source_fingerprint=EXCLUDED.source_fingerprint,
+ submitted_by=EXCLUDED.submitted_by,submitted_at=now(),decided_by=NULL,decided_at=NULL,decision_note=NULL
+WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EXCLUDED.source_fingerprint
+""",actor.tenantId(),employeeId,year,fingerprint,actor.id());
+        audit.log("Bir2316Review",employeeId,"SUBMIT","Form 2316 year "+year+" submitted for independent review by "+actor.id());
+        return bir2316Reviews(year,actor).stream().filter(row->employeeId.equals(row.employeeId())).findFirst().orElseThrow();
+        });
+    }
+
+    @PostMapping("/reports/bir-2316-reviews/{reviewId}/decision")
+    public ReviewStatus decideBir2316Review(@PathVariable UUID reviewId,@RequestBody ReviewDecision decision,
+                                            @AuthenticationPrincipal HrmUserPrincipal actor) {
+        if(!hasRole(actor,"ROLE_TENANT_ADMIN")&&!hasRole(actor,"ROLE_HR_ADMIN"))
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN,"An HR administrator or tenant administrator must approve or reject Form 2316");
+        return tenantSql.inTenant(actor.tenantId(),()->{
+        String outcome=decision==null||decision.decision()==null?"":decision.decision().trim().toUpperCase();
+        if(!Set.of("APPROVE","REJECT").contains(outcome)) throw new com.apex.hrm.common.BusinessException("Choose approve or reject");
+        Map<String,Object> row=jdbc.queryForMap("SELECT employee_id,tax_year,status,source_fingerprint,submitted_by FROM bir2316_review WHERE tenant_id=? AND id=? FOR UPDATE",actor.tenantId(),reviewId);
+        UUID employeeId=(UUID)row.get("employee_id"); int year=((Number)row.get("tax_year")).intValue();
+        if(actor.id().equals(row.get("submitted_by"))) throw new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN,"The preparer cannot approve their own Form 2316");
+        if(!"PENDING".equals(row.get("status"))) throw new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT,"This Form 2316 review is no longer pending");
+        Bir2316Draft current=bir2316Draft(year,employeeId);
+        if(!reviewFingerprint(current).equals(row.get("source_fingerprint"))) throw new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT,"Payroll or tax profile changed after submission. Submit the updated certificate for review again.");
+        jdbc.update("UPDATE bir2316_review SET status=?,decided_by=?,decided_at=now(),decision_note=? WHERE tenant_id=? AND id=? AND status='PENDING'",
+                outcome.equals("APPROVE")?"APPROVED":"REJECTED",actor.id(),clean(decision==null?null:decision.note()),actor.tenantId(),reviewId);
+        audit.log("Bir2316Review",reviewId,outcome,"Form 2316 decision recorded by "+actor.id());
+        return bir2316Reviews(year,actor).stream().filter(r->reviewId.equals(r.id())).findFirst().orElseThrow();
+        });
+    }
+
+    private boolean hasRole(HrmUserPrincipal actor,String role) { return actor.getAuthorities().stream().anyMatch(a->role.equals(a.getAuthority())); }
+    private void requirePayrollRole(HrmUserPrincipal actor) {
+        if(!hasRole(actor,"ROLE_TENANT_ADMIN")&&!hasRole(actor,"ROLE_HR_ADMIN")&&!hasRole(actor,"ROLE_PAYROLL_OFFICER"))
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN,"Payroll officer or HR administrator role required");
+    }
+    private String reviewFingerprint(Bir2316Draft draft) {
+        String source=draft.summary().toString()+new TreeMap<>(draft.compensationItems())+draft.taxDue()+draft.employeeTaxProfile()+draft.employerTaxProfile()+draft.priorEmployerTaxProfile();
+        try { return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8))); }
+        catch(NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+    private Bir2316Draft withReviewStatus(Bir2316Draft d,String status) {
+        return new Bir2316Draft(d.summary(),d.compensationItems(),d.taxableCompensationPresentEmployer(),d.taxableCompensationPreviousEmployer(),
+                d.grossTaxableCompensation(),d.taxDue(),d.presentEmployerTaxWithheld(),d.previousEmployerTaxWithheld(),d.totalTaxesWithheld(),
+                d.peraTaxCredit(),d.minimumWageEarner(),d.formVersion(),d.draft(),d.manualCompletionFields(),d.employeeTaxProfile(),
+                d.employerTaxProfile(),d.priorEmployerTaxProfile(),status);
     }
 
     private Map<String,BigDecimal> bir2316CompensationItems(Employee employee,List<PayrollRun> employeeRuns) {
@@ -372,15 +537,26 @@ public class PayrollController {
         List<String> missing = new ArrayList<>();
         if (blank(employee.getTin())) missing.add("Employee TIN");
         if (blank(employee.getAddress())) missing.add("Employee address");
+        if (blank(employee.getEmployeeRdoCode())) missing.add("Employee RDO code");
+        if (blank(employee.getRegisteredZipCode())) missing.add("Employee registered-address ZIP code");
+        if (blank(employee.getLocalHomeAddress())) missing.add("Employee local home address");
+        if (blank(employee.getLocalHomeZipCode())) missing.add("Employee local home-address ZIP code");
+        if (blank(employee.getMobile())) missing.add("Employee contact number");
+        if (Boolean.TRUE.equals(employee.getMinimumWageEarner()) && employee.getStatutoryMinimumWageDaily()==null
+                && employee.getStatutoryMinimumWageMonthly()==null) missing.add("MWE statutory daily or monthly wage rate");
         if (employee.getBirthDate() == null) missing.add("Birth date");
         if (employer == null || blank(employer.getLegalName())) missing.add("Employer legal name");
         if (employer == null || blank(employer.getTin())) missing.add("Employer TIN");
         if (employer == null || blank(employer.getAddress())) missing.add("Employer address");
         if (employer == null || blank(employer.getRdoCode())) missing.add("Employer RDO");
+        if (employer == null || blank(employer.getZipCode())) missing.add("Employer ZIP code");
+        if (employer == null || blank(employer.getEmployerType())) missing.add("Employer type");
         if (employeeRuns.stream().noneMatch(run -> "REGULAR".equals(run.getRunType())) && !hasPriorEmployer) missing.add("No finalized regular payroll runs");
         if (hasPriorEmployer && !Boolean.TRUE.equals(employee.getPriorEmployerCertificateReceived())) missing.add("Prior employer Form 2316 confirmation");
         if (hasPriorEmployer && blank(employee.getPriorEmployerTin())) missing.add("Prior employer TIN");
         if (hasPriorEmployer && blank(employee.getPriorEmployerAddress())) missing.add("Prior employer address");
+        if (hasPriorEmployer && blank(employee.getPriorEmployerZipCode())) missing.add("Prior employer ZIP code");
+        if (hasPriorEmployer && blank(employee.getPriorEmployerRdoCode())) missing.add("Prior employer RDO code");
         if (hasPriorEmployer && employee.getPriorEmployerCompensation() != null
                 && employee.getPriorEmployerTaxableCompensation() != null && employee.getPriorEmployerNonTaxableCompensation() != null
                 && employee.getPriorEmployerTaxableCompensation().add(employee.getPriorEmployerNonTaxableCompensation())
@@ -397,6 +573,11 @@ public class PayrollController {
     }
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }
+    private static boolean hasPriorEmployer(Employee e) {
+        return !blank(e.getPriorEmployerName())||amount(e.getPriorEmployerCompensation()).signum()>0
+                ||amount(e.getPriorEmployerTaxableCompensation()).signum()>0||amount(e.getPriorEmployerNonTaxableCompensation()).signum()>0
+                ||amount(e.getPriorEmployerTaxWithheld()).signum()>0;
+    }
 
     private static String csv(String value) {
         if (value == null) return "\"\"";

@@ -28,6 +28,13 @@ public class Employee extends BaseEntity {
     private String email;
     private String mobile;
     private String address;
+    private String employeeRdoCode;
+    private String registeredZipCode;
+    private String localHomeAddress;
+    private String localHomeZipCode;
+    private String foreignAddress;
+    private BigDecimal statutoryMinimumWageDaily;
+    private BigDecimal statutoryMinimumWageMonthly;
     private String tin;
     private String sssNo;
     private String philhealthNo;
@@ -38,6 +45,8 @@ public class Employee extends BaseEntity {
     private String priorEmployerName;
     private String priorEmployerTin;
     private String priorEmployerAddress;
+    private String priorEmployerRdoCode;
+    private String priorEmployerZipCode;
     private BigDecimal priorEmployerCompensation = BigDecimal.ZERO;
     private BigDecimal priorEmployerTaxableCompensation = BigDecimal.ZERO;
     private BigDecimal priorEmployerNonTaxableCompensation = BigDecimal.ZERO;

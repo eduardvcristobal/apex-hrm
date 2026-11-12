@@ -24,4 +24,7 @@ public class Company extends BaseEntity {
     private String philhealthEmployerNo;
     private String pagibigEmployerNo;
     private String address;
+    private String zipCode;
+    private String employerType;
+    private Boolean mainEmployer = true;
 }
