@@ -490,11 +490,17 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expect(incompleteCertificate.body.readyForReview).toBe(false);
   expect(incompleteCertificate.body.missingFields).toContain('Employee TIN');
   const employeeTaxProfile = await callApi('PUT', `/api/payroll/employees/${employees[0].id}/tax-profile`, {
-    tin: '123-456-789', minimumWageEarner: false, employeeRdoCode: '050',
+    tin: '123-456-789', minimumWageEarner: true, employeeRdoCode: '050',
     registeredZipCode: '1000', localHomeAddress: '123 E2E Test Street, Manila', localHomeZipCode: '1000',
-    foreignAddress: null, mobile: '09171234567', statutoryMinimumWageDaily: null, statutoryMinimumWageMonthly: null,
+    foreignAddress: null, mobile: '09171234567', statutoryMinimumWageDaily: 750, statutoryMinimumWageMonthly: null,
   });
   expectOk(employeeTaxProfile);
+  const dailyEmployeeTaxProfile = await callApi('PUT', `/api/payroll/employees/${employees[1].id}/tax-profile`, {
+    tin: '987-123-456', minimumWageEarner: true, employeeRdoCode: '050',
+    registeredZipCode: '1000', localHomeAddress: '456 E2E Daily Street, Manila', localHomeZipCode: '1000',
+    foreignAddress: null, mobile: '09171234568', statutoryMinimumWageDaily: 750, statutoryMinimumWageMonthly: null,
+  });
+  expectOk(dailyEmployeeTaxProfile);
   const employeeTaxDetails = await callApi('PUT', `/api/employees/${employees[0].id}`, {
     address: '123 E2E Test Street, Manila', birthDate: '1990-05-14',
   });
@@ -524,7 +530,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   const annualCsv = await page.evaluate(async input => {
     const token = sessionStorage.getItem('apexHrm.accessToken');
     const response = await fetch(input.path, { headers: { Authorization: `Bearer ${token}` } });
-    return { status: response.status, contentType: response.headers.get('content-type'), body: await response.text() };
+    return { status: response.status, contentType: response.headers.get('content-type'), employeeCount: response.headers.get('X-Report-Employee-Count'), schedule2Count: response.headers.get('X-Report-Schedule2-Count'), body: await response.text() };
   }, { path: `/api/payroll/reports/annual-tax-certificate.csv?year=${certificateYear}&employeeId=${employees[0].id}` });
   expect(annualCsv.status).toBe(200);
   expect(annualCsv.contentType).toContain('text/csv');
@@ -557,10 +563,36 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   const issuedForm = await callApi('GET', `/api/payroll/reports/bir-2316-issued?year=${certificateYear}&employeeId=${employees[0].id}`);
   expectOk(issuedForm);
   expect(issuedForm.body.reviewStatus).toBe('APPROVED');
+  const alphalist = await callApi('GET', `/api/payroll/reports/bir-1604c-reconciliation?year=${certificateYear}&companyId=${employees[0].companyId}`);
+  expectOk(alphalist);
+  expect(alphalist.body.employeeCount).toBeGreaterThan(0);
+  expect(alphalist.body.approved2316Count).toBeGreaterThan(0);
+  expect(alphalist.body.schedule2Count).toBeGreaterThan(0);
+  const weeklyAlphalistRow = alphalist.body.rows.find(row => row.employeeName.includes(`Journey${runId}`) && row.employeeName.includes('Weekly'));
+  expect(weeklyAlphalistRow).toBeTruthy();
+  expect(weeklyAlphalistRow.form2316Status).toBe('APPROVED');
+  expect(weeklyAlphalistRow.schedule).toBe('SCHEDULE_2_MWE');
+  const blockedDat = await callApi('GET', `/api/payroll/reports/bir-1604c.dat?year=${certificateYear}&companyId=${employees[0].companyId}`);
+  expect(blockedDat.status).toBe(422);
+  expect(blockedDat.body.message || blockedDat.body.detail).toContain('BIR DAT export blocked');
+  const alphalistCsv = await page.evaluate(async path => {
+    const token = sessionStorage.getItem('apexHrm.accessToken');
+    const response = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+    return { status: response.status, contentType: response.headers.get('content-type'), employeeCount: response.headers.get('X-Report-Employee-Count'), schedule2Count: response.headers.get('X-Report-Schedule2-Count'), body: await response.text() };
+  }, `/api/payroll/reports/bir-1604c-reconciliation.csv?year=${certificateYear}&companyId=${employees[0].companyId}`);
+  expect(alphalistCsv.status).toBe(200);
+  expect(alphalistCsv.contentType).toContain('text/csv');
+  expect(Number(alphalistCsv.employeeCount)).toBeGreaterThan(0);
+  expect(Number(alphalistCsv.schedule2Count)).toBeGreaterThan(0);
+  expect(alphalistCsv.body).toContain('Internal reconciliation workpaper');
+  expect(alphalistCsv.body).toContain('Form 2316 Review Status');
   const changedTaxProfile = await callApi('PUT', `/api/payroll/employees/${employees[0].id}/tax-profile`, {
     ...employeeTaxProfile.body, localHomeAddress: 'Changed after approval',
   });
   expectOk(changedTaxProfile);
+  const staleAlphalist = await callApi('GET', `/api/payroll/reports/bir-1604c-reconciliation?year=${certificateYear}&companyId=${employees[0].companyId}`);
+  expectOk(staleAlphalist);
+  expect(staleAlphalist.body.rows.find(row => row.employeeName.includes(`Journey${runId}`) && row.employeeName.includes('Weekly')).form2316Status).toBe('STALE');
   const stalePrint = await callApi('GET', `/api/payroll/reports/bir-2316-issued?year=${certificateYear}&employeeId=${employees[0].id}`);
   expect(stalePrint.status).toBe(422);
   const resubmittedReview = await callApi('POST', `/api/payroll/reports/bir-2316-reviews?year=${certificateYear}&employeeId=${employees[0].id}`);

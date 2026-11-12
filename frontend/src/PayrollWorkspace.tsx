@@ -52,9 +52,9 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
   const [certificateRows, setCertificateRows] = useState<CertificateRow[]>([]);
   const [certificateLoading, setCertificateLoading] = useState(false);
   const [certificateEmployeeId, setCertificateEmployeeId] = useState('');
-  type TaxProfile = { tin: string|null; minimumWageEarner: boolean; employeeRdoCode: string|null; registeredZipCode: string|null; localHomeAddress: string|null; localHomeZipCode: string|null; foreignAddress: string|null; statutoryMinimumWageDaily: number|null; statutoryMinimumWageMonthly: number|null; mobile: string|null };
-  type PriorTax = { priorEmployerName: string|null; priorEmployerTin: string|null; priorEmployerAddress: string|null; priorEmployerRdoCode: string|null; priorEmployerZipCode: string|null; priorEmployerCompensation: number; priorEmployerTaxableCompensation: number; priorEmployerNonTaxableCompensation: number; priorEmployerTaxWithheld: number; priorEmployerCertificateReceived: boolean };
-  type EmployerTax = { companyId: string; legalName: string; tin: string|null; address: string|null; rdoCode: string|null; zipCode: string|null; employerType: string|null; mainEmployer: boolean };
+  type TaxProfile = { tin: string|null; minimumWageEarner: boolean; employeeRdoCode: string|null; registeredZipCode: string|null; localHomeAddress: string|null; localHomeZipCode: string|null; foreignAddress: string|null; statutoryMinimumWageDaily: number|null; statutoryMinimumWageMonthly: number|null; mobile: string|null; branchCode:string|null; regionNum:string|null; nationality:string|null; employmentStatus:string|null; reasonSeparation:string|null; substitutedFiling:string|null; minimumWageFactorUsed:number|null };
+  type PriorTax = { priorEmployerName: string|null; priorEmployerTin: string|null; priorEmployerAddress: string|null; priorEmployerRdoCode: string|null; priorEmployerZipCode: string|null; priorEmployerCompensation: number; priorEmployerTaxableCompensation: number; priorEmployerNonTaxableCompensation: number; priorEmployerTaxWithheld: number; priorEmployerCertificateReceived: boolean; priorNontaxBasicSmw:number; priorNontaxHolidayPay:number; priorNontaxOvertimePay:number; priorNontaxNightDiff:number; priorNontaxHazardPay:number; priorNontax13thMonth:number; priorNontaxDeminimis:number; priorNontaxSssEtc:number; priorNontaxSalaries:number; priorTaxableBasicSalary:number; priorTaxable13thMonth:number; priorTaxableSalaries:number };
+  type EmployerTax = { companyId: string; legalName: string; tin: string|null; branchCode:string|null; address: string|null; rdoCode: string|null; zipCode: string|null; employerType: string|null; mainEmployer: boolean };
   type PeraTax = { employeeId: string; taxYear: number; qualifiedContributions: number; overseasFilipino: boolean; taxCreditAmount: number; certificateNumber: string|null; certificateReceived: boolean };
   type ReviewStatus = { id: string; employeeId: string; employeeNo: string; employeeName: string; taxYear: number; status: string; submittedBy: string; submittedAt: string; decidedBy: string|null; decidedAt: string|null; decisionNote: string|null; stale: boolean };
   const [taxProfile, setTaxProfile] = useState<TaxProfile|null>(null);
@@ -211,6 +211,41 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
       const anchor = document.createElement('a'); anchor.href = url; anchor.download = `annual-tax-certificate-${certificateYear}.csv`; anchor.click(); URL.revokeObjectURL(url);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not export annual tax certificate data.'); }
     finally { setBusy(''); }
+  }
+
+  async function downloadAlphalistReconciliation() {
+    const selectedEmployee=employees.find(employee=>employee.id===certificateEmployeeId);
+    if(!selectedEmployee){setError('Choose an employee so the system can identify the employer company for this annual report.');return;}
+    setBusy('alphalist');setError('');
+    try {
+      const query=`year=${certificateYear}&companyId=${selectedEmployee.companyId}`;
+      const response=await fetch(`/api/payroll/reports/bir-1604c-reconciliation.csv?${query}`,{headers:{Authorization:`Bearer ${token}`}});
+      if(!response.ok)throw new Error(`Could not export Alphalist reconciliation (${response.status}).`);
+      const blob=await response.blob();const url=URL.createObjectURL(blob);const anchor=document.createElement('a');
+      anchor.href=url;anchor.download=`bir-1604c-alphalist-reconciliation-${certificateYear}.csv`;anchor.click();URL.revokeObjectURL(url);
+      const employees=Number(response.headers.get('X-Report-Employee-Count')||0);
+      const schedule1=Number(response.headers.get('X-Report-Schedule1-Count')||0);
+      const schedule2=Number(response.headers.get('X-Report-Schedule2-Count')||0);
+      const exceptions=Number(response.headers.get('X-Report-Exception-Count')||0);
+      setNotice(`Downloaded ${employees} employee records: ${schedule1} Schedule 1 and ${schedule2} Schedule 2. ${exceptions} employee records need review. This is an internal workpaper, not a BIR DAT filing file.`);
+    } catch(reason) {setError(reason instanceof Error?reason.message:'Could not build the annual Alphalist reconciliation.');}
+    finally {setBusy('');}
+  }
+
+  async function downloadBir1604cDat() {
+    const selectedEmployee=employees.find(employee=>employee.id===certificateEmployeeId);
+    if(!selectedEmployee){setError('Choose an employee so the system can identify the employer company for this annual DAT.');return;}
+    setBusy('bir-dat');setError('');setNotice('');
+    try {
+      const query=`year=${certificateYear}&companyId=${selectedEmployee.companyId}`;
+      const response=await fetch(`/api/payroll/reports/bir-1604c.dat?${query}`,{headers:{Authorization:`Bearer ${token}`}});
+      if(!response.ok){let message=`BIR DAT export blocked (${response.status}).`;try{const body=await response.json() as {message?:string;detail?:string};message=body.detail||body.message||message;}catch{}throw new Error(message);}
+      const blob=await response.blob();const url=URL.createObjectURL(blob);const anchor=document.createElement('a');
+      const disposition=response.headers.get('Content-Disposition')||'';const filename=disposition.match(/filename="?([^";]+)"?/i)?.[1]||`bir-1604c-${certificateYear}.DAT`;
+      anchor.href=url;anchor.download=filename;anchor.click();URL.revokeObjectURL(url);
+      setNotice(`Downloaded ${filename}. Import it into BIR Alphalist Data Entry and Validation Module and confirm its validation report before submission.`);
+    } catch(reason) {setError(reason instanceof Error?reason.message:'Could not generate the BIR 1604-C DAT file.');}
+    finally {setBusy('');}
   }
 
   async function printCertificate() {
@@ -371,18 +406,27 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
     <Toast message={error||notice} kind={error?'error':'success'} onDismiss={()=>{setError('');setNotice('')}} />
     <div className="timekeeping-metrics payroll-metrics"><article><span>PAY PERIODS</span><strong>{periods.length}</strong><small>{openPeriods.length} open</small></article><article><span>PAYROLL RUNS</span><strong>{runs.length}</strong><small>{runs.filter(run => !['PAID'].includes(run.status)).length} in progress</small></article><article><span>PENDING APPROVAL</span><strong>{runs.filter(run => run.status === 'REVIEWED').length}</strong><small>Reviewed runs</small></article><article><span>PAID RUNS</span><strong>{runs.filter(run => run.status === 'PAID').length}</strong><small>Completed</small></article></div>
     <section className="payroll-panel">
-      <div className="payroll-panel-heading"><div><p className="eyebrow">YEAR-END TAX REPORTING</p><h2>2316 preparation and review</h2><p>Maintain the tax data, reconcile annual payroll, and obtain independent approval before printing.</p></div></div>
+      <div className="payroll-panel-heading"><div><p className="eyebrow">YEAR-END TAX REPORTING</p><h2>Form 2316 and 1604-C reporting</h2><p>Maintain tax data, reconcile finalized payroll, prepare each employee’s Form 2316, and check the annual Alphalist schedules before filing.</p></div></div>
       <div className="tax-form-grid">
         <label className="payroll-field">Tax year<input type="number" min="2000" max={new Date().getFullYear()+1} value={certificateYear} onChange={event=>setCertificateYear(Number(event.target.value))}/></label>
         <label className="payroll-field">Employee<select value={certificateEmployeeId} onChange={event=>setCertificateEmployeeId(event.target.value)}><option value="">Select employee…</option>{employees.map(employee=><option key={employee.id} value={employee.id}>{employee.employeeNo} · {employee.firstName} {employee.lastName}</option>)}</select></label>
         <button type="button" className="security-submit" onClick={()=>void loadCertificate()} disabled={certificateLoading||mfaVerified===false}>{certificateLoading?'Loading…':'Load register and reviews'}</button>
         <button type="button" className="security-submit" onClick={()=>void downloadCertificate()} disabled={busy==='certificate'||mfaVerified===false}>{busy==='certificate'?'Exporting…':'Export CSV for review'}</button>
+        <button type="button" className="security-submit" onClick={()=>void downloadAlphalistReconciliation()} disabled={busy==='alphalist'||mfaVerified===false||!certificateEmployeeId}>{busy==='alphalist'?'Building…':'Export 1604-C Alphalist reconciliation'}</button>
+        <button type="button" className="security-submit" onClick={()=>void downloadBir1604cDat()} disabled={busy==='bir-dat'||mfaVerified===false||!certificateEmployeeId}>{busy==='bir-dat'?'Validating…':'Export BIR 1604-C DAT'}</button>
         <button type="button" className="security-submit" onClick={()=>void printCertificate()} disabled={busy==='certificate-print'||mfaVerified===false||!certificateEmployeeId||reviews.find(r=>r.employeeId===certificateEmployeeId)?.status!=='APPROVED'||reviews.find(r=>r.employeeId===certificateEmployeeId)?.stale}>{busy==='certificate-print'?'Preparing…':'Print approved Form 2316'}</button>
       </div>
+      <p className="payroll-help">Both Alphalist actions cover the selected employee’s employer and include all eligible employees for the tax year. DAT export is blocked until every employee record reconciles and has a current approved Form 2316. Validate the downloaded DAT in BIR’s Alphalist Data Entry and Validation Module before filing.</p>
       {certificateEmployeeId&&taxProfile&&priorTax&&employerTax&&<details className="payroll-lines-details" open>
         <summary>{profileLoading?'Loading tax profile…':'Maintain employee, employer, and previous-employer tax data'}</summary>
         <div className="tax-form-grid">
           <label className="payroll-field">Employee TIN<input value={taxProfile.tin||''} maxLength={16} placeholder="000-000-000" onChange={e=>setTaxProfile({...taxProfile,tin:e.target.value})}/></label>
+          <label className="payroll-field">Employee branch code<input value={taxProfile.branchCode||''} maxLength={4} inputMode="numeric" placeholder="4 digits" onChange={e=>setTaxProfile({...taxProfile,branchCode:e.target.value})}/></label>
+          <label className="payroll-field">Assigned BIR region number<input value={taxProfile.regionNum||''} maxLength={4} inputMode="numeric" placeholder="4 digits" onChange={e=>setTaxProfile({...taxProfile,regionNum:e.target.value})}/></label>
+          <label className="payroll-field">Nationality<input value={taxProfile.nationality||''} maxLength={30} placeholder="e.g. Filipino" onChange={e=>setTaxProfile({...taxProfile,nationality:e.target.value})}/></label>
+          <label className="payroll-field">BIR employment status<select value={taxProfile.employmentStatus||''} onChange={e=>setTaxProfile({...taxProfile,employmentStatus:e.target.value||null})}><option value="">Select status…</option><option value="R">Regular</option><option value="C">Casual</option><option value="CP">Contractual / project-based</option><option value="S">Seasonal</option><option value="P">Probationary</option><option value="AL">Apprentice / learner</option></select></label>
+          <label className="payroll-field">Reason for separation<select value={taxProfile.reasonSeparation||''} onChange={e=>setTaxProfile({...taxProfile,reasonSeparation:e.target.value||null})}><option value="">Select if applicable…</option><option value="NA">Not applicable</option><option value="T">Terminated / resigned</option><option value="TR">Transferred</option><option value="R">Retirement</option><option value="D">Death</option></select></label>
+          <label className="payroll-field">Substituted filing<select value={taxProfile.substitutedFiling||''} onChange={e=>setTaxProfile({...taxProfile,substitutedFiling:e.target.value||null})}><option value="">Select…</option><option value="Y">Yes</option><option value="N">No</option></select></label>
           <label className="payroll-field">Employee RDO<input value={taxProfile.employeeRdoCode||''} maxLength={3} inputMode="numeric" placeholder="e.g. 042" onChange={e=>setTaxProfile({...taxProfile,employeeRdoCode:e.target.value})}/></label>
           <label className="payroll-field">Registered address ZIP<input value={taxProfile.registeredZipCode||''} maxLength={4} inputMode="numeric" placeholder="4 digits" onChange={e=>setTaxProfile({...taxProfile,registeredZipCode:e.target.value})}/></label>
           <label className="payroll-field">Local home address<input value={taxProfile.localHomeAddress||''} maxLength={500} onChange={e=>setTaxProfile({...taxProfile,localHomeAddress:e.target.value})}/></label>
@@ -391,8 +435,10 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
           <label className="payroll-field">Contact number<input value={taxProfile.mobile||''} maxLength={32} onChange={e=>setTaxProfile({...taxProfile,mobile:e.target.value})}/></label>
           <label className="payroll-field">Statutory minimum wage per day<input type="number" min="0" step="0.01" value={taxProfile.statutoryMinimumWageDaily??''} onChange={e=>setTaxProfile({...taxProfile,statutoryMinimumWageDaily:e.target.value===''?null:Number(e.target.value)})}/></label>
           <label className="payroll-field">Statutory minimum wage per month<input type="number" min="0" step="0.01" value={taxProfile.statutoryMinimumWageMonthly??''} onChange={e=>setTaxProfile({...taxProfile,statutoryMinimumWageMonthly:e.target.value===''?null:Number(e.target.value)})}/></label>
+          <label className="payroll-field">MWE annual wage factor (days)<input type="number" min="1" max="366" step="1" value={taxProfile.minimumWageFactorUsed??''} placeholder="e.g. 261" onChange={e=>setTaxProfile({...taxProfile,minimumWageFactorUsed:e.target.value===''?null:Number(e.target.value)})}/></label>
           <label className="payroll-field">Minimum wage earner<select value={String(taxProfile.minimumWageEarner)} onChange={e=>setTaxProfile({...taxProfile,minimumWageEarner:e.target.value==='true'})}><option value="false">No</option><option value="true">Yes</option></select></label>
           <label className="payroll-field">Employer TIN<input value={employerTax.tin||''} maxLength={16} placeholder="000-000-000" onChange={e=>setEmployerTax({...employerTax,tin:e.target.value})}/></label>
+          <label className="payroll-field">Employer branch code<input value={employerTax.branchCode||''} maxLength={4} inputMode="numeric" placeholder="4 digits" onChange={e=>setEmployerTax({...employerTax,branchCode:e.target.value})}/></label>
           <label className="payroll-field">Employer RDO<input value={employerTax.rdoCode||''} maxLength={3} inputMode="numeric" onChange={e=>setEmployerTax({...employerTax,rdoCode:e.target.value})}/></label>
           <label className="payroll-field">Employer registered address<input value={employerTax.address||''} maxLength={500} onChange={e=>setEmployerTax({...employerTax,address:e.target.value})}/></label>
           <label className="payroll-field">Employer ZIP<input value={employerTax.zipCode||''} maxLength={4} inputMode="numeric" onChange={e=>setEmployerTax({...employerTax,zipCode:e.target.value})}/></label>
@@ -408,6 +454,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
           <label className="payroll-field">Prior non-taxable compensation<input type="number" min="0" step="0.01" value={priorTax.priorEmployerNonTaxableCompensation||0} onChange={e=>setPriorTax({...priorTax,priorEmployerNonTaxableCompensation:Number(e.target.value)})}/></label>
           <label className="payroll-field">Prior tax withheld<input type="number" min="0" step="0.01" value={priorTax.priorEmployerTaxWithheld||0} onChange={e=>setPriorTax({...priorTax,priorEmployerTaxWithheld:Number(e.target.value)})}/></label>
           <label className="payroll-field">Prior employer Form 2316 received<select value={String(priorTax.priorEmployerCertificateReceived)} onChange={e=>setPriorTax({...priorTax,priorEmployerCertificateReceived:e.target.value==='true'})}><option value="false">No</option><option value="true">Yes</option></select></label>
+          {([['priorNontaxBasicSmw','Prior non-taxable basic / MWE salary'],['priorNontaxHolidayPay','Prior non-taxable holiday pay'],['priorNontaxOvertimePay','Prior non-taxable overtime'],['priorNontaxNightDiff','Prior non-taxable night differential'],['priorNontaxHazardPay','Prior non-taxable hazard pay'],['priorNontax13thMonth','Prior non-taxable 13th month / benefits'],['priorNontaxDeminimis','Prior non-taxable de minimis'],['priorNontaxSssEtc','Prior non-taxable statutory contributions'],['priorNontaxSalaries','Prior other non-taxable compensation'],['priorTaxableBasicSalary','Prior taxable basic salary'],['priorTaxable13thMonth','Prior taxable 13th month / benefits'],['priorTaxableSalaries','Prior other taxable compensation']] as const).map(([key,label])=><label className="payroll-field" key={key}>{label}<input type="number" min="0" step="0.01" value={priorTax[key]||0} onChange={e=>setPriorTax({...priorTax,[key]:Number(e.target.value)})}/></label>)}
           {peraTax&&<><label className="payroll-field">Qualified PERA contributions · {certificateYear}<input type="number" min="0" max={peraTax.overseasFilipino?200000:100000} step="0.01" value={peraTax.qualifiedContributions||0} onChange={e=>setPeraTax({...peraTax,qualifiedContributions:Number(e.target.value)})}/></label>
           <label className="payroll-field">Contributor type<select value={String(peraTax.overseasFilipino)} onChange={e=>setPeraTax({...peraTax,overseasFilipino:e.target.value==='true'})}><option value="false">Local</option><option value="true">Overseas Filipino</option></select></label>
           <label className="payroll-field">PERA tax credit from TCC<input type="number" min="0" max={Number((peraTax.qualifiedContributions*0.05).toFixed(2))} step="0.01" value={peraTax.taxCreditAmount||0} onChange={e=>setPeraTax({...peraTax,taxCreditAmount:Number(e.target.value)})}/></label>

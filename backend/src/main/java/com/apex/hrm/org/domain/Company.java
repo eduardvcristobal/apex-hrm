@@ -19,6 +19,7 @@ public class Company extends BaseEntity {
     private String legalName;
     private String tradeName;
     private String tin;
+    private String branchCode;
     private String rdoCode;
     private String sssEmployerNo;
     private String philhealthEmployerNo;

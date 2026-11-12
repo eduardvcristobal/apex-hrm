@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.Set;
@@ -81,8 +82,10 @@ public class PayrollController {
     public record TaxProfile(String tin, Boolean minimumWageEarner, String employeeRdoCode, String registeredZipCode,
                              String localHomeAddress, String localHomeZipCode, String foreignAddress,
                              BigDecimal statutoryMinimumWageDaily, BigDecimal statutoryMinimumWageMonthly,
-                             String mobile) {}
-    public record EmployerTaxProfile(UUID companyId, String legalName, String tin, String address, String rdoCode,
+                             String mobile, String branchCode, String regionNum, String nationality,
+                             String employmentStatus, String reasonSeparation, String substitutedFiling,
+                             Integer minimumWageFactorUsed) {}
+    public record EmployerTaxProfile(UUID companyId, String legalName, String tin, String branchCode, String address, String rdoCode,
                                     String zipCode, String employerType, Boolean mainEmployer) {}
     public record PeraTaxCreditProfile(UUID employeeId, int taxYear, BigDecimal qualifiedContributions,
                                        boolean overseasFilipino, BigDecimal taxCreditAmount,
@@ -91,7 +94,13 @@ public class PayrollController {
                                       String priorEmployerRdoCode, String priorEmployerZipCode,
                                       BigDecimal priorEmployerCompensation, BigDecimal priorEmployerTaxableCompensation,
                                       BigDecimal priorEmployerNonTaxableCompensation, BigDecimal priorEmployerTaxWithheld,
-                                      Boolean priorEmployerCertificateReceived) {}
+                                      Boolean priorEmployerCertificateReceived,
+                                      BigDecimal priorNontaxBasicSmw, BigDecimal priorNontaxHolidayPay,
+                                      BigDecimal priorNontaxOvertimePay, BigDecimal priorNontaxNightDiff,
+                                      BigDecimal priorNontaxHazardPay, BigDecimal priorNontax13thMonth,
+                                      BigDecimal priorNontaxDeminimis, BigDecimal priorNontaxSssEtc,
+                                      BigDecimal priorNontaxSalaries, BigDecimal priorTaxableBasicSalary,
+                                      BigDecimal priorTaxable13thMonth, BigDecimal priorTaxableSalaries) {}
     public record AnnualCertificateRow(UUID employeeId, String employeeNo, String employeeName, String employeeTin,
                                        String employeeAddress, LocalDate birthDate, LocalDate hireDate,
                                        LocalDate separationDate, String employerName, String employerTin,
@@ -117,6 +126,22 @@ public class PayrollController {
     public record ReviewStatus(UUID id, UUID employeeId, String employeeNo, String employeeName, int taxYear,
                                String status, UUID submittedBy, java.time.Instant submittedAt,
                                UUID decidedBy, java.time.Instant decidedAt, String decisionNote, boolean stale) {}
+    public record AlphalistRow(int sequence, String schedule, String employeeNo, String employeeName,
+                               String tin, String employmentFrom, String employmentTo,
+                               BigDecimal presentEmployerGross, BigDecimal presentEmployerNonTaxable,
+                               BigDecimal presentEmployerTaxable, BigDecimal previousEmployerGross,
+                               BigDecimal previousEmployerNonTaxable, BigDecimal previousEmployerTaxable,
+                               BigDecimal combinedTaxable, BigDecimal annualTaxDue,
+                               BigDecimal presentEmployerTaxWithheld, BigDecimal previousEmployerTaxWithheld,
+                               BigDecimal peraTaxCredit, BigDecimal adjustedTaxWithheld,
+                               String form2316Status, int finalizedPayrollRuns, List<String> exceptions) {}
+    public record AlphalistReport(int taxYear, UUID companyId, String employerName, String employerTin,
+                                  int employeeCount, int schedule1Count, int schedule2Count,
+                                  BigDecimal presentEmployerGross, BigDecimal presentEmployerNonTaxable,
+                                  BigDecimal presentEmployerTaxable, BigDecimal previousEmployerTaxable,
+                                  BigDecimal totalTaxWithheldAsAdjusted, long approved2316Count,
+                                  long exceptionCount, List<AlphalistRow> rows,
+                                  String artifactType, String filingNotice) {}
 
     private final PayrollService payroll;
     private final JournalService journals;
@@ -199,6 +224,22 @@ public class PayrollController {
         employee.setStatutoryMinimumWageDaily(input.statutoryMinimumWageDaily());
         employee.setStatutoryMinimumWageMonthly(input.statutoryMinimumWageMonthly());
         employee.setMobile(clean(input.mobile()));
+        validateBranchCode(input.branchCode()); validateRegionNum(input.regionNum());
+        if(clean(input.employmentStatus())!=null&&!Set.of("R","C","CP","S","P","AL").contains(input.employmentStatus().trim().toUpperCase()))
+            throw new com.apex.hrm.common.BusinessException("BIR employment status must be R, C, CP, S, P, or AL");
+        if(clean(input.reasonSeparation())!=null&&!Set.of("NA","T","TR","R","D").contains(input.reasonSeparation().trim().toUpperCase()))
+            throw new com.apex.hrm.common.BusinessException("BIR separation reason must be NA, T, TR, R, or D");
+        String substituted=clean(input.substitutedFiling());
+        if(substituted!=null&&!Set.of("Y","N").contains(substituted.trim().toUpperCase()))
+            throw new com.apex.hrm.common.BusinessException("Substituted filing must be Y or N");
+        if(input.minimumWageFactorUsed()!=null&&(input.minimumWageFactorUsed()<1||input.minimumWageFactorUsed()>366))
+            throw new com.apex.hrm.common.BusinessException("Minimum-wage factor used must be between 1 and 366 days");
+        employee.setBranchCode(clean(input.branchCode())); employee.setRegionNum(clean(input.regionNum()));
+        employee.setNationality(clean(input.nationality()));
+        employee.setBirEmploymentStatus(clean(input.employmentStatus())==null?null:input.employmentStatus().trim().toUpperCase());
+        employee.setBirReasonSeparation(clean(input.reasonSeparation())==null?null:input.reasonSeparation().trim().toUpperCase());
+        employee.setBirSubstitutedFiling(substituted==null?null:substituted.trim().toUpperCase());
+        employee.setMinimumWageFactorUsed(input.minimumWageFactorUsed());
         employees.save(employee);
         audit.log("EmployeeTaxProfile", employeeId, "UPDATE", "Employee 2316 tax profile updated by " + actor.id());
         return taxProfile(employee);
@@ -213,12 +254,12 @@ public class PayrollController {
     public EmployerTaxProfile updateEmployerTaxProfile(@PathVariable UUID companyId, @RequestBody EmployerTaxProfile input,
                                                        @AuthenticationPrincipal HrmUserPrincipal actor) {
         Company company=companies.findById(companyId).orElseThrow(() -> new NotFoundException("Company", companyId));
-        validateZip(input.zipCode()); validateRdo(input.rdoCode());
+        validateZip(input.zipCode()); validateRdo(input.rdoCode()); validateBranchCode(input.branchCode());
         validateTin(clean(input.tin()),"Employer TIN");
         if (input.mainEmployer()==null) throw new com.apex.hrm.common.BusinessException("mainEmployer must be explicitly set");
         if (clean(input.employerType())!=null && !Set.of("PRIVATE","GOVERNMENT","NONPROFIT","OTHER").contains(input.employerType().trim().toUpperCase()))
             throw new com.apex.hrm.common.BusinessException("Employer type must be private, government, nonprofit, or other");
-        company.setTin(clean(input.tin())); company.setAddress(clean(input.address())); company.setRdoCode(clean(input.rdoCode()));
+        company.setTin(clean(input.tin())); company.setBranchCode(clean(input.branchCode())); company.setAddress(clean(input.address())); company.setRdoCode(clean(input.rdoCode()));
         company.setZipCode(clean(input.zipCode())); company.setEmployerType(clean(input.employerType())==null?null:input.employerType().trim().toUpperCase());
         company.setMainEmployer(input.mainEmployer()); companies.save(company);
         audit.log("CompanyTaxProfile", companyId, "UPDATE", "Employer 2316 tax profile updated by " + actor.id());
@@ -239,6 +280,13 @@ public class PayrollController {
         BigDecimal taxable = amount(input.priorEmployerTaxableCompensation());
         BigDecimal nonTaxable = amount(input.priorEmployerNonTaxableCompensation());
         BigDecimal withheld = amount(input.priorEmployerTaxWithheld());
+        BigDecimal[] priorParts={amount(input.priorNontaxBasicSmw()),amount(input.priorNontaxHolidayPay()),amount(input.priorNontaxOvertimePay()),
+                amount(input.priorNontaxNightDiff()),amount(input.priorNontaxHazardPay()),amount(input.priorNontax13thMonth()),
+                amount(input.priorNontaxDeminimis()),amount(input.priorNontaxSssEtc()),amount(input.priorNontaxSalaries())};
+        BigDecimal priorNonTaxBreakdown=java.util.Arrays.stream(priorParts).reduce(BigDecimal.ZERO,BigDecimal::add);
+        BigDecimal priorTaxBreakdown=amount(input.priorTaxableBasicSalary()).add(amount(input.priorTaxable13thMonth())).add(amount(input.priorTaxableSalaries()));
+        if(priorNonTaxBreakdown.compareTo(nonTaxable)!=0||priorTaxBreakdown.compareTo(taxable)!=0)
+            throw new com.apex.hrm.common.BusinessException("Break down prior-employer Form 2316 compensation so non-taxable and taxable categories each reconcile to their totals");
         if (taxable.add(nonTaxable).compareTo(compensation) > 0) throw new com.apex.hrm.common.BusinessException("Taxable and non-taxable compensation cannot exceed prior-employer compensation");
         String tin = input.priorEmployerTin() == null || input.priorEmployerTin().isBlank() ? null : input.priorEmployerTin().trim();
         validateTin(tin,"Prior-employer TIN");
@@ -257,6 +305,12 @@ public class PayrollController {
         employee.setPriorEmployerNonTaxableCompensation(nonTaxable);
         employee.setPriorEmployerTaxWithheld(withheld);
         employee.setPriorEmployerCertificateReceived(Boolean.TRUE.equals(input.priorEmployerCertificateReceived()));
+        employee.setPriorNontaxBasicSmw(priorParts[0]); employee.setPriorNontaxHolidayPay(priorParts[1]);
+        employee.setPriorNontaxOvertimePay(priorParts[2]); employee.setPriorNontaxNightDiff(priorParts[3]);
+        employee.setPriorNontaxHazardPay(priorParts[4]); employee.setPriorNontax13thMonth(priorParts[5]);
+        employee.setPriorNontaxDeminimis(priorParts[6]); employee.setPriorNontaxSssEtc(priorParts[7]);
+        employee.setPriorNontaxSalaries(priorParts[8]); employee.setPriorTaxableBasicSalary(amount(input.priorTaxableBasicSalary()));
+        employee.setPriorTaxable13thMonth(amount(input.priorTaxable13thMonth())); employee.setPriorTaxableSalaries(amount(input.priorTaxableSalaries()));
         employees.save(employee);
         audit.log("EmployeePriorEmployerTax", employeeId, "UPDATE", "Prior-employer annual tax information updated by " + actor.id());
         return priorProfile(employee);
@@ -306,20 +360,27 @@ public class PayrollController {
                 employee.getPriorEmployerRdoCode(), employee.getPriorEmployerZipCode(),
                 employee.getPriorEmployerCompensation(), employee.getPriorEmployerTaxableCompensation(),
                 employee.getPriorEmployerNonTaxableCompensation(), employee.getPriorEmployerTaxWithheld(),
-                employee.getPriorEmployerCertificateReceived());
+                employee.getPriorEmployerCertificateReceived(),employee.getPriorNontaxBasicSmw(),employee.getPriorNontaxHolidayPay(),
+                employee.getPriorNontaxOvertimePay(),employee.getPriorNontaxNightDiff(),employee.getPriorNontaxHazardPay(),
+                employee.getPriorNontax13thMonth(),employee.getPriorNontaxDeminimis(),employee.getPriorNontaxSssEtc(),
+                employee.getPriorNontaxSalaries(),employee.getPriorTaxableBasicSalary(),employee.getPriorTaxable13thMonth(),
+                employee.getPriorTaxableSalaries());
     }
 
     private static TaxProfile taxProfile(Employee e) {
         return new TaxProfile(e.getTin(),e.getMinimumWageEarner(),e.getEmployeeRdoCode(),e.getRegisteredZipCode(),
                 e.getLocalHomeAddress(),e.getLocalHomeZipCode(),e.getForeignAddress(),e.getStatutoryMinimumWageDaily(),
-                e.getStatutoryMinimumWageMonthly(),e.getMobile());
+                e.getStatutoryMinimumWageMonthly(),e.getMobile(),e.getBranchCode(),e.getRegionNum(),e.getNationality(),
+                e.getBirEmploymentStatus(),e.getBirReasonSeparation(),e.getBirSubstitutedFiling(),e.getMinimumWageFactorUsed());
     }
     private static EmployerTaxProfile employerTaxProfile(Company c) {
-        return new EmployerTaxProfile(c.getId(),c.getLegalName(),c.getTin(),c.getAddress(),c.getRdoCode(),c.getZipCode(),c.getEmployerType(),c.getMainEmployer());
+        return new EmployerTaxProfile(c.getId(),c.getLegalName(),c.getTin(),c.getBranchCode(),c.getAddress(),c.getRdoCode(),c.getZipCode(),c.getEmployerType(),c.getMainEmployer());
     }
     private static String clean(String value) { return value==null||value.isBlank()?null:value.trim(); }
     private static void validateZip(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{4}"))throw new com.apex.hrm.common.BusinessException("ZIP code must contain four digits"); }
     private static void validateRdo(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{1,3}"))throw new com.apex.hrm.common.BusinessException("RDO code must contain one to three digits"); }
+    private static void validateBranchCode(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{4}"))throw new com.apex.hrm.common.BusinessException("BIR branch code must contain four digits"); }
+    private static void validateRegionNum(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{4}"))throw new com.apex.hrm.common.BusinessException("BIR region number must contain four digits"); }
     private static void validateTin(String value,String label) { if(value==null)return;String digits=value.replace("-","");if(!value.matches("[0-9-]+")||(digits.length()!=9&&digits.length()!=12))throw new com.apex.hrm.common.BusinessException(label+" must contain 9 or 12 digits, optionally separated by hyphens"); }
     private static void nonNegative(BigDecimal value,String name) { if(value!=null&&(value.signum()<0||value.scale()>2))throw new com.apex.hrm.common.BusinessException(name+" must be non-negative and limited to cents"); }
     private static void validateTaxYear(int year) { if(year<2000||year>LocalDate.now().getYear()+1)throw new com.apex.hrm.common.BusinessException("Choose a valid tax year"); }
@@ -568,6 +629,230 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
                 "attachment; filename=annual-tax-certificate-" + year + ".csv")
                 .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8"))
                 .body(csv.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** Company-level 1604-C / Alphalist reconciliation workpaper. This is not a BIR DAT import file. */
+    @GetMapping("/reports/bir-1604c-reconciliation")
+    public AlphalistReport alphalistReconciliation(@org.springframework.web.bind.annotation.RequestParam int year,
+                                                    @org.springframework.web.bind.annotation.RequestParam UUID companyId,
+                                                    @AuthenticationPrincipal HrmUserPrincipal actor) {
+        validateTaxYear(year);
+        return tenantSql.inTenant(actor.tenantId(), () -> buildAlphalistReport(year, companyId, actor));
+    }
+
+    @GetMapping(value = "/reports/bir-1604c-reconciliation.csv", produces = "text/csv")
+    public ResponseEntity<byte[]> alphalistReconciliationCsv(@org.springframework.web.bind.annotation.RequestParam int year,
+                                                              @org.springframework.web.bind.annotation.RequestParam UUID companyId,
+                                                              @AuthenticationPrincipal HrmUserPrincipal actor) {
+        AlphalistReport report=alphalistReconciliation(year,companyId,actor);
+        StringBuilder out=new StringBuilder("Schedule,Sequence,Employee No,Employee Name,Employee TIN,Employment From,Employment To,Finalized Payroll Runs,Present Employer Gross,Present Employer Non-Taxable,Present Employer Taxable,Previous Employer Gross,Previous Employer Non-Taxable,Previous Employer Taxable,Combined Taxable Compensation,Annual Tax Due,Present Employer Tax Withheld,Previous Employer Tax Withheld,PERA Tax Credit,Tax Withheld As Adjusted,Form 2316 Review Status,Exceptions\r\n");
+        for(AlphalistRow row:report.rows()) out.append(row.schedule()).append(',').append(row.sequence()).append(',')
+                .append(csv(row.employeeNo())).append(',').append(csv(row.employeeName())).append(',').append(csv(row.tin())).append(',')
+                .append(csv(row.employmentFrom())).append(',').append(csv(row.employmentTo())).append(',').append(row.finalizedPayrollRuns()).append(',')
+                .append(row.presentEmployerGross()).append(',').append(row.presentEmployerNonTaxable()).append(',').append(row.presentEmployerTaxable()).append(',')
+                .append(row.previousEmployerGross()).append(',').append(row.previousEmployerNonTaxable()).append(',').append(row.previousEmployerTaxable()).append(',')
+                .append(row.combinedTaxable()).append(',').append(row.annualTaxDue()).append(',').append(row.presentEmployerTaxWithheld()).append(',')
+                .append(row.previousEmployerTaxWithheld()).append(',').append(row.peraTaxCredit()).append(',').append(row.adjustedTaxWithheld()).append(',')
+                .append(csv(row.form2316Status())).append(',').append(csv(String.join("; ",row.exceptions()))).append("\r\n");
+        String notice="# Internal reconciliation workpaper; not an official BIR DAT import or filed return.\r\n"
+                +"# Employer,"+csv(report.employerName())+",TIN,"+csv(report.employerTin())+",Tax year,"+year+"\r\n"
+                +"# Employees,"+report.employeeCount()+",Schedule 1,"+report.schedule1Count()+",Schedule 2,"+report.schedule2Count()+",Exceptions,"+report.exceptionCount()+"\r\n";
+        byte[] body=(notice+out).getBytes(StandardCharsets.UTF_8);
+        return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
+                "attachment; filename=bir-1604c-alphalist-reconciliation-"+year+".csv")
+                .header("X-Report-Employee-Count",String.valueOf(report.employeeCount()))
+                .header("X-Report-Schedule1-Count",String.valueOf(report.schedule1Count()))
+                .header("X-Report-Schedule2-Count",String.valueOf(report.schedule2Count()))
+                .header("X-Report-Exception-Count",String.valueOf(report.exceptionCount()))
+                .contentType(MediaType.parseMediaType("text/csv; charset=UTF-8")).body(body);
+    }
+
+    @GetMapping(value = "/reports/bir-1604c.dat", produces = "application/octet-stream")
+    public ResponseEntity<byte[]> alphalistDat(@org.springframework.web.bind.annotation.RequestParam int year,
+                                                @org.springframework.web.bind.annotation.RequestParam UUID companyId,
+                                                @AuthenticationPrincipal HrmUserPrincipal actor) {
+        validateTaxYear(year);
+        return tenantSql.inTenant(actor.tenantId(), () -> {
+            AlphalistReport report=buildAlphalistReport(year,companyId,actor);
+            if(report.rows().isEmpty()) throw new com.apex.hrm.common.BusinessException("No employees with finalized payroll or prior-employer income are eligible for the selected tax year");
+            if(report.exceptionCount()>0) throw new com.apex.hrm.common.BusinessException("BIR DAT export blocked: resolve all " + report.exceptionCount() + " employee record(s) in the Alphalist reconciliation before exporting");
+            Company company=companies.findById(companyId).orElseThrow(()->new NotFoundException("Company",companyId));
+            String tin=company.getTin().replace("-","");
+            String period="12/31/"+year;
+            List<List<String>> schedule1=new ArrayList<>(),schedule2=new ArrayList<>();
+            LocalDate from=LocalDate.of(year,1,1),to=LocalDate.of(year,12,31);
+            Map<String,Employee> employeeByNo=new LinkedHashMap<>();
+            employees.findAll(Sort.by(Sort.Direction.ASC,"lastName","firstName","employeeNo")).stream()
+                    .filter(e->companyId.equals(e.getCompanyId())).forEach(e->employeeByNo.put(e.getEmployeeNo(),e));
+            int seq1=0,seq2=0;
+            for(AlphalistRow row:report.rows()) {
+                Employee e=employeeByNo.get(row.employeeNo());
+                if(e==null) throw new com.apex.hrm.common.BusinessException("Employee data changed while generating the Alphalist; reload the report and retry");
+                Bir2316Draft d=bir2316Draft(year,e.getId());
+                if("SCHEDULE_2_MWE".equals(row.schedule())) schedule2.add(schedule2Detail(e,d,company,year,++seq2,period));
+                else schedule1.add(schedule1Detail(e,d,company,year,++seq1,period));
+            }
+            StringBuilder dat=new StringBuilder();
+            appendDat(dat,List.of("H1604C",tin,company.getBranchCode(),period));
+            schedule1.forEach(row->appendDat(dat,row));
+            appendDat(dat,schedule1Control(schedule1,tin,company.getBranchCode(),period));
+            schedule2.forEach(row->appendDat(dat,row));
+            appendDat(dat,schedule2Control(schedule2,tin,company.getBranchCode(),period));
+            String filename=tin+company.getBranchCode()+"1231"+year+"1604C.DAT";
+            audit.log("Bir1604CAlphalist",companyId,"EXPORT","BIR Form 1604-C Alphalist DAT generated for tax year "+year+" by "+actor.id());
+            return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,"attachment; filename="+filename)
+                    .header("X-Report-Employee-Count",String.valueOf(report.employeeCount()))
+                    .contentType(MediaType.parseMediaType("text/plain; charset=windows-1252"))
+                    .body(dat.toString().getBytes(java.nio.charset.Charset.forName("windows-1252")));
+        });
+    }
+
+    private List<String> schedule1Detail(Employee e,Bir2316Draft d,Company c,int year,int seq,String period) {
+        Map<String,BigDecimal> x=d.compensationItems();
+        BigDecimal pn=amount(e.getPriorEmployerNonTaxableCompensation()),pt=amount(e.getPriorEmployerTaxableCompensation());
+        BigDecimal priorBasic=amount(e.getPriorNontaxBasicSmw()),prior13=amount(e.getPriorNontax13thMonth()),priorDm=amount(e.getPriorNontaxDeminimis()),priorSss=amount(e.getPriorNontaxSssEtc());
+        BigDecimal priorOther=pn.subtract(priorBasic).subtract(prior13).subtract(priorDm).subtract(priorSss);
+        BigDecimal presNonTax=comp(x,"38"),presBasic=comp(x,"29"),pres13=comp(x,"34"),presDm=comp(x,"35"),presSss=comp(x,"36"),presOther=comp(x,"37");
+        BigDecimal taxBasic=comp(x,"39"),tax13=comp(x,"48"),taxOther=taxableOther(x),presTax=taxBasic.add(tax13).add(taxOther);
+        List<String> r=datRow(49);
+        set(r,1,"D1");set(r,2,"1604C");set(r,3,digits(c.getTin()));set(r,4,c.getBranchCode());set(r,5,period);set(r,6,seq);
+        set(r,7,digits(e.getTin()));set(r,8,e.getBranchCode());set(r,9,e.getLastName());set(r,10,e.getFirstName());set(r,11,e.getMiddleName());set(r,12,e.getRegionNum());
+        set(r,13,pn);set(r,14,priorBasic);set(r,15,prior13);set(r,16,priorDm);set(r,17,priorSss);set(r,18,priorOther);set(r,19,pn);
+        set(r,20,amount(e.getPriorTaxableBasicSalary()));set(r,21,amount(e.getPriorTaxable13thMonth()));set(r,22,amount(e.getPriorTaxableSalaries()));set(r,23,pt);
+        set(r,24,employmentDate(e.getHireDate(),year,false));set(r,25,employmentDate(e.getSeparationDate(),year,true));
+        set(r,26,presNonTax);set(r,27,presBasic);set(r,28,pres13);set(r,29,presDm);set(r,30,presSss);set(r,31,presOther);set(r,32,presNonTax);
+        set(r,33,taxBasic);set(r,34,tax13);set(r,35,taxOther);set(r,36,presTax);set(r,37,pt.add(presTax));set(r,38,d.grossTaxableCompensation());set(r,39,d.taxDue());
+        set(r,40,d.previousEmployerTaxWithheld());set(r,41,d.presentEmployerTaxWithheld());set(r,42,decemberWithheld(e.getId(),year,c.getId()));set(r,43,overWithheld(e.getId(),year,c.getId()));
+        set(r,44,d.presentEmployerTaxWithheld().add(d.previousEmployerTaxWithheld()));set(r,45,e.getNationality());set(r,46,e.getBirEmploymentStatus());
+        set(r,47,e.getSeparationDate()!=null&&e.getSeparationDate().getYear()==year?e.getBirReasonSeparation():"NA");set(r,48,e.getBirSubstitutedFiling());set(r,49,d.peraTaxCredit());
+        return r;
+    }
+
+    private List<String> schedule2Detail(Employee e,Bir2316Draft d,Company c,int year,int seq,String period) {
+        Map<String,BigDecimal> x=d.compensationItems();
+        BigDecimal pn=amount(e.getPriorEmployerNonTaxableCompensation()),pt=amount(e.getPriorEmployerTaxableCompensation());
+        BigDecimal priorOther=pn.subtract(amount(e.getPriorNontaxBasicSmw())).subtract(amount(e.getPriorNontaxHolidayPay())).subtract(amount(e.getPriorNontaxOvertimePay()))
+                .subtract(amount(e.getPriorNontaxNightDiff())).subtract(amount(e.getPriorNontaxHazardPay())).subtract(amount(e.getPriorNontax13thMonth()))
+                .subtract(amount(e.getPriorNontaxDeminimis())).subtract(amount(e.getPriorNontaxSssEtc()));
+        BigDecimal nonTax=comp(x,"38"),taxable=d.taxableCompensationPresentEmployer(),gross=nonTax.add(taxable);
+        BigDecimal factor=BigDecimal.valueOf(e.getMinimumWageFactorUsed());
+        BigDecimal daily=amount(e.getStatutoryMinimumWageDaily()),monthly=amount(e.getStatutoryMinimumWageMonthly());
+        if(daily.signum()==0&&monthly.signum()>0)daily=monthly.multiply(BigDecimal.valueOf(12)).divide(factor,2,java.math.RoundingMode.HALF_UP);
+        if(monthly.signum()==0&&daily.signum()>0)monthly=daily.multiply(factor).divide(BigDecimal.valueOf(12),2,java.math.RoundingMode.HALF_UP);
+        List<String> r=datRow(59);set(r,1,"D2");set(r,2,"1604C");set(r,3,digits(c.getTin()));set(r,4,c.getBranchCode());set(r,5,period);set(r,6,seq);
+        set(r,7,digits(e.getTin()));set(r,8,e.getBranchCode());set(r,9,e.getLastName());set(r,10,e.getFirstName());set(r,11,e.getMiddleName());set(r,12,e.getRegionNum());
+        set(r,13,pn);set(r,14,e.getPriorNontaxBasicSmw());set(r,15,e.getPriorNontaxHolidayPay());set(r,16,e.getPriorNontaxOvertimePay());set(r,17,e.getPriorNontaxNightDiff());
+        set(r,18,e.getPriorNontaxHazardPay());set(r,19,e.getPriorNontax13thMonth());set(r,20,e.getPriorNontaxDeminimis());set(r,21,e.getPriorNontaxSssEtc());set(r,22,priorOther);set(r,23,pn);
+        set(r,24,e.getPriorTaxable13thMonth());set(r,25,e.getPriorTaxableSalaries());set(r,26,pt);set(r,27,employmentDate(e.getHireDate(),year,false));set(r,28,employmentDate(e.getSeparationDate(),year,true));
+        set(r,29,nonTax);set(r,30,daily);set(r,31,monthly);set(r,32,daily.multiply(factor));
+        set(r,33,e.getMinimumWageFactorUsed());set(r,34,comp(x,"30"));set(r,35,comp(x,"31"));set(r,36,comp(x,"32"));set(r,37,comp(x,"33"));
+        set(r,38,comp(x,"34"));set(r,39,comp(x,"35"));set(r,40,comp(x,"36"));set(r,41,comp(x,"37"));set(r,42,nonTax);
+        set(r,43,comp(x,"48"));set(r,44,taxable.subtract(comp(x,"48")));set(r,45,gross);set(r,46,amount(e.getPriorEmployerCompensation()).add(gross));
+        set(r,47,d.grossTaxableCompensation());set(r,48,d.taxDue());set(r,49,d.previousEmployerTaxWithheld());set(r,50,d.presentEmployerTaxWithheld());
+        set(r,51,decemberWithheld(e.getId(),year,c.getId()));set(r,52,overWithheld(e.getId(),year,c.getId()));set(r,53,d.presentEmployerTaxWithheld().add(d.previousEmployerTaxWithheld()));
+        set(r,54,e.getNationality());set(r,55,e.getBirEmploymentStatus());set(r,56,e.getSeparationDate()!=null&&e.getSeparationDate().getYear()==year?e.getBirReasonSeparation():"NA");
+        set(r,57,e.getBirSubstitutedFiling());set(r,58,d.peraTaxCredit());set(r,59,comp(x,"29").subtract(comp(x,"36")).max(BigDecimal.ZERO));return r;
+    }
+
+    private List<String> schedule1Control(List<List<String>> rows,String tin,String branch,String period) {
+        int[] detailColumns={13,14,15,16,17,18,19,20,21,22,23,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,49};
+        List<String> out=datRow(36);set(out,1,"C1");set(out,2,"1604C");set(out,3,digits(tin));set(out,4,branch);set(out,5,period);
+        for(int i=0;i<detailColumns.length;i++)set(out,6+i,sumColumn(rows,detailColumns[i]));return out;
+    }
+    private List<String> schedule2Control(List<List<String>> rows,String tin,String branch,String period) {
+        int[] detailColumns={13,14,15,16,17,18,19,20,21,22,23,24,25,26,29,30,31,32,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,58,59};
+        List<String> out=datRow(45);set(out,1,"C2");set(out,2,"1604C");set(out,3,digits(tin));set(out,4,branch);set(out,5,period);
+        for(int i=0;i<detailColumns.length;i++)set(out,6+i,sumColumn(rows,detailColumns[i]));return out;
+    }
+    private BigDecimal decemberWithheld(UUID employeeId,int year,UUID companyId) {
+        return jdbc.queryForObject("SELECT COALESCE(SUM(l.amount),0) FROM payroll_line l JOIN payroll_run r ON r.id=l.run_id JOIN pay_group g ON g.id=r.pay_group_id JOIN pay_period p ON p.id=r.pay_period_id WHERE l.employee_id=? AND r.tenant_id=? AND g.company_id=? AND r.status IN ('LOCKED','PAID') AND p.end_date BETWEEN ? AND ? AND l.item_code='WTAX'",BigDecimal.class,employeeId,com.apex.hrm.common.TenantContext.get(),companyId,LocalDate.of(year,12,1),LocalDate.of(year,12,31));
+    }
+    private BigDecimal overWithheld(UUID employeeId,int year,UUID companyId) {
+        return jdbc.queryForObject("SELECT COALESCE(SUM(l.amount),0) FROM payroll_line l JOIN payroll_run r ON r.id=l.run_id JOIN pay_group g ON g.id=r.pay_group_id JOIN pay_period p ON p.id=r.pay_period_id WHERE l.employee_id=? AND r.tenant_id=? AND g.company_id=? AND r.status IN ('LOCKED','PAID') AND p.end_date BETWEEN ? AND ? AND l.item_code='TAX_REFUND'",BigDecimal.class,employeeId,com.apex.hrm.common.TenantContext.get(),companyId,LocalDate.of(year,1,1),LocalDate.of(year,12,31));
+    }
+    private static BigDecimal sumColumn(List<List<String>> rows,int column) { return rows.stream().map(r->new BigDecimal(r.get(column-1))).reduce(BigDecimal.ZERO,BigDecimal::add); }
+    private static List<String> datRow(int count) { return new ArrayList<>(java.util.Collections.nCopies(count,"0")); }
+    private static void set(List<String> row,int column,Object value) { row.set(column-1,value==null?"":value instanceof BigDecimal b?b.setScale(2,java.math.RoundingMode.HALF_UP).toPlainString():String.valueOf(value)); }
+    private static BigDecimal comp(Map<String,BigDecimal> map,String key) { return map.getOrDefault(key,BigDecimal.ZERO); }
+    private static BigDecimal taxableOther(Map<String,BigDecimal> map) { return map.entrySet().stream().filter(e->Set.of("40","41","42","43","44A","44B","45","46","47","49","50","51A","51B").contains(e.getKey())).map(Map.Entry::getValue).reduce(BigDecimal.ZERO,BigDecimal::add); }
+    private static String digits(String value) { return value==null?"":value.replaceAll("[^0-9]",""); }
+    private static void addBirTextIssue(List<String> issues,String label,String value,int maxLength) {
+        if(value==null)return;
+        if(value.length()>maxLength)issues.add(label+" exceeds the BIR field width of "+maxLength+" characters");
+        if(value.chars().anyMatch(Character::isISOControl)||!java.nio.charset.Charset.forName("windows-1252").newEncoder().canEncode(value))
+            issues.add(label+" contains characters that cannot be represented safely in the BIR DAT encoding");
+    }
+    private static String employmentDate(LocalDate date,int year,boolean end) { return date==null||date.getYear()!=year?(end?"12/31/"+year:"01/01/"+year):String.format("%02d/%02d/%04d",date.getMonthValue(),date.getDayOfMonth(),year); }
+    private static void appendDat(StringBuilder out,List<String> fields) { out.append(fields.stream().map(PayrollController::datCsv).collect(java.util.stream.Collectors.joining(","))).append("\r\n"); }
+    private static String datCsv(String value) { String v=value==null?"":value;return v.contains(",")||v.contains("\"")||v.contains("\n")?"\""+v.replace("\"","\"\"")+"\"":v; }
+
+    private AlphalistReport buildAlphalistReport(int year,UUID companyId,HrmUserPrincipal actor) {
+        Company company=companies.findById(companyId).orElseThrow(()->new NotFoundException("Company",companyId));
+        LocalDate from=LocalDate.of(year,1,1),to=LocalDate.of(year,12,31);
+        List<Employee> eligible=employees.findAll(Sort.by(Sort.Direction.ASC,"lastName","firstName","employeeNo")).stream()
+                .filter(e->companyId.equals(e.getCompanyId()))
+                .filter(e->(e.getHireDate()==null||!e.getHireDate().isAfter(to))&&(e.getSeparationDate()==null||!e.getSeparationDate().isBefore(from)))
+                .toList();
+        List<AlphalistRow> rows=new ArrayList<>();
+        for(Employee employee:eligible) {
+            AnnualCertificateRow summary=certificateRow(employee,from,to);
+            if(summary.taxableRuns()==0 && !hasPriorEmployer(employee)) continue;
+            Bir2316Draft draft=bir2316Draft(year,employee.getId());
+            String status="NOT_SUBMITTED";
+            List<Map<String,Object>> review=jdbc.queryForList("SELECT status,source_fingerprint FROM bir2316_review WHERE tenant_id=? AND employee_id=? AND tax_year=?",actor.tenantId(),employee.getId(),year);
+            if(!review.isEmpty()) {
+                status=String.valueOf(review.get(0).get("status"));
+                if("APPROVED".equals(status)&&!reviewFingerprint(draft).equals(review.get(0).get("source_fingerprint"))) status="STALE";
+            }
+            List<String> exceptions=new ArrayList<>(summary.missingFields());
+            if(clean(company.getBranchCode())==null) exceptions.add("Employer BIR branch code is missing");
+            if(clean(company.getTin())==null||company.getTin().replace("-","").length()!=9)
+                exceptions.add("Employer TIN must contain the nine-digit format required by the Alphalist file layout");
+            if(!"APPROVED".equals(status)) exceptions.add("Form 2316 is "+status.toLowerCase(Locale.ROOT).replace('_',' '));
+            if(clean(employee.getBranchCode())==null) exceptions.add("Employee BIR branch code is missing");
+            if(employee.getTin()==null||digits(employee.getTin()).length()!=9) exceptions.add("Employee TIN must contain the nine-digit format required by the Alphalist file layout");
+            addBirTextIssue(exceptions,"Employee last name",employee.getLastName(),30);
+            addBirTextIssue(exceptions,"Employee first name",employee.getFirstName(),30);
+            addBirTextIssue(exceptions,"Employee middle name",employee.getMiddleName(),30);
+            if(clean(employee.getRegionNum())==null) exceptions.add("Assigned BIR region number is missing");
+            if(clean(employee.getNationality())==null) exceptions.add("Employee nationality is missing");
+            addBirTextIssue(exceptions,"Employee nationality",employee.getNationality(),30);
+            if(clean(employee.getBirEmploymentStatus())==null) exceptions.add("BIR employment status is missing");
+            if(clean(employee.getBirSubstitutedFiling())==null) exceptions.add("Substituted filing status is missing");
+            if(Boolean.TRUE.equals(employee.getMinimumWageEarner())) {
+                if(employee.getMinimumWageFactorUsed()==null) exceptions.add("MWE annual wage factor is missing");
+                if(employee.getStatutoryMinimumWageDaily()==null&&employee.getStatutoryMinimumWageMonthly()==null) exceptions.add("MWE statutory daily or monthly wage is missing");
+            }
+            if(employee.getSeparationDate()!=null&&employee.getSeparationDate().getYear()==year&&clean(employee.getBirReasonSeparation())==null)
+                exceptions.add("Reason for separation is missing");
+            BigDecimal presentGross=summary.grossCompensation().subtract(summary.priorEmployerCompensation());
+            BigDecimal form2316Gross=draft.compensationItems().getOrDefault("38",BigDecimal.ZERO).add(draft.taxableCompensationPresentEmployer());
+            if(presentGross.subtract(form2316Gross).abs().compareTo(new BigDecimal("0.01"))>0)
+                exceptions.add("Finalized payroll gross differs from the Form 2316 compensation total by "+presentGross.subtract(form2316Gross).toPlainString());
+            String employmentFrom=employee.getHireDate()==null?"01/01":String.format("%02d/%02d",employee.getHireDate().getMonthValue(),employee.getHireDate().getDayOfMonth());
+            String employmentTo=employee.getSeparationDate()!=null&&employee.getSeparationDate().getYear()==year
+                    ?String.format("%02d/%02d",employee.getSeparationDate().getMonthValue(),employee.getSeparationDate().getDayOfMonth()):"12/31";
+            rows.add(new AlphalistRow(rows.size()+1,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"SCHEDULE_2_MWE":"SCHEDULE_1_EMPLOYEE",
+                    employee.getEmployeeNo(),summary.employeeName(),employee.getTin(),employmentFrom,employmentTo,presentGross,
+                    draft.compensationItems().getOrDefault("38",BigDecimal.ZERO),draft.taxableCompensationPresentEmployer(),
+                    summary.priorEmployerCompensation(),summary.priorEmployerNonTaxableCompensation(),draft.taxableCompensationPreviousEmployer(),
+                    draft.grossTaxableCompensation(),draft.taxDue(),draft.presentEmployerTaxWithheld(),draft.previousEmployerTaxWithheld(),
+                    draft.peraTaxCredit(),draft.totalTaxesWithheld(),status,summary.taxableRuns(),List.copyOf(exceptions)));
+        }
+        BigDecimal gross=sumRows(rows,AlphalistRow::presentEmployerGross),nonTaxable=sumRows(rows,AlphalistRow::presentEmployerNonTaxable),
+                taxable=sumRows(rows,AlphalistRow::presentEmployerTaxable),priorTaxable=sumRows(rows,AlphalistRow::previousEmployerTaxable),
+                adjusted=sumRows(rows,AlphalistRow::adjustedTaxWithheld);
+        long approved=rows.stream().filter(r->"APPROVED".equals(r.form2316Status())).count();
+        long exceptions=rows.stream().filter(r->!r.exceptions().isEmpty()).count();
+        return new AlphalistReport(year,companyId,company.getLegalName(),company.getTin(),rows.size(),
+                (int)rows.stream().filter(r->"SCHEDULE_1_EMPLOYEE".equals(r.schedule())).count(),
+                (int)rows.stream().filter(r->"SCHEDULE_2_MWE".equals(r.schedule())).count(),gross,nonTaxable,taxable,priorTaxable,adjusted,
+                approved,exceptions,List.copyOf(rows),"INTERNAL_RECONCILIATION_CSV",
+                "Workpaper only. Validate against the current BIR Alphalist Data Entry and Validation Module and official file structure before filing.");
+    }
+
+    private static BigDecimal sumRows(List<AlphalistRow> rows,java.util.function.Function<AlphalistRow,BigDecimal> value) {
+        return rows.stream().map(value).reduce(BigDecimal.ZERO,BigDecimal::add);
     }
 
     private AnnualCertificateRow certificateRow(Employee employee, LocalDate from, LocalDate to) {
