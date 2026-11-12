@@ -29,6 +29,8 @@
 .workspace-header .account-trigger:hover,.workspace-header .account-trigger.is-open { border-color: var(--hud-gold); background: rgb(255 231 178 / 13%); }
 .workspace-header .workspace-plan-notice-copy small { color: var(--hud-muted); }
 .workspace-header .workspace-plan-notice-icon { border: 1px solid var(--hud-border); color: var(--hud-gold-bright); background: rgb(239 202 117 / 12%); }
+.workspace-header .workspace-plan-notice.is-trial .workspace-plan-notice-icon,
+.workspace-header .workspace-plan-notice.is-expiring .workspace-plan-notice-icon { border-color: var(--hud-border); color: var(--hud-gold-bright); background: rgb(239 202 117 / 12%); }
 
 .workspace-content {
   position: relative;
