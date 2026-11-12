@@ -6,15 +6,15 @@ module.exports = defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: `http://localhost:${process.env.PLAYWRIGHT_PORT || '5173'}`,
     browserName: 'chromium',
-    launchOptions: { slowMo: 2000 },
+    launchOptions: { slowMo: Number(process.env.PLAYWRIGHT_SLOW_MO ?? 2000) },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   webServer: {
     command: 'npm run dev',
-    url: 'http://localhost:5173/',
+    url: `http://localhost:${process.env.PLAYWRIGHT_PORT || '5173'}/`,
     reuseExistingServer: !process.env.CI,
     timeout: 90000,
   },

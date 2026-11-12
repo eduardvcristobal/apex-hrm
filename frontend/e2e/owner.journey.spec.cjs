@@ -4,14 +4,17 @@ const path = require('node:path');
 const { totp } = require('./totp.cjs');
 
 test('workspace owner signs up, secures the account, and tours the HRM', async ({ page }, testInfo) => {
-  test.setTimeout(180_000);
+  test.setTimeout(Number(process.env.E2E_TIMEOUT_MS ?? 180_000));
   page.setDefaultTimeout(10_000);
-  const sampleFile = path.resolve(__dirname, '../.e2e-local/owner-sample.json');
+  const sampleFile = path.resolve(process.env.E2E_SAMPLE_PATH || path.resolve(__dirname, '../.e2e-local/owner-sample.json'));
+  const reactKeyWarnings = [];
+  page.on('console', message => { if (message.type() === 'error' && message.text().includes('same key')) reactKeyWarnings.push(message.text()); });
   page.on('request', request => {
     if (request.url().includes('/api/v1/security/')) console.log(`request ${request.method()} ${new URL(request.url()).pathname}`);
   });
   page.on('response', response => {
     if (response.url().includes('/api/v1/security/')) console.log(`response ${response.status()} ${new URL(response.url()).pathname}`);
+    if (response.url().includes('/api/') && response.status() >= 400 && response.status() !== 428) console.log(`api error ${response.status()} ${new URL(response.url()).pathname}`);
   });
   page.on('requestfailed', request => {
     if (request.url().includes('/api/v1/security/')) console.log(`request failed ${request.method()} ${new URL(request.url()).pathname}: ${request.failure()?.errorText}`);
@@ -115,6 +118,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     } else {
       await expect(page.getByRole('alert')).toHaveCount(0);
     }
+    if (section === 'Employee directory') expect(reactKeyWarnings).toHaveLength(0);
     await testInfo.attach(`owner-tour-${section.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, {
       body: await page.screenshot(),
       contentType: 'image/png',
@@ -154,6 +158,128 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   await expect(page.getByText('Workflow assignment saved.', { exact: true })).toBeVisible();
 
   await expect(page.getByText(`${workflowName} v1`, { exact: false }).first()).toBeVisible();
+
+  // Exercise the personnel-to-timekeeping-to-payroll bridge for weekly and daily staff.
+  const today = new Date().toISOString().slice(0, 10);
+  const runId = `${Date.now()}`.slice(-9);
+  const callApi = async (method, path, body) => page.evaluate(async input => {
+    const token = sessionStorage.getItem('apexHrm.accessToken');
+    const response = await fetch(input.path, {
+      method: input.method,
+      headers: { Authorization: `Bearer ${token}`, ...(input.body ? { 'Content-Type': 'application/json' } : {}) },
+      ...(input.body ? { body: JSON.stringify(input.body) } : {}),
+    });
+    const text = await response.text();
+    return { status: response.status, body: text ? JSON.parse(text) : null };
+  }, { method, path, body });
+  const expectOk = result => expect(result.status, JSON.stringify(result.body)).toBeLessThan(300);
+  const companyResult = await callApi('GET', '/api/v1/companies');
+  expectOk(companyResult);
+  const company = companyResult.body[0];
+  expect(company).toBeTruthy();
+  const weeklyGroupResult = await callApi('POST', '/api/pay-groups', {
+    companyId: company.id, code: `E2E-W-${runId}`, name: `E2E weekly ${runId}`, frequency: 'WEEKLY',
+    daysFactor: 261, hoursPerDay: 8, contributionSchedule: 'EVERY_CUTOFF', taxMethod: 'STRICT',
+  });
+  expectOk(weeklyGroupResult);
+  const dailyGroupResult = await callApi('POST', '/api/pay-groups', {
+    companyId: company.id, code: `E2E-D-${runId}`, name: `E2E daily ${runId}`, frequency: 'DAILY',
+    daysFactor: 261, hoursPerDay: 8, contributionSchedule: 'EVERY_CUTOFF', taxMethod: 'STRICT',
+  });
+  expectOk(dailyGroupResult);
+  const employees = [];
+  for (const kind of ['weekly', 'daily']) {
+    const created = await callApi('POST', '/api/v1/personnel/employees', {
+      companyId: company.id, employeeNumber: `E2E-${kind.toUpperCase()}-${runId}`,
+      firstName: kind === 'weekly' ? 'Weekly' : 'Daily', lastName: `Journey${runId}`, hireDate: today,
+    });
+    expectOk(created);
+    const employee = created.body;
+    employees.push(employee);
+    const compensation = await callApi('POST', `/api/v1/personnel/employees/${employee.id}/compensation`, {
+      effectiveDate: today, amount: kind === 'weekly' ? 30000 : 750, payBasis: kind === 'weekly' ? 'MONTHLY' : 'DAILY', reason: 'E2E payroll journey',
+    });
+    expectOk(compensation);
+    const group = kind === 'weekly' ? weeklyGroupResult.body : dailyGroupResult.body;
+    const assignment = await callApi('POST', `/api/v1/personnel/employees/${employee.id}/pay-group-assignments`, {
+      payGroupId: group.id, effectiveFrom: today, remarks: 'E2E payroll frequency assignment',
+    });
+    expectOk(assignment);
+    const schedule = await callApi('POST', '/api/work-schedules', {
+      code: `E2E-${kind.toUpperCase()}-${runId}`, name: `E2E ${kind} schedule`, startTime: '09:00', endTime: '17:00',
+      breakMinutes: 60, graceMinutes: 5, restDays: 'SAT,SUN',
+    });
+    expectOk(schedule);
+    const scheduleAssignment = await callApi('POST', '/api/employee-schedules', {
+      employeeId: employee.id, scheduleId: schedule.body.id, effectiveFrom: today,
+    });
+    expectOk(scheduleAssignment);
+    for (const [logType, time] of [['IN', '09:00:00'], ['OUT', '17:00:00']]) {
+      const log = await callApi('POST', '/api/attendance/manual', {
+        employeeId: employee.id, logType, logTime: new Date(`${today}T${time}+08:00`).toISOString(), remarks: 'E2E payroll journey',
+      });
+      expectOk(log);
+    }
+  }
+  const dtr = await callApi('POST', '/api/dtr/process', { from: today, to: today, employeeId: null });
+  expectOk(dtr);
+  const weekStartDate = new Date(`${today}T00:00:00Z`);
+  weekStartDate.setUTCDate(weekStartDate.getUTCDate() - ((weekStartDate.getUTCDay() + 6) % 7));
+  const weekStart = weekStartDate.toISOString().slice(0, 10);
+  const weekEndDate = new Date(`${weekStart}T00:00:00Z`);
+  weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
+  const weekEnd = weekEndDate.toISOString().slice(0, 10);
+  let weeklyRunId;
+  for (const [group, from, through] of [[weeklyGroupResult.body, weekStart, weekEnd], [dailyGroupResult.body, today, today]]) {
+    const generated = await callApi('POST', '/api/pay-periods/generate', {
+      payGroupId: group.id, from, through, payDateOffsetDays: 5,
+    });
+    expectOk(generated);
+    const periods = await callApi('GET', '/api/pay-periods');
+    expectOk(periods);
+    const period = (periods.body.content || []).find(item => item.payGroupId === group.id && item.startDate === from && item.endDate === through);
+    expect(period, `pay period ${from} to ${through} for ${group.frequency}`).toBeTruthy();
+    const createdRun = await callApi('POST', '/api/payroll/runs', { payPeriodId: period.id, runType: 'REGULAR' });
+    expectOk(createdRun);
+    const computedRun = await callApi('POST', `/api/payroll/runs/${createdRun.body.id}/compute`);
+    expectOk(computedRun);
+    expect(computedRun.body.status).toBe('COMPUTED');
+    const runEmployees = await callApi('GET', `/api/payroll/runs/${createdRun.body.id}/employees`);
+    expectOk(runEmployees);
+    expect(runEmployees.body.some(item => employees.some(employee => employee.id === item.employeeId))).toBeTruthy();
+    if (group.frequency === 'WEEKLY') weeklyRunId = createdRun.body.id;
+  }
+
+  // Complete the employee review and close lifecycle on the weekly run. Link the
+  // owner login to the journey employee in this isolated E2E tenant so the
+  // self-service acknowledgement is exercised through the real employee API.
+  let reviewed = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/review`);
+  expectOk(reviewed);
+  let approved = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/approve`);
+  expectOk(approved);
+  const published = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/publish-for-employee-review`);
+  expectOk(published);
+  const accounts = await callApi('GET', '/api/v1/admin/users');
+  expectOk(accounts);
+  const ownerAccount = accounts.body.find(account => account.email === sample.email);
+  expect(ownerAccount, 'owner identity available for E2E self-service').toBeTruthy();
+  const link = await callApi('PUT', '/api/v1/learning/accounts', {
+    identityId: ownerAccount.id, employeeId: employees[0].id,
+  });
+  expectOk(link);
+  const portal = await callApi('GET', '/api/v1/self-service/me');
+  expectOk(portal);
+  const weeklyPayslip = portal.body.payslips.find(slip => slip.run_type === 'REGULAR' && slip.run_status === 'EMPLOYEE_REVIEW');
+  expect(weeklyPayslip, 'published weekly payslip in employee history').toBeTruthy();
+  const acknowledged = await callApi('POST', `/api/v1/self-service/payslips/${weeklyPayslip.id}/acknowledge`);
+  expectOk(acknowledged);
+  expect(acknowledged.body.acknowledged).toBe(true);
+  const counts = await callApi('GET', `/api/payroll/runs/${weeklyRunId}/employee-acknowledgements`);
+  expectOk(counts);
+  expect(counts.body.pending).toBe(0);
+  const closed = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/lock`);
+  expectOk(closed);
+  expect(closed.body.status).toBe('LOCKED');
 });
 
 async function signIn(page, sample) {

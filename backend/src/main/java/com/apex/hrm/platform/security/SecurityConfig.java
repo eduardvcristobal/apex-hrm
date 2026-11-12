@@ -56,8 +56,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.ignoringRequestMatchers(request -> {
                 String header = request.getHeader("Authorization");
                 return (header != null && header.startsWith("Bearer ")
-                    && (request.getRequestURI().startsWith("/api/v1/")
-                        || request.getRequestURI().startsWith("/api/reference/"))
+                    && request.getRequestURI().startsWith("/api/")
                     || (request.getMethod().equals("POST")
                     && (request.getRequestURI().equals("/api/v1/security/platform-admin/google")
                     || request.getRequestURI().equals("/api/v1/security/google")
