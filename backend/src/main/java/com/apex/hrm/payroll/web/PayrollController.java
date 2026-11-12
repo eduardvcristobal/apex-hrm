@@ -823,6 +823,18 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
                 if(employee.getMinimumWageFactorUsed()==null) exceptions.add("MWE annual wage factor is missing");
                 if(employee.getStatutoryMinimumWageDaily()==null&&employee.getStatutoryMinimumWageMonthly()==null) exceptions.add("MWE statutory daily or monthly wage is missing");
             }
+            BigDecimal priorNonTax=amount(employee.getPriorEmployerNonTaxableCompensation());
+            BigDecimal priorComponents=amount(employee.getPriorNontaxBasicSmw())
+                    .add(amount(employee.getPriorNontax13thMonth())).add(amount(employee.getPriorNontaxDeminimis()))
+                    .add(amount(employee.getPriorNontaxSssEtc()));
+            if(Boolean.TRUE.equals(employee.getMinimumWageEarner())) {
+                priorComponents=amount(employee.getPriorNontaxBasicSmw()).add(amount(employee.getPriorNontaxHolidayPay()))
+                        .add(amount(employee.getPriorNontaxOvertimePay())).add(amount(employee.getPriorNontaxNightDiff()))
+                        .add(amount(employee.getPriorNontaxHazardPay())).add(amount(employee.getPriorNontax13thMonth()))
+                        .add(amount(employee.getPriorNontaxDeminimis())).add(amount(employee.getPriorNontaxSssEtc()));
+            }
+            if(priorComponents.compareTo(priorNonTax)!=0)
+                exceptions.add("Previous-employer non-taxable total does not reconcile to its detailed categories");
             if(employee.getSeparationDate()!=null&&employee.getSeparationDate().getYear()==year&&clean(employee.getBirReasonSeparation())==null)
                 exceptions.add("Reason for separation is missing");
             BigDecimal presentGross=summary.grossCompensation().subtract(summary.priorEmployerCompensation());

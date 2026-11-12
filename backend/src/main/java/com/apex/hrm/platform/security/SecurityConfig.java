@@ -20,12 +20,6 @@ import java.util.stream.Collectors;
 
 @Configuration
 public class SecurityConfig {
-    private static final AuthorizationManager<RequestAuthorizationContext> PLATFORM_ADMIN_MFA = (authentication, context) -> {
-        Authentication current=authentication.get();
-        Object principal=current==null?null:current.getPrincipal();
-        return new AuthorizationDecision(principal instanceof PlatformAdminPrincipal admin
-            && (!admin.mfaEnabled() || admin.mfaVerified()));
-    };
     private static AuthorizationManager<RequestAuthorizationContext> requireAll(String... required) {
         Set<String> expected = Set.of(required);
         return (authentication, context) -> {
@@ -175,11 +169,11 @@ public class SecurityConfig {
                     .permitAll()
                 .requestMatchers("/api/v1/platform-admin/statutory-rule-proposals", "/api/v1/platform-admin/statutory-rule-proposals/**")
                     .access(requireAll("ROLE_PLATFORM_ADMIN", "ROLE_MFA_VERIFIED"))
-                .requestMatchers(HttpMethod.POST, "/api/v1/platform-admin/**").access(PLATFORM_ADMIN_MFA)
-                .requestMatchers(HttpMethod.PUT, "/api/v1/platform-admin/**").access(PLATFORM_ADMIN_MFA)
-                .requestMatchers(HttpMethod.PATCH, "/api/v1/platform-admin/**").access(PLATFORM_ADMIN_MFA)
-                .requestMatchers(HttpMethod.DELETE, "/api/v1/platform-admin/**").access(PLATFORM_ADMIN_MFA)
-                .requestMatchers("/api/v1/platform-admin/**").hasAuthority("ROLE_PLATFORM_ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/v1/platform-admin/**").access(requireAll("ROLE_PLATFORM_ADMIN", "ROLE_MFA_VERIFIED"))
+                .requestMatchers(HttpMethod.PUT, "/api/v1/platform-admin/**").access(requireAll("ROLE_PLATFORM_ADMIN", "ROLE_MFA_VERIFIED"))
+                .requestMatchers(HttpMethod.PATCH, "/api/v1/platform-admin/**").access(requireAll("ROLE_PLATFORM_ADMIN", "ROLE_MFA_VERIFIED"))
+                .requestMatchers(HttpMethod.DELETE, "/api/v1/platform-admin/**").access(requireAll("ROLE_PLATFORM_ADMIN", "ROLE_MFA_VERIFIED"))
+                .requestMatchers("/api/v1/platform-admin/**").access(requireAll("ROLE_PLATFORM_ADMIN", "ROLE_MFA_VERIFIED"))
                 .requestMatchers(HttpMethod.GET, "/api/v1/billing/subscription")
                     .hasAnyAuthority("ROLE_TENANT_ADMIN","ROLE_HR_ADMIN","ROLE_PAYROLL_OFFICER","ROLE_MANAGER","ROLE_EMPLOYEE","ROLE_AUDITOR")
                 .requestMatchers(HttpMethod.POST, "/api/v1/billing/payment-requests")

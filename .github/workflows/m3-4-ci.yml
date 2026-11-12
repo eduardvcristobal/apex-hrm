@@ -96,6 +96,22 @@ jobs:
     name: Chromium browser smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: apex_hrm
+          POSTGRES_USER: hrm
+          POSTGRES_PASSWORD: hrm
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hrm -d apex_hrm"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+    env:
+      DB_URL: jdbc:postgresql://localhost:5432/apex_hrm
+      DB_USER: hrm
+      DB_PASSWORD: hrm
+      SMTP_HEALTH_ENABLED: 'false'
     defaults:
       run:
         working-directory: frontend
@@ -106,9 +122,43 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: backend/pom.xml
+      - name: Configure ephemeral application encryption keys
+        run: |
+          echo "HRM_MFA_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+          echo "HRM_PERSONNEL_PII_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+      - name: Package backend
+        working-directory: backend
+        run: mvn -B -ntp -DskipTests package
+      - name: Start backend against CI PostgreSQL
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          java -jar target/apex-hrm-0.1.0-SNAPSHOT.jar > /tmp/apex-hrm-playwright-backend.log 2>&1 &
+          echo "$!" > /tmp/apex-hrm-playwright-backend.pid
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://localhost:8080/actuator/health >/dev/null; then
+              exit 0
+            fi
+            if ! kill -0 "$(cat /tmp/apex-hrm-playwright-backend.pid)" 2>/dev/null; then
+              cat /tmp/apex-hrm-playwright-backend.log
+              exit 1
+            fi
+            sleep 2
+          done
+          cat /tmp/apex-hrm-playwright-backend.log
+          exit 1
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
+      - name: Stop backend
+        if: always()
+        run: if [ -f /tmp/apex-hrm-playwright-backend.pid ]; then kill "$(cat /tmp/apex-hrm-playwright-backend.pid)" 2>/dev/null || true; fi
       - name: Browser diagnostics
         if: always()
         uses: actions/upload-artifact@v4

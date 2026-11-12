@@ -72,5 +72,6 @@ The calculations currently provide a starting point for review. Final pay does n
 * Payroll gaps: final pay, cumulative/annualized withholding (only the strict table method), mid-period salary
   proration, holiday-pay eligibility (day-before rule), half-day leave, double holidays, Pag-IBIG 1% low-income rate,
   taxable excess of 13th month, government remittance files (SSS/PhilHealth/Pag-IBIG/BIR 1601-C, 2316, alphalist).
-* Employee bank account numbers are stored as plain text; encrypt at rest and restrict access.
+* Employee bank account numbers and account names now support AES-GCM encryption through `HRM_PERSONNEL_PII_KEY`. Before production, provision a stable 32-byte base64 key in a secret manager, restrict access to the account API, and run the MFA-protected `POST /api/employee-bank-accounts/migration/encrypt-legacy` once per tenant. Confirm the returned migrated count and that legacy plaintext columns are empty before considering the conversion complete. Keep the key stable and back it up securely; losing it makes encrypted bank details unreadable.
+* Platform administrator routes (including database backup) now require enrolled, verified MFA. Keep at least two recovery-ready platform administrators and protect their MFA recovery process.
 * New SaaS personnel tables use forced PostgreSQL row-level security through the transaction-local tenant executor. Existing Apex tables continue to use Hibernate tenant discrimination; production still needs a least-privileged application database role and tenant-isolation regression testing.
