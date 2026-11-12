@@ -14,6 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -41,11 +44,22 @@ public class StatutoryRuleProposalController {
     public StatutoryRuleProposalController(JdbcTemplate jdbc,TenantJdbcExecutor tenants,ObjectMapper mapper){this.jdbc=jdbc;this.tenants=tenants;this.mapper=mapper;}
 
     public record Submission(String ruleType,LocalDate effectiveFrom,Map<String,Object> payload){}
-    public record Decision(boolean approve,String note){}
+    public record Decision(boolean approve,String note,boolean impactReviewed,String impactFingerprint){}
     public record Notification(UUID id,UUID proposalId,String status,String message,Instant createdAt,Instant readAt){}
     public record DecisionHistory(UUID id,String workspaceName,String ruleType,LocalDate effectiveFrom,String status,
             String submitterEmail,Instant submittedAt,String reviewerEmail,Instant reviewedAt,String reviewNote,
             UUID appliedRuleId,String payload){}
+    public record WorkspaceImpact(UUID tenantId,String workspaceName,long affectedEmployees,long upcomingOpenPeriods,
+            long crossingEffectiveDatePeriods,long computedOrApprovedRuns,long lockedOrPaidRuns){}
+    public record PayrollPeriodImpact(UUID periodId,String workspaceName,String payGroup,String frequency,
+            LocalDate startDate,LocalDate endDate,LocalDate payDate,String periodStatus,String runType,
+            String runStatus,int runEmployeeCount){}
+    public record ImpactConflict(String severity,String code,String message){}
+    public record ImpactPreview(UUID proposalId,String ruleType,LocalDate effectiveFrom,int workspacesScanned,
+            int workspacesWithImpact,boolean scanTruncated,long affectedEmployees,long upcomingOpenPeriods,
+            long crossingEffectiveDatePeriods,long computedOrApprovedRuns,long lockedOrPaidRuns,
+            List<WorkspaceImpact> workspaces,List<PayrollPeriodImpact> payrollPeriods,
+            List<ImpactConflict> conflicts,String fingerprint){}
     public record Proposal(UUID id,UUID tenantId,String workspaceName,String ruleType,LocalDate effectiveFrom,String payload,String status,
                            OffsetDateTime submittedAt,UUID submittedBy,UUID reviewedBy,OffsetDateTime reviewedAt,
                            String reviewNote,UUID appliedRuleId){}
@@ -98,6 +112,39 @@ public class StatutoryRuleProposalController {
             """,(rs,n)->map(rs));
     }
 
+    @GetMapping("/api/v1/platform-admin/statutory-rule-proposals/{id}/impact-preview")
+    @Transactional(readOnly=true)
+    public ImpactPreview impactPreview(@AuthenticationPrincipal PlatformAdminPrincipal admin,@PathVariable UUID id){
+        platformScope();
+        Proposal proposal=jdbc.query("SELECT p.id,p.tenant_id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.payload::text,p.status,p.submitted_at,p.submitted_by,p.reviewed_by,p.reviewed_at,p.review_note,p.applied_rule_id FROM statutory_rule_proposal p JOIN tenant t ON t.id=p.tenant_id WHERE p.id=?",(rs,n)->map(rs),id)
+                .stream().findFirst().orElseThrow(()->new BusinessException("Rule proposal was not found"));
+        if(!"PENDING".equals(proposal.status())) throw new BusinessException("Only pending proposals can be previewed");
+        JsonNode payload;
+        try{payload=mapper.readTree(proposal.payload());}catch(Exception ex){throw new BusinessException("Saved proposal data is invalid");}
+        List<Map<String,Object>> tenantRows=jdbc.queryForList("SELECT id,display_name FROM tenant ORDER BY display_name LIMIT 101");
+        boolean truncated=tenantRows.size()>100;
+        List<WorkspaceImpact> workspaceImpacts=new java.util.ArrayList<>();
+        List<PayrollPeriodImpact> periods=new java.util.ArrayList<>();
+        long employees=0,openPeriods=0,crossingPeriods=0,computedRuns=0,lockedRuns=0;
+        for(Map<String,Object> tenant:tenantRows.stream().limit(100).toList()){
+            UUID tenantId=(UUID)tenant.get("id");
+            String workspace=(String)tenant.get("display_name");
+            TenantImpact impact=tenants.inTenant(tenantId,()->tenantImpact(tenantId,workspace,proposal,payload));
+            if(impact.employees()>0||impact.openPeriods()>0||impact.crossingPeriods()>0||impact.computedRuns()>0||impact.lockedRuns()>0){
+                workspaceImpacts.add(new WorkspaceImpact(tenantId,workspace,impact.employees(),impact.openPeriods(),impact.crossingPeriods(),impact.computedRuns(),impact.lockedRuns()));
+                employees+=impact.employees(); openPeriods+=impact.openPeriods(); crossingPeriods+=impact.crossingPeriods(); computedRuns+=impact.computedRuns(); lockedRuns+=impact.lockedRuns();
+                periods.addAll(impact.periods());
+            }
+        }
+        List<ImpactConflict> conflicts=ruleConflicts(proposal,payload);
+        if(crossingPeriods>0) conflicts.add(new ImpactConflict("WARNING","EFFECTIVE_DATE_INSIDE_PAY_PERIOD",crossingPeriods+" pay period(s) cross the proposed effective date; confirm the organization's mid-period proration and cutoff policy."));
+        if(computedRuns>0) conflicts.add(new ImpactConflict("WARNING","PAYROLL_ALREADY_COMPUTED",computedRuns+" payroll run(s) after the effective date have already been computed or approved."));
+        if(lockedRuns>0) conflicts.add(new ImpactConflict("WARNING","PAYROLL_ALREADY_LOCKED",lockedRuns+" payroll run(s) after the effective date are locked or paid and will not recalculate automatically."));
+        if(truncated) conflicts.add(new ImpactConflict("WARNING","WORKSPACE_SCAN_TRUNCATED","The preview scanned the first 100 workspaces. Some workspaces were omitted; review the affected-workspace list before deciding."));
+        ImpactPreview preview=new ImpactPreview(proposal.id(),proposal.ruleType(),proposal.effectiveFrom(),Math.min(tenantRows.size(),100),workspaceImpacts.size(),truncated,employees,openPeriods,crossingPeriods,computedRuns,lockedRuns,workspaceImpacts,periods.stream().limit(100).toList(),conflicts,null);
+        return withFingerprint(preview);
+    }
+
     @GetMapping("/api/v1/platform-admin/statutory-rule-proposals/history")
     @Transactional(readOnly=true)
     public List<DecisionHistory> history(@AuthenticationPrincipal PlatformAdminPrincipal admin){
@@ -118,6 +165,7 @@ public class StatutoryRuleProposalController {
     @Transactional
     public Proposal decide(@AuthenticationPrincipal PlatformAdminPrincipal admin,@PathVariable UUID id,@RequestBody Decision decision){
         if(decision==null||decision.note()==null||decision.note().isBlank()||decision.note().length()>1000) throw new BusinessException("Enter a review note of 1 to 1000 characters");
+        if(decision.approve()&&!decision.impactReviewed()) throw new BusinessException("Preview the proposal impact and confirm your review before approving");
         platformScope();
         Proposal proposal=jdbc.query("SELECT p.id,p.tenant_id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.payload::text,p.status,p.submitted_at,p.submitted_by,p.reviewed_by,p.reviewed_at,p.review_note,p.applied_rule_id FROM statutory_rule_proposal p JOIN tenant t ON t.id=p.tenant_id WHERE p.id=? FOR UPDATE OF p",(rs,n)->map(rs),id)
                 .stream().findFirst().orElseThrow(()->new BusinessException("Rule proposal was not found"));
@@ -126,6 +174,11 @@ public class StatutoryRuleProposalController {
         if(decision.approve()){
             JsonNode p;
             try{p=mapper.readTree(proposal.payload());}catch(Exception ex){throw new BusinessException("Saved proposal data is invalid");}
+            ImpactPreview currentImpact=impactPreview(admin,id);
+            if(decision.impactFingerprint()==null||!MessageDigest.isEqual(decision.impactFingerprint().getBytes(StandardCharsets.UTF_8),currentImpact.fingerprint().getBytes(StandardCharsets.UTF_8)))
+                throw new BusinessException("Payroll impact changed after your preview. Refresh it and review the updated impact before approving.");
+            if(currentImpact.conflicts().stream().anyMatch(conflict->"BLOCKER".equals(conflict.severity())))
+                throw new BusinessException("Resolve the blocking effective-date conflict before approval");
             validate(proposal.ruleType(),p,proposal.effectiveFrom());
             ensureNoDuplicate(proposal.ruleType(),proposal.effectiveFrom(),p);
             applied=apply(proposal.ruleType(),proposal.effectiveFrom(),p);
@@ -141,6 +194,14 @@ public class StatutoryRuleProposalController {
             return null;
         });
         return jdbc.queryForObject("SELECT p.id,p.tenant_id,t.display_name AS workspace_name,p.rule_type,p.effective_from,p.payload::text,p.status,p.submitted_at,p.submitted_by,p.reviewed_by,p.reviewed_at,p.review_note,p.applied_rule_id FROM statutory_rule_proposal p JOIN tenant t ON t.id=p.tenant_id WHERE p.id=?",(rs,n)->map(rs),id);
+    }
+
+    private ImpactPreview withFingerprint(ImpactPreview preview){
+        try{
+            String json=mapper.writeValueAsString(new ImpactPreview(preview.proposalId(),preview.ruleType(),preview.effectiveFrom(),preview.workspacesScanned(),preview.workspacesWithImpact(),preview.scanTruncated(),preview.affectedEmployees(),preview.upcomingOpenPeriods(),preview.crossingEffectiveDatePeriods(),preview.computedOrApprovedRuns(),preview.lockedOrPaidRuns(),preview.workspaces(),preview.payrollPeriods(),preview.conflicts(),null));
+            String fingerprint=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(json.getBytes(StandardCharsets.UTF_8)));
+            return new ImpactPreview(preview.proposalId(),preview.ruleType(),preview.effectiveFrom(),preview.workspacesScanned(),preview.workspacesWithImpact(),preview.scanTruncated(),preview.affectedEmployees(),preview.upcomingOpenPeriods(),preview.crossingEffectiveDatePeriods(),preview.computedOrApprovedRuns(),preview.lockedOrPaidRuns(),preview.workspaces(),preview.payrollPeriods(),preview.conflicts(),fingerprint);
+        }catch(Exception ex){throw new BusinessException("Could not verify the payroll impact preview");}
     }
 
     private UUID apply(String type,LocalDate date,JsonNode p){
@@ -170,6 +231,112 @@ public class StatutoryRuleProposalController {
         }
         return id;
     }
+
+    private record TenantImpact(long employees,long openPeriods,long crossingPeriods,long computedRuns,long lockedRuns,
+            List<PayrollPeriodImpact> periods){}
+
+    private TenantImpact tenantImpact(UUID tenantId,String workspace,Proposal proposal,JsonNode payload){
+        LocalDate effective=proposal.effectiveFrom();
+        StringBuilder employeeSql=new StringBuilder("""
+            SELECT count(DISTINCT e.id)
+            FROM employee e
+            JOIN employment_record er ON er.employee_id=e.id AND er.tenant_id=e.tenant_id
+              AND er.effective_from<=? AND (er.effective_to IS NULL OR er.effective_to>=?)
+            LEFT JOIN pay_group pg ON pg.id=er.pay_group_id AND pg.tenant_id=er.tenant_id
+            LEFT JOIN work_location wl ON wl.id=er.work_location_id AND wl.tenant_id=er.tenant_id
+            WHERE e.tenant_id=? AND e.status='ACTIVE' AND e.hire_date<=?
+              AND (e.separation_date IS NULL OR e.separation_date>=?)
+            """);
+        List<Object> employeeArgs=new java.util.ArrayList<>(List.of(effective,effective,tenantId,effective,effective));
+        if("TAX_BRACKET".equals(proposal.ruleType())&& !"ANNUAL".equals(text(payload,"periodType"))){
+            employeeSql.append(" AND pg.frequency=?"); employeeArgs.add(text(payload,"periodType"));
+        }
+        if("WAGE_ORDER".equals(proposal.ruleType())){
+            employeeSql.append(" AND wl.region_code=? AND wl.wage_sector=?");
+            employeeArgs.add(text(payload,"regionCode").toUpperCase(java.util.Locale.ROOT)); employeeArgs.add(text(payload,"sector"));
+        }
+        Long employeeCount=jdbc.queryForObject(employeeSql.toString(),Long.class,employeeArgs.toArray());
+
+        String frequencyFilter="";
+        List<Object> periodArgs=new java.util.ArrayList<>(List.of(effective,effective,tenantId,effective));
+        if("TAX_BRACKET".equals(proposal.ruleType())&& !"ANNUAL".equals(text(payload,"periodType"))){
+            frequencyFilter=" AND pg.frequency=?"; periodArgs.add(text(payload,"periodType"));
+        }
+        Map<String,Object> counts=jdbc.queryForMap("""
+            SELECT count(DISTINCT pp.id) FILTER (WHERE pp.status='OPEN') AS open_periods,
+                   count(DISTINCT pp.id) FILTER (WHERE pp.start_date<=? AND pp.end_date>=?) AS crossing_periods,
+                   count(DISTINCT pr.id) FILTER (WHERE pr.status IN ('COMPUTED','REVIEWED','APPROVED','EMPLOYEE_REVIEW')) AS computed_runs,
+                   count(DISTINCT pr.id) FILTER (WHERE pr.status IN ('LOCKED','PAID')) AS locked_runs
+            FROM pay_period pp JOIN pay_group pg ON pg.id=pp.pay_group_id AND pg.tenant_id=pp.tenant_id
+            LEFT JOIN payroll_run pr ON pr.pay_period_id=pp.id AND pr.tenant_id=pp.tenant_id
+            WHERE pp.tenant_id=? AND pp.end_date>=?
+            """+frequencyFilter,periodArgs.toArray());
+        List<Object> detailArgs=new java.util.ArrayList<>(List.of(tenantId,effective));
+        if("TAX_BRACKET".equals(proposal.ruleType())&& !"ANNUAL".equals(text(payload,"periodType"))) detailArgs.add(text(payload,"periodType"));
+        List<PayrollPeriodImpact> details=jdbc.query("""
+            SELECT pp.id,pg.name AS pay_group,pg.frequency,pp.start_date,pp.end_date,pp.pay_date,pp.status AS period_status,
+                   pr.run_type,pr.status AS run_status,coalesce(pr.employee_count,0) AS run_employee_count
+            FROM pay_period pp JOIN pay_group pg ON pg.id=pp.pay_group_id AND pg.tenant_id=pp.tenant_id
+            LEFT JOIN payroll_run pr ON pr.pay_period_id=pp.id AND pr.tenant_id=pp.tenant_id
+            WHERE pp.tenant_id=? AND pp.end_date>=? AND (pp.status='OPEN' OR pr.id IS NOT NULL)
+            """+frequencyFilter+" ORDER BY pp.start_date LIMIT 20",
+                (rs,n)->new PayrollPeriodImpact(rs.getObject("id",UUID.class),workspace,rs.getString("pay_group"),rs.getString("frequency"),rs.getObject("start_date",LocalDate.class),rs.getObject("end_date",LocalDate.class),rs.getObject("pay_date",LocalDate.class),rs.getString("period_status"),rs.getString("run_type"),rs.getString("run_status"),rs.getInt("run_employee_count")),detailArgs.toArray());
+        return new TenantImpact(employeeCount==null?0:employeeCount,value(counts,"open_periods"),value(counts,"crossing_periods"),value(counts,"computed_runs"),value(counts,"locked_runs"),details);
+    }
+
+    private List<ImpactConflict> ruleConflicts(Proposal proposal,JsonNode payload){
+        List<ImpactConflict> conflicts=new java.util.ArrayList<>();
+        LocalDate from=proposal.effectiveFrom();
+        switch(proposal.ruleType()){
+            case "CONTRIBUTION" -> {
+                String agency=text(payload,"agency");
+                if(exists("SELECT count(*) FROM statutory_contribution_rule WHERE agency=? AND effective_from=?",agency,from))
+                    conflicts.add(new ImpactConflict("BLOCKER","DUPLICATE_EFFECTIVE_DATE","A contribution rule already exists for "+agency+" on the proposed effective date."));
+                else {
+                    List<LocalDate> previous=jdbc.query("SELECT effective_from FROM statutory_contribution_rule WHERE agency=? AND effective_from<? AND (effective_to IS NULL OR effective_to>=?) ORDER BY effective_from DESC LIMIT 1",(rs,n)->rs.getObject(1,LocalDate.class),agency,from,from);
+                    if(!previous.isEmpty()) conflicts.add(new ImpactConflict("INFO","PREVIOUS_RULE_WILL_CLOSE","The overlapping "+agency+" rule from "+previous.get(0)+" will end the day before this proposal takes effect."));
+                    List<LocalDate> next=jdbc.query("SELECT effective_from FROM statutory_contribution_rule WHERE agency=? AND effective_from>? ORDER BY effective_from LIMIT 1",(rs,n)->rs.getObject(1,LocalDate.class),agency,from);
+                    LocalDate requestedEnd=date(payload,"effectiveTo");
+                    if(!next.isEmpty()&&(requestedEnd==null||!requestedEnd.isBefore(next.get(0)))) conflicts.add(new ImpactConflict("WARNING","FUTURE_RULE_CAP","This proposal will be capped before the already configured future rule effective "+next.get(0)+"."));
+                }
+            }
+            case "TAX_BRACKET" -> {
+                String period=text(payload,"periodType");
+                if(exists("SELECT count(*) FROM withholding_tax_bracket WHERE period_type=? AND effective_from=?",period,from))
+                    conflicts.add(new ImpactConflict("BLOCKER","DUPLICATE_EFFECTIVE_DATE","A complete "+period+" withholding table already exists for this effective date."));
+                else {
+                    List<LocalDate> previous=jdbc.query("SELECT max(effective_from) FROM withholding_tax_bracket WHERE period_type=? AND effective_from<?",(rs,n)->rs.getObject(1,LocalDate.class),period,from);
+                    if(!previous.isEmpty()&&previous.get(0)!=null) conflicts.add(new ImpactConflict("INFO","PREVIOUS_TABLE_SUPERSEDED","This complete "+period+" table will supersede the current table from "+previous.get(0)+"."));
+                }
+            }
+            case "PREMIUM" -> {
+                String dayType=text(payload,"dayType");
+                if(exists("SELECT count(*) FROM premium_rule WHERE day_type=? AND effective_from=?",dayType,from))
+                    conflicts.add(new ImpactConflict("BLOCKER","DUPLICATE_EFFECTIVE_DATE","A premium rule for "+dayType+" already exists on the proposed effective date."));
+                else {
+                    List<LocalDate> future=jdbc.query("SELECT effective_from FROM premium_rule WHERE day_type=? AND effective_from>? ORDER BY effective_from LIMIT 1",(rs,n)->rs.getObject(1,LocalDate.class),dayType,from);
+                    if(!future.isEmpty()) conflicts.add(new ImpactConflict("WARNING","FUTURE_RULE_EXISTS","A later "+dayType+" rule is already configured for "+future.get(0)+"; this proposal will apply only until then."));
+                }
+            }
+            case "WAGE_ORDER" -> {
+                String region=text(payload,"regionCode").toUpperCase(java.util.Locale.ROOT),sector=text(payload,"sector");
+                if(exists("SELECT count(*) FROM wage_order WHERE region_code=? AND sector=? AND effective_from=?",region,sector,from))
+                    conflicts.add(new ImpactConflict("BLOCKER","DUPLICATE_EFFECTIVE_DATE","A wage order for "+region+" / "+sector+" already exists on the proposed effective date."));
+                else {
+                    List<LocalDate> previous=jdbc.query("SELECT effective_from FROM wage_order WHERE region_code=? AND sector=? AND effective_from<? AND (effective_to IS NULL OR effective_to>=?) ORDER BY effective_from DESC LIMIT 1",(rs,n)->rs.getObject(1,LocalDate.class),region,sector,from,from);
+                    if(!previous.isEmpty()) conflicts.add(new ImpactConflict("INFO","PREVIOUS_ORDER_WILL_CLOSE","The overlapping wage order from "+previous.get(0)+" will end the day before this proposal takes effect."));
+                    List<LocalDate> next=jdbc.query("SELECT effective_from FROM wage_order WHERE region_code=? AND sector=? AND effective_from>? ORDER BY effective_from LIMIT 1",(rs,n)->rs.getObject(1,LocalDate.class),region,sector,from);
+                    LocalDate requestedEnd=date(payload,"effectiveTo");
+                    if(!next.isEmpty()&&(requestedEnd==null||!requestedEnd.isBefore(next.get(0)))) conflicts.add(new ImpactConflict("WARNING","FUTURE_ORDER_CAP","This wage order will be capped before the already configured future order effective "+next.get(0)+"."));
+                }
+            }
+            default -> throw new BusinessException("Unsupported rule type");
+        }
+        return conflicts;
+    }
+
+    private boolean exists(String sql,Object...args){Integer count=jdbc.queryForObject(sql,Integer.class,args);return count!=null&&count>0;}
+    private static long value(Map<String,Object> values,String key){Object value=values.get(key);return value instanceof Number n?n.longValue():0;}
 
     private static void validate(String type,JsonNode p,LocalDate date){
         if(p==null||!p.isObject()) throw new BusinessException("Rule values must be an object");
