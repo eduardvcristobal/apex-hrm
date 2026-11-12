@@ -490,7 +490,9 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expect(incompleteCertificate.body.readyForReview).toBe(false);
   expect(incompleteCertificate.body.missingFields).toContain('Employee TIN');
   const employeeTaxProfile = await callApi('PUT', `/api/payroll/employees/${employees[0].id}/tax-profile`, {
-    tin: '123-456-789', minimumWageEarner: false,
+    tin: '123-456-789', minimumWageEarner: false, employeeRdoCode: '050',
+    registeredZipCode: '1000', localHomeAddress: '123 E2E Test Street, Manila', localHomeZipCode: '1000',
+    foreignAddress: null, mobile: '09171234567', statutoryMinimumWageDaily: null, statutoryMinimumWageMonthly: null,
   });
   expectOk(employeeTaxProfile);
   const employeeTaxDetails = await callApi('PUT', `/api/employees/${employees[0].id}`, {
@@ -502,6 +504,18 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     address: '100 E2E Business Avenue, Makati City', rdoCode: '050',
   });
   expectOk(employerTaxDetails);
+  const employer2316Profile = await callApi('PUT', `/api/payroll/companies/${company.id}/tax-profile`, {
+    companyId: company.id, legalName: 'Apex E2E Test Employer Inc.', tin: '987-654-321',
+    address: '100 E2E Business Avenue, Makati City', rdoCode: '050', zipCode: '1226',
+    employerType: 'PRIVATE', mainEmployer: true,
+  });
+  expectOk(employer2316Profile);
+  const peraProfile = await callApi('PUT', `/api/payroll/employees/${employees[0].id}/pera-tax-credit?taxYear=${certificateYear}`, {
+    employeeId: employees[0].id, taxYear: Number(certificateYear), qualifiedContributions: 20000,
+    overseasFilipino: false, taxCreditAmount: 1000, certificateNumber: `E2E-PERA-${runId}`,
+    certificateReceived: true,
+  });
+  expectOk(peraProfile);
   const annualCertificate = await callApi('GET', `/api/payroll/reports/annual-tax-certificate?year=${certificateYear}&employeeId=${employees[0].id}`);
   expectOk(annualCertificate);
   expect(annualCertificate.body.readyForReview).toBe(true);
@@ -516,6 +530,47 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expect(annualCsv.contentType).toContain('text/csv');
   expect(annualCsv.body).toContain('Ready for review');
   expect(annualCsv.body).toContain('true');
+
+  const formPreview = await callApi('GET', `/api/payroll/reports/bir-2316-draft?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expectOk(formPreview);
+  expect(formPreview.body.peraTaxCreditProfile.taxCreditAmount).toBe(1000);
+  expect(formPreview.body.peraTaxCredit).toBeGreaterThanOrEqual(0);
+  expect(formPreview.body.peraTaxCredit).toBeLessThanOrEqual(1000);
+  expect(formPreview.body.totalTaxesWithheld).toBe(formPreview.body.presentEmployerTaxWithheld
+    + formPreview.body.previousEmployerTaxWithheld + formPreview.body.peraTaxCredit);
+  expect(formPreview.body.peraTaxCreditProfile.certificateNumber).toBe(`E2E-PERA-${runId}`);
+  expect(formPreview.body.compensationItems['29']).toBeGreaterThan(0);
+  expect(formPreview.body.compensationItems['38']).toBeGreaterThan(0);
+  expect(formPreview.body.taxableCompensationPresentEmployer).toBeGreaterThanOrEqual(0);
+  const blockedPrint = await callApi('GET', `/api/payroll/reports/bir-2316-issued?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expect(blockedPrint.status).toBe(422);
+  const submittedReview = await callApi('POST', `/api/payroll/reports/bir-2316-reviews?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expectOk(submittedReview);
+  expect(submittedReview.body.status).toBe('PENDING');
+  const selfApproval = await callApi('POST', `/api/payroll/reports/bir-2316-reviews/${submittedReview.body.id}/decision`, { decision: 'APPROVE' });
+  expect(selfApproval.status).toBe(403);
+  const approvedReview = await callAs(approverToken, 'POST', `/api/payroll/reports/bir-2316-reviews/${submittedReview.body.id}/decision`, {
+    decision: 'APPROVE', note: 'Reviewed payroll, employee/employer profile, prior-employer data, and PERA TCC evidence.',
+  });
+  expectOk(approvedReview);
+  expect(approvedReview.body.status).toBe('APPROVED');
+  const issuedForm = await callApi('GET', `/api/payroll/reports/bir-2316-issued?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expectOk(issuedForm);
+  expect(issuedForm.body.reviewStatus).toBe('APPROVED');
+  const changedTaxProfile = await callApi('PUT', `/api/payroll/employees/${employees[0].id}/tax-profile`, {
+    ...employeeTaxProfile.body, localHomeAddress: 'Changed after approval',
+  });
+  expectOk(changedTaxProfile);
+  const stalePrint = await callApi('GET', `/api/payroll/reports/bir-2316-issued?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expect(stalePrint.status).toBe(422);
+  const resubmittedReview = await callApi('POST', `/api/payroll/reports/bir-2316-reviews?year=${certificateYear}&employeeId=${employees[0].id}`);
+  expectOk(resubmittedReview);
+  expect(resubmittedReview.body.status).toBe('PENDING');
+  const rejectedReview = await callAs(approverToken, 'POST', `/api/payroll/reports/bir-2316-reviews/${resubmittedReview.body.id}/decision`, {
+    decision: 'REJECT', note: 'E2E rejection path',
+  });
+  expectOk(rejectedReview);
+  expect(rejectedReview.body.status).toBe('REJECTED');
 });
 
 async function signIn(page, sample) {

@@ -19,6 +19,7 @@ import com.apex.hrm.payroll.engine.PhilHealthCalculator;
 import com.apex.hrm.payroll.engine.SssCalculator;
 import com.apex.hrm.payroll.engine.WithholdingTaxCalculator;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
+import com.apex.hrm.payroll.repo.EmployeePeraTaxCreditRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
 import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
@@ -66,13 +67,14 @@ public class SettlementService {
     private final WithholdingTaxBracketRepository taxBrackets;
     private final StatutoryContributionRuleRepository statutoryRules;
     private final JdbcTemplate jdbc;
+    private final EmployeePeraTaxCreditRepository peraTaxCredits;
 
     public SettlementService(EmployeeRepository employees, CompensationRepository compensations,
                              EmploymentRecordRepository employment, LeaveTypeRepository leaveTypes,
                              LeaveLedgerRepository ledger, LoanRepository loans, PayPeriodRepository periods,
                              PayrollEmployeeRepository payrollEmployees, PayrollLineRepository lines, PayrollRunRepository runs,
                              WithholdingTaxBracketRepository taxBrackets, StatutoryContributionRuleRepository statutoryRules,
-                             JdbcTemplate jdbc) {
+                             JdbcTemplate jdbc,EmployeePeraTaxCreditRepository peraTaxCredits) {
         this.employees = employees;
         this.compensations = compensations;
         this.employment = employment;
@@ -86,6 +88,7 @@ public class SettlementService {
         this.taxBrackets = taxBrackets;
         this.statutoryRules = statutoryRules;
         this.jdbc = jdbc;
+        this.peraTaxCredits=peraTaxCredits;
     }
 
     @Transactional
@@ -164,11 +167,14 @@ public class SettlementService {
         List<PayLine> statutoryLines = separationMonthStatutoryLines(emp, comp, group, sep);
         BigDecimal otherBenefits = lines.otherExemptBenefitsYtd(emp.getId(), from, to);
         List<WithholdingTaxCalculator.Bracket> brackets = annualBrackets(sep);
+        BigDecimal peraCredit=peraTaxCredits.findByEmployeeIdAndTaxYear(emp.getId(),sep.getYear())
+                .filter(p->Boolean.TRUE.equals(p.getCertificateReceived())&&p.getCertificateNumber()!=null&&!p.getCertificateNumber().isBlank())
+                .map(p->p.getTaxCreditAmount()==null?BigDecimal.ZERO:p.getTaxCreditAmount()).orElse(BigDecimal.ZERO);
         FinalPayCalculator.Result r = FinalPayCalculator.compute(new FinalPayCalculator.Input(
                 lines.basicEarned(emp.getId(), from, to), lines.thirteenthPaid(emp.getId(), from, to),
                 lines.thirteenthExemptPaid(emp.getId(), from, to), otherBenefits, dailyRate,
                 leave, payrollEmployees.taxableIncomeYtd(emp.getId(), from, to), lines.taxWithheldYtd(emp.getId(), from, to),
-                loanBalances, brackets, statutoryLines));
+                loanBalances, brackets, statutoryLines,peraCredit));
 
         UUID costCenter = employment.findFirstByEmployeeIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDesc(emp.getId(), sep)
                 .map(EmploymentRecord::getCostCenterId).orElse(null);

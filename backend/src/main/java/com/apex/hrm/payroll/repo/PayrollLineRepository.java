@@ -44,7 +44,7 @@ public interface PayrollLineRepository extends JpaRepository<PayrollLine, UUID> 
 
     @Query("select coalesce(sum(l.amount), 0) from PayrollLine l, PayrollRun r, PayPeriod p "
          + "where l.runId = r.id and r.payPeriodId = p.id and l.employeeId = :e and l.category = 'EARNING' "
-         + "and l.taxable = false and l.itemCode not in ('THIRTEENTH_MONTH', 'DE_MINIMIS', 'TAX_REFUND') "
+         + "and l.taxable = false and l.itemCode not in ('BASIC', 'HOLIDAY_PAY', 'PREMIUM', 'OT', 'OVERTIME', 'ND', 'NIGHT_DIFF', 'HAZARD_PAY', 'THIRTEENTH_MONTH', 'DE_MINIMIS', 'TAX_REFUND') "
          + "and r.status in ('LOCKED', 'PAID') and p.endDate between :from and :to "
          + "and r.tenantId = ?#{T(com.apex.hrm.common.TenantContext).get()} and r.runType in ('REGULAR','OFF_CYCLE','FINAL_PAY')")
     BigDecimal otherExemptBenefitsYtd(@Param("e") UUID employeeId, @Param("from") LocalDate from, @Param("to") LocalDate to);

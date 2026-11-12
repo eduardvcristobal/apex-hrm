@@ -7,10 +7,12 @@ import com.apex.hrm.payroll.domain.JournalEntry;
 import com.apex.hrm.payroll.domain.PayrollEmployee;
 import com.apex.hrm.payroll.domain.PayrollLine;
 import com.apex.hrm.payroll.domain.PayrollRun;
+import com.apex.hrm.payroll.domain.EmployeePeraTaxCredit;
 import com.apex.hrm.payroll.repo.BankFileRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
 import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
+import com.apex.hrm.payroll.repo.EmployeePeraTaxCreditRepository;
 import com.apex.hrm.payroll.repo.WithholdingTaxBracketRepository;
 import com.apex.hrm.payroll.domain.WithholdingTaxBracket;
 import com.apex.hrm.payroll.engine.WithholdingTaxCalculator;
@@ -82,6 +84,9 @@ public class PayrollController {
                              String mobile) {}
     public record EmployerTaxProfile(UUID companyId, String legalName, String tin, String address, String rdoCode,
                                     String zipCode, String employerType, Boolean mainEmployer) {}
+    public record PeraTaxCreditProfile(UUID employeeId, int taxYear, BigDecimal qualifiedContributions,
+                                       boolean overseasFilipino, BigDecimal taxCreditAmount,
+                                       String certificateNumber, boolean certificateReceived) {}
     public record PriorEmployerProfile(String priorEmployerName, String priorEmployerTin, String priorEmployerAddress,
                                       String priorEmployerRdoCode, String priorEmployerZipCode,
                                       BigDecimal priorEmployerCompensation, BigDecimal priorEmployerTaxableCompensation,
@@ -106,6 +111,7 @@ public class PayrollController {
                                boolean minimumWageEarner, String formVersion, boolean draft,
                                List<String> manualCompletionFields, TaxProfile employeeTaxProfile,
                                EmployerTaxProfile employerTaxProfile, PriorEmployerProfile priorEmployerTaxProfile,
+                               PeraTaxCreditProfile peraTaxCreditProfile,
                                String reviewStatus) {}
     public record ReviewDecision(String decision, String note) {}
     public record ReviewStatus(UUID id, UUID employeeId, String employeeNo, String employeeName, int taxYear,
@@ -126,13 +132,14 @@ public class PayrollController {
     private final WithholdingTaxBracketRepository taxBrackets;
     private final JdbcTemplate jdbc;
     private final TenantJdbcExecutor tenantSql;
+    private final EmployeePeraTaxCreditRepository peraCredits;
 
     public PayrollController(PayrollService payroll, JournalService journals, BankFileService bankFiles,
                              AdjustmentService adjustments, PayrollEmployeeRepository payrollEmployees,
                              PayrollLineRepository lines, BankFileRepository bankFileRepo,
                              EmployeeRepository employees, CompanyRepository companies, AuditService audit,
                              PayrollRunRepository runs, WithholdingTaxBracketRepository taxBrackets, JdbcTemplate jdbc,
-                             TenantJdbcExecutor tenantSql) {
+                             TenantJdbcExecutor tenantSql, EmployeePeraTaxCreditRepository peraCredits) {
         this.payroll = payroll;
         this.journals = journals;
         this.bankFiles = bankFiles;
@@ -147,6 +154,7 @@ public class PayrollController {
         this.taxBrackets = taxBrackets;
         this.jdbc = jdbc;
         this.tenantSql = tenantSql;
+        this.peraCredits = peraCredits;
     }
 
     /** Minimal employee directory for payroll staff; avoids exposing private employee fields. */
@@ -254,6 +262,39 @@ public class PayrollController {
         return priorProfile(employee);
     }
 
+    @GetMapping("/employees/{employeeId}/pera-tax-credit")
+    public PeraTaxCreditProfile peraTaxCredit(@PathVariable UUID employeeId,@org.springframework.web.bind.annotation.RequestParam int taxYear) {
+        Employee employee=employees.findById(employeeId).orElseThrow(()->new NotFoundException("Employee",employeeId));
+        validateTaxYear(taxYear);
+        return peraCredits.findByEmployeeIdAndTaxYear(employeeId,taxYear).map(PayrollController::peraProfile)
+                .orElse(new PeraTaxCreditProfile(employeeId,taxYear,BigDecimal.ZERO,false,BigDecimal.ZERO,null,false));
+    }
+
+    @PutMapping("/employees/{employeeId}/pera-tax-credit")
+    public PeraTaxCreditProfile updatePeraTaxCredit(@PathVariable UUID employeeId,@org.springframework.web.bind.annotation.RequestParam int taxYear,
+                                                    @RequestBody PeraTaxCreditProfile input,@AuthenticationPrincipal HrmUserPrincipal actor) {
+        Employee employee=employees.findById(employeeId).orElseThrow(()->new NotFoundException("Employee",employeeId));
+        validateTaxYear(taxYear);
+        if(input.taxYear()!=taxYear||!employeeId.equals(input.employeeId()))throw new com.apex.hrm.common.BusinessException("PERA tax credit employee and year must match the selected profile");
+        BigDecimal contributions=amount(input.qualifiedContributions()),credit=amount(input.taxCreditAmount());
+        BigDecimal maxContribution=input.overseasFilipino()?new BigDecimal("200000"):new BigDecimal("100000");
+        if(contributions.compareTo(maxContribution)>0)throw new com.apex.hrm.common.BusinessException("Qualified PERA contributions exceed the annual statutory limit for this contributor type");
+        if(credit.compareTo(contributions.multiply(new BigDecimal("0.05")))>0)throw new com.apex.hrm.common.BusinessException("PERA tax credit cannot exceed five percent of qualified annual contributions");
+        String certificate=clean(input.certificateNumber());
+        if(credit.signum()>0&&(!input.certificateReceived()||certificate==null))throw new com.apex.hrm.common.BusinessException("Record a received PERA Tax Credit Certificate number before applying the credit");
+        EmployeePeraTaxCredit item=peraCredits.findByEmployeeIdAndTaxYear(employeeId,taxYear).orElseGet(EmployeePeraTaxCredit::new);
+        item.setEmployeeId(employeeId);item.setTaxYear(taxYear);item.setQualifiedContributions(contributions);
+        item.setOverseasFilipino(input.overseasFilipino());item.setTaxCreditAmount(credit);item.setCertificateNumber(certificate);
+        item.setCertificateReceived(input.certificateReceived());
+        audit.log("EmployeePeraTaxCredit",employeeId,"UPDATE","PERA Tax Credit Certificate data for "+taxYear+" updated by "+actor.id());
+        return peraProfile(peraCredits.save(item));
+    }
+
+    private static PeraTaxCreditProfile peraProfile(EmployeePeraTaxCredit item) {
+        return new PeraTaxCreditProfile(item.getEmployeeId(),item.getTaxYear(),item.getQualifiedContributions(),
+                Boolean.TRUE.equals(item.getOverseasFilipino()),item.getTaxCreditAmount(),item.getCertificateNumber(),Boolean.TRUE.equals(item.getCertificateReceived()));
+    }
+
     private static BigDecimal amount(BigDecimal value) {
         if (value == null) return BigDecimal.ZERO;
         if (value.signum() < 0 || value.scale() > 2) throw new com.apex.hrm.common.BusinessException("Prior-employer amounts must be non-negative and limited to cents");
@@ -281,6 +322,7 @@ public class PayrollController {
     private static void validateRdo(String value) { if(clean(value)!=null&&!value.trim().matches("[0-9]{1,3}"))throw new com.apex.hrm.common.BusinessException("RDO code must contain one to three digits"); }
     private static void validateTin(String value,String label) { if(value==null)return;String digits=value.replace("-","");if(!value.matches("[0-9-]+")||(digits.length()!=9&&digits.length()!=12))throw new com.apex.hrm.common.BusinessException(label+" must contain 9 or 12 digits, optionally separated by hyphens"); }
     private static void nonNegative(BigDecimal value,String name) { if(value!=null&&(value.signum()<0||value.scale()>2))throw new com.apex.hrm.common.BusinessException(name+" must be non-negative and limited to cents"); }
+    private static void validateTaxYear(int year) { if(year<2000||year>LocalDate.now().getYear()+1)throw new com.apex.hrm.common.BusinessException("Choose a valid tax year"); }
 
     @GetMapping("/reports/annual-tax-certificate")
     public Object annualTaxCertificate(@org.springframework.web.bind.annotation.RequestParam int year,
@@ -321,20 +363,25 @@ public class PayrollController {
         BigDecimal grossTaxable=presentTaxable.add(previousTaxable);
         BigDecimal priorWithheld=summary.priorEmployerTaxWithheld()==null?BigDecimal.ZERO:summary.priorEmployerTaxWithheld();
         BigDecimal presentWithheld=summary.withholdingTax().subtract(priorWithheld).max(BigDecimal.ZERO);
-        BigDecimal pera=BigDecimal.ZERO; // PERA is not yet maintained in employee tax data.
+        PeraTaxCreditProfile peraProfile=peraCredits.findByEmployeeIdAndTaxYear(employeeId,year)
+                .map(PayrollController::peraProfile).orElse(new PeraTaxCreditProfile(employeeId,year,BigDecimal.ZERO,false,BigDecimal.ZERO,null,false));
+        BigDecimal taxDue=annualTaxDue(to,grossTaxable);
+        BigDecimal certifiedPera=peraProfile.certificateReceived()?peraProfile.taxCreditAmount():BigDecimal.ZERO;
+        BigDecimal pera=certifiedPera.min(taxDue.subtract(presentWithheld.add(priorWithheld)).max(BigDecimal.ZERO));
         BigDecimal totalWithheld=presentWithheld.add(priorWithheld).add(pera);
         Company company=companies.findById(employee.getCompanyId()).orElseThrow(() -> new NotFoundException("Company",employee.getCompanyId()));
         TaxProfile personal=taxProfile(employee); EmployerTaxProfile employerProfile=employerTaxProfile(company);
         List<String> manual=new ArrayList<>();
         if(hasPriorEmployer(employee)&&!Boolean.TRUE.equals(employee.getPriorEmployerCertificateReceived())) manual.add("Verify prior-employer figures against its Form 2316");
-        manual.add("Verify aggregate ₱90,000 exemption limit for 13th-month pay and other benefits");
-        manual.add("Verify and enter PERA 5% tax credit, if applicable");
+        manual.add("Verify benefit classifications and 13th-month / other-benefit allocation against source payroll");
+        if(!peraProfile.certificateReceived()) manual.add("Verify whether a PERA Tax Credit Certificate applies for this year");
+        else if(certifiedPera.compareTo(pera)>0) manual.add("PERA TCC amount exceeds remaining tax liability; confirm the unused credit balance is not applied");
         manual.add("Present employer and employee signatures and dates");
         manual.add("Substituted filing declaration, when applicable");
         return new Bir2316Draft(summary,Map.copyOf(items),presentTaxable,previousTaxable,grossTaxable,
-                annualTaxDue(to,grossTaxable),presentWithheld,priorWithheld,totalWithheld,pera,
+                taxDue,presentWithheld,priorWithheld,totalWithheld,pera,
                 Boolean.TRUE.equals(employee.getMinimumWageEarner()),"September 2021 ENCS",true,
-                List.copyOf(manual),personal,employerProfile,priorProfile(employee),"NOT_SUBMITTED");
+                List.copyOf(manual),personal,employerProfile,priorProfile(employee),peraProfile,"NOT_SUBMITTED");
     }
 
     @GetMapping("/reports/bir-2316-issued")
@@ -417,7 +464,7 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
             throw new org.springframework.web.server.ResponseStatusException(HttpStatus.FORBIDDEN,"Payroll officer or HR administrator role required");
     }
     private String reviewFingerprint(Bir2316Draft draft) {
-        String source=draft.summary().toString()+new TreeMap<>(draft.compensationItems())+draft.taxDue()+draft.employeeTaxProfile()+draft.employerTaxProfile()+draft.priorEmployerTaxProfile();
+        String source=draft.summary().toString()+new TreeMap<>(draft.compensationItems())+draft.taxDue()+draft.employeeTaxProfile()+draft.employerTaxProfile()+draft.priorEmployerTaxProfile()+draft.peraTaxCreditProfile();
         try { return java.util.HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(source.getBytes(StandardCharsets.UTF_8))); }
         catch(NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
     }
@@ -425,7 +472,7 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
         return new Bir2316Draft(d.summary(),d.compensationItems(),d.taxableCompensationPresentEmployer(),d.taxableCompensationPreviousEmployer(),
                 d.grossTaxableCompensation(),d.taxDue(),d.presentEmployerTaxWithheld(),d.previousEmployerTaxWithheld(),d.totalTaxesWithheld(),
                 d.peraTaxCredit(),d.minimumWageEarner(),d.formVersion(),d.draft(),d.manualCompletionFields(),d.employeeTaxProfile(),
-                d.employerTaxProfile(),d.priorEmployerTaxProfile(),status);
+                d.employerTaxProfile(),d.priorEmployerTaxProfile(),d.peraTaxCreditProfile(),status);
     }
 
     private Map<String,BigDecimal> bir2316CompensationItems(Employee employee,List<PayrollRun> employeeRuns) {
@@ -440,19 +487,23 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
         BigDecimal nonTaxableBasic=Boolean.TRUE.equals(employee.getMinimumWageEarner())?basic:basic.min(new BigDecimal("250000"));
         result.put("29",nonTaxableBasic);
         result.put("39",basic.subtract(nonTaxableBasic).max(BigDecimal.ZERO));
+        BigDecimal otherBenefits=BigDecimal.ZERO,exemptThirteenth=BigDecimal.ZERO;
         for(PayrollLine line:employeeLines) {
             String code=line.getItemCode();
             BigDecimal amount=line.getAmount()==null?BigDecimal.ZERO:line.getAmount();
             if("WTAX".equals(code)||"TAX_REFUND".equals(code)||"BASIC".equals(code)) continue;
             if(Set.of("SSS_EE","PHIC_EE","HDMF_EE","UNION_DUES").contains(code)) { add2316(result,"36",amount);continue; }
-            if("THIRTEENTH_MONTH".equals(code)) { add2316(result,Boolean.TRUE.equals(line.getTaxable())?"48":"34",amount);continue; }
+            if("THIRTEENTH_MONTH".equals(code)) { if(Boolean.TRUE.equals(line.getTaxable()))add2316(result,"48",amount);else exemptThirteenth=exemptThirteenth.add(amount);continue; }
             if("DE_MINIMIS".equals(code)) { add2316(result,"35",amount);continue; }
             if("OT".equals(code)||"OVERTIME".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"31":"50",amount);continue; }
             if("ND".equals(code)||"NIGHT_DIFF".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"32":"51B",amount);continue; }
             if("HAZARD_PAY".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"33":"49",amount);continue; }
             if("HOLIDAY_PAY".equals(code)||"PREMIUM".equals(code)) { add2316(result,Boolean.TRUE.equals(employee.getMinimumWageEarner())?"30":"51B",amount);continue; }
             if(!"EARNING".equals(line.getCategory())) continue;
-            if(!Boolean.TRUE.equals(line.getTaxable())) { add2316(result,"37",amount);continue; }
+            if(!Boolean.TRUE.equals(line.getTaxable())) {
+                if(usesSharedBenefitCeiling(line))otherBenefits=otherBenefits.add(amount);else add2316(result,"37",amount);
+                continue;
+            }
             String item=switch(code) {
                 case "REPRESENTATION" -> "40"; case "TRANSPORTATION" -> "41"; case "COLA" -> "42";
                 case "HOUSING" -> "43"; case "COMMISSION" -> "45"; case "PROFIT_SHARING" -> "46";
@@ -460,6 +511,9 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
             };
             add2316(result,item,amount);
         }
+        BigDecimal sharedBenefitTotal=otherBenefits.add(exemptThirteenth);
+        add2316(result,"34",sharedBenefitTotal.min(com.apex.hrm.payroll.engine.ThirteenthMonthCalculator.EXEMPT_CEILING));
+        add2316(result,"51B",sharedBenefitTotal.subtract(com.apex.hrm.payroll.engine.ThirteenthMonthCalculator.EXEMPT_CEILING).max(BigDecimal.ZERO));
         BigDecimal nonTaxable=BigDecimal.ZERO;
         for(int i=29;i<=37;i++) nonTaxable=nonTaxable.add(result.get(String.valueOf(i)));
         result.put("38",nonTaxable);
@@ -473,6 +527,12 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
 
     private static void add2316(Map<String,BigDecimal> items,String key,BigDecimal amount) {
         items.put(key,items.getOrDefault(key,BigDecimal.ZERO).add(amount));
+    }
+
+    private static boolean usesSharedBenefitCeiling(PayrollLine line) {
+        return "EARNING".equals(line.getCategory())&&Boolean.FALSE.equals(line.getTaxable())
+                &&!Set.of("BASIC","HOLIDAY_PAY","PREMIUM","OT","OVERTIME","ND","NIGHT_DIFF","HAZARD_PAY",
+                        "THIRTEENTH_MONTH","DE_MINIMIS","TAX_REFUND").contains(line.getItemCode());
     }
 
     private BigDecimal annualTaxDue(LocalDate asOf,BigDecimal taxable) {
@@ -574,10 +634,11 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
 
     private static boolean blank(String value) { return value == null || value.isBlank(); }
     private static boolean hasPriorEmployer(Employee e) {
-        return !blank(e.getPriorEmployerName())||amount(e.getPriorEmployerCompensation()).signum()>0
-                ||amount(e.getPriorEmployerTaxableCompensation()).signum()>0||amount(e.getPriorEmployerNonTaxableCompensation()).signum()>0
-                ||amount(e.getPriorEmployerTaxWithheld()).signum()>0;
+        return !blank(e.getPriorEmployerName())||positive(e.getPriorEmployerCompensation())
+                ||positive(e.getPriorEmployerTaxableCompensation())||positive(e.getPriorEmployerNonTaxableCompensation())
+                ||positive(e.getPriorEmployerTaxWithheld());
     }
+    private static boolean positive(BigDecimal value) { return value!=null&&value.signum()>0; }
 
     private static String csv(String value) {
         if (value == null) return "\"\"";

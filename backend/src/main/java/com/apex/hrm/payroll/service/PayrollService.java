@@ -26,6 +26,7 @@ import com.apex.hrm.payroll.engine.PhilHealthCalculator;
 import com.apex.hrm.payroll.engine.SssCalculator;
 import com.apex.hrm.payroll.engine.WithholdingTaxCalculator;
 import com.apex.hrm.payroll.repo.AdjustmentRepository;
+import com.apex.hrm.payroll.repo.EmployeePeraTaxCreditRepository;
 import com.apex.hrm.payroll.repo.PayGroupRepository;
 import com.apex.hrm.payroll.repo.PayPeriodRepository;
 import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
@@ -96,6 +97,7 @@ public class PayrollService {
     private final AuditService audit;
     private final SettlementService settlement;
     private final PayrollBankSettlementRepository bankSettlements;
+    private final EmployeePeraTaxCreditRepository peraTaxCredits;
 
     public PayrollService(PayrollRunRepository runs, PayPeriodRepository periods, PayGroupRepository payGroups,
                           PayrollEmployeeRepository payrollEmployees, PayrollLineRepository lines,
@@ -105,7 +107,7 @@ public class PayrollService {
                           StatutoryContributionRuleRepository statutory, WithholdingTaxBracketRepository taxBrackets,
                           WageOrderRepository wageOrders, WorkLocationRepository locations, PayslipService payslips,
                           AuditService audit, SettlementService settlement,
-                          PayrollBankSettlementRepository bankSettlements) {
+                          PayrollBankSettlementRepository bankSettlements, EmployeePeraTaxCreditRepository peraTaxCredits) {
         this.runs = runs;
         this.periods = periods;
         this.payGroups = payGroups;
@@ -127,6 +129,7 @@ public class PayrollService {
         this.audit = audit;
         this.settlement = settlement;
         this.bankSettlements = bankSettlements;
+        this.peraTaxCredits = peraTaxCredits;
     }
 
     @Transactional
@@ -577,11 +580,23 @@ public class PayrollService {
 
         if (yearEnd) {
             LocalDate yearStart = LocalDate.of(end.getYear(), 1, 1);
-            BigDecimal taxableYtd = payrollEmployees.taxableIncomeYtd(emp.getId(), yearStart, end.minusDays(1)).add(taxable);
+            BigDecimal otherBenefitsYtd=lines.otherExemptBenefitsYtd(emp.getId(),yearStart,end.minusDays(1));
+            BigDecimal currentOtherBenefits=out.stream().filter(PayrollService::usesSharedBenefitCeiling)
+                    .map(PayrollLine::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
+            BigDecimal taxableExcessBenefits=otherBenefitsYtd.add(currentOtherBenefits)
+                    .subtract(ThirteenthMonthCalculator.EXEMPT_CEILING).max(BigDecimal.ZERO);
+            BigDecimal taxableYtd = payrollEmployees.taxableIncomeYtd(emp.getId(), yearStart, end.minusDays(1)).add(taxable)
+                    .add(taxableExcessBenefits);
             taxableYtd = taxableYtd.add(priorYearTaxable(emp));
             BigDecimal withheldYtd = lines.taxWithheldYtd(emp.getId(), yearStart, end.minusDays(1)).add(periodWithholding);
             withheldYtd = withheldYtd.add(priorYearTaxWithheld(emp));
-            BigDecimal adjustment = AnnualTaxCalculator.adjustment(annualTaxBrackets(end), taxableYtd, withheldYtd);
+            List<WithholdingTaxCalculator.Bracket> brackets=annualTaxBrackets(end);
+            BigDecimal annualTaxDue=AnnualTaxCalculator.taxDue(brackets,taxableYtd);
+            BigDecimal certifiedPera=peraTaxCredits.findByEmployeeIdAndTaxYear(emp.getId(),end.getYear())
+                    .filter(p->Boolean.TRUE.equals(p.getCertificateReceived())&&p.getCertificateNumber()!=null&&!p.getCertificateNumber().isBlank())
+                    .map(p->p.getTaxCreditAmount()==null?BigDecimal.ZERO:p.getTaxCreditAmount()).orElse(BigDecimal.ZERO);
+            BigDecimal peraApplied=certifiedPera.min(annualTaxDue.subtract(withheldYtd).max(BigDecimal.ZERO));
+            BigDecimal adjustment = AnnualTaxCalculator.adjustment(brackets, taxableYtd, withheldYtd.add(peraApplied));
             if (adjustment.signum() > 0) {
                 BigDecimal earningsAvailable = sum(out, PayLine.EARNING, false, null).subtract(attendanceDeductions);
                 BigDecimal otherDeductions = sum(out, PayLine.DEDUCTION, false, null);
@@ -740,6 +755,12 @@ public class PayrollService {
         pl.setSourceId(sourceId);
         pl.setCostCenterId(costCenterId);
         return pl;
+    }
+
+    private static boolean usesSharedBenefitCeiling(PayrollLine line) {
+        return "EARNING".equals(line.getCategory()) && Boolean.FALSE.equals(line.getTaxable())
+                && !Set.of("BASIC","HOLIDAY_PAY","PREMIUM","OT","OVERTIME","ND","NIGHT_DIFF","HAZARD_PAY",
+                        "THIRTEENTH_MONTH","DE_MINIMIS","TAX_REFUND").contains(line.getItemCode());
     }
 
     private static BigDecimal sum(List<PayrollLine> list, String category, boolean taxableOnly, Set<String> codes) {

@@ -23,19 +23,27 @@ public final class FinalPayCalculator {
     public record Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal thirteenthExemptPaidYtd,
                         BigDecimal otherExemptBenefitsYtd, BigDecimal dailyRate, List<LeaveBalance> unusedLeave,
                         BigDecimal ytdTaxable, BigDecimal ytdWithheld, List<LoanBalance> loans,
-                        List<WithholdingTaxCalculator.Bracket> annualBrackets, List<PayLine> statutoryLines) {
+                        List<WithholdingTaxCalculator.Bracket> annualBrackets, List<PayLine> statutoryLines,
+                        BigDecimal peraTaxCredit) {
         public Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal thirteenthExemptPaidYtd,
                      BigDecimal otherExemptBenefitsYtd, BigDecimal dailyRate, List<LeaveBalance> unusedLeave,
                      BigDecimal ytdTaxable, BigDecimal ytdWithheld, List<LoanBalance> loans,
                      List<WithholdingTaxCalculator.Bracket> annualBrackets) {
             this(basicEarnedYtd, thirteenthPaidYtd, thirteenthExemptPaidYtd, otherExemptBenefitsYtd, dailyRate,
-                    unusedLeave, ytdTaxable, ytdWithheld, loans, annualBrackets, List.of());
+                    unusedLeave, ytdTaxable, ytdWithheld, loans, annualBrackets, List.of(),BigDecimal.ZERO);
+        }
+        public Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal thirteenthExemptPaidYtd,
+                     BigDecimal otherExemptBenefitsYtd, BigDecimal dailyRate, List<LeaveBalance> unusedLeave,
+                     BigDecimal ytdTaxable, BigDecimal ytdWithheld, List<LoanBalance> loans,
+                     List<WithholdingTaxCalculator.Bracket> annualBrackets,List<PayLine> statutoryLines) {
+            this(basicEarnedYtd,thirteenthPaidYtd,thirteenthExemptPaidYtd,otherExemptBenefitsYtd,dailyRate,
+                    unusedLeave,ytdTaxable,ytdWithheld,loans,annualBrackets,statutoryLines,BigDecimal.ZERO);
         }
         public Input(BigDecimal basicEarnedYtd, BigDecimal thirteenthPaidYtd, BigDecimal otherExemptBenefitsYtd,
                      BigDecimal dailyRate, List<LeaveBalance> unusedLeave, BigDecimal ytdTaxable, BigDecimal ytdWithheld,
                      List<LoanBalance> loans, List<WithholdingTaxCalculator.Bracket> annualBrackets) {
             this(basicEarnedYtd, thirteenthPaidYtd, BigDecimal.ZERO, otherExemptBenefitsYtd, dailyRate, unusedLeave,
-                    ytdTaxable, ytdWithheld, loans, annualBrackets, List.of());
+                    ytdTaxable, ytdWithheld, loans, annualBrackets, List.of(),BigDecimal.ZERO);
         }
     }
 
@@ -85,9 +93,13 @@ public final class FinalPayCalculator {
             warnings.add("No annual withholding table is configured; annual tax reconciliation was skipped");
         }
 
+        BigDecimal otherBenefitExcess=in.otherExemptBenefitsYtd().subtract(ThirteenthMonthCalculator.EXEMPT_CEILING).max(BigDecimal.ZERO);
+        BigDecimal annualTaxable=in.ytdTaxable().add(taxableFinal).add(otherBenefitExcess).subtract(statutoryPreTax).max(BigDecimal.ZERO);
+        BigDecimal annualTaxDue=AnnualTaxCalculator.taxDue(in.annualBrackets(),annualTaxable);
+        BigDecimal peraApplied=(in.peraTaxCredit()==null?BigDecimal.ZERO:in.peraTaxCredit())
+                .min(annualTaxDue.subtract(in.ytdWithheld()).max(BigDecimal.ZERO));
         BigDecimal adjustment = in.annualBrackets().isEmpty() ? BigDecimal.ZERO
-                : AnnualTaxCalculator.adjustment(in.annualBrackets(),
-                        in.ytdTaxable().add(taxableFinal).subtract(statutoryPreTax).max(BigDecimal.ZERO), in.ytdWithheld());
+                : AnnualTaxCalculator.adjustment(in.annualBrackets(),annualTaxable,in.ytdWithheld().add(peraApplied));
         if (adjustment.signum() > 0) {
             BigDecimal withheld = adjustment.min(gross);
             if (withheld.signum() > 0) {
