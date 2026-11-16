@@ -104,14 +104,25 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     ['Administration', 'Audit logs', 'Audit logs'],
   ];
 
-  for (const [module, section, heading] of sections) {
-    console.log(`owner tour: ${section}`);
-    const moduleButton = page.getByRole('navigation', { name: 'Main sections' }).getByRole('button', { name: module });
-    if (await moduleButton.isVisible()) await moduleButton.click();
-    else await page.getByRole('button', { name: 'Open navigation' }).click();
-    const workspaceNav = page.getByRole('navigation', { name: 'Workspace navigation' });
+  const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' });
+  const openSidebar = async () => {
+    const openWorkspace = page.getByRole('button', { name: 'Open workspace navigation' });
+    if (await openWorkspace.isVisible().catch(() => false)) { await openWorkspace.click(); return; }
+    const openPeopleNavigation = page.getByRole('button', { name: 'Open navigation', exact: true });
+    if (await openPeopleNavigation.isVisible().catch(() => false)) await openPeopleNavigation.click();
+  };
+  const navigateTo = async (module, section) => {
+    await openSidebar();
+    await expect(sidebar).toBeVisible();
+    await sidebar.getByRole('button', { name: module }).first().click();
+    const workspaceNav = sidebar.getByRole('navigation', { name: /areas$/ });
     await expect(workspaceNav).toBeVisible();
     await workspaceNav.getByRole('button', { name: section, exact: true }).click();
+  };
+
+  for (const [module, section, heading] of sections) {
+    console.log(`owner tour: ${section}`);
+    await navigateTo(module, section);
     await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible({ timeout: 15_000 });
     if (section === 'My learning') {
       const learningAlert = page.getByRole('alert');
@@ -127,9 +138,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   }
 
   // Configure a real sequential workflow and tenant-wide assignment as the new owner.
-  await page.getByRole('navigation', { name: 'Main sections' }).getByRole('button', { name: 'Personnel' }).click();
-  const workspaceNav = page.getByRole('navigation', { name: 'Workspace navigation' });
-  await workspaceNav.getByRole('button', { name: 'Approval workflows', exact: true }).click();
+  await navigateTo('Personnel', 'Approval workflows');
   await expect(page.getByRole('heading', { name: 'Approval workflows', exact: true })).toBeVisible();
   const workflowName = `E2E headcount approval ${sample.workspaceName.slice(-8)}`;
   let workflowCard = page.locator('.approval-card').filter({ hasText: workflowName }).first();
@@ -611,8 +620,10 @@ async function signIn(page, sample) {
   await page.getByRole('tab', { name: 'Username & password' }).click();
   await page.getByLabel('Email or username').fill(sample.username);
   await page.getByLabel('Password', { exact: true }).fill(sample.password);
+  const tokenResponse = page.waitForResponse(response =>
+    response.url().endsWith('/api/v1/security/tokens') && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  if (sample.mfaSecretHex) {
+  if ((await tokenResponse).status() === 428) {
     await expect(page.getByLabel('Authenticator code')).toBeVisible();
     const counter = Math.max(Number(sample.mfaCounter || 0) + 1, Math.floor(Date.now() / 1000 / 30));
     await page.getByLabel('Authenticator code').fill(totp(sample.mfaSecretHex, counter));
