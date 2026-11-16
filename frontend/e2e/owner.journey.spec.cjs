@@ -3,9 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { totp } = require('./totp.cjs');
 
-test('workspace owner signs up, secures the account, and tours the HRM', async ({ page }, testInfo) => {
-  // This is deliberately an exhaustive headed journey with a visible module tour,
-  // MFA sign-in, independent approvals, and multiple payroll close scenarios.
+test('fresh workspace setup, employee onboarding, timekeeping, payroll and payslip journey', async ({ page }) => {
+  // This is an end-to-end first-run setup and employee lifecycle, not a navigation tour.
   test.setTimeout(Number(process.env.E2E_TIMEOUT_MS ?? 600_000));
   page.setDefaultTimeout(10_000);
   const sampleFile = path.resolve(process.env.E2E_SAMPLE_PATH || path.resolve(__dirname, '../.e2e-local/owner-sample.json'));
@@ -23,7 +22,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   });
 
   // Point E2E_SAMPLE_PATH at a new path for a completely fresh tenant on each run.
-  // The default sample is reused so routine tours do not create duplicate accounts.
+  // The default sample is reused for local runs; pass a new E2E_SAMPLE_PATH for signup.
   let sample;
   if (fs.existsSync(sampleFile)) {
     sample = JSON.parse(fs.readFileSync(sampleFile, 'utf8'));
@@ -76,36 +75,6 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   await expect(page).toHaveURL(/\/dashboard\/overview$/);
   await expect(page.getByRole('heading', { name: /Good to see you, owner/ })).toBeVisible();
 
-  const sections = [
-    ['Personnel', 'Employee directory', 'People'],
-    ['Personnel', 'Onboarding', 'Onboarding'],
-    ['Personnel', 'Organization', 'Organization'],
-    ['Personnel', 'Documents', 'Documents'],
-    ['Personnel', 'HR policies', 'HR policies'],
-    ['Personnel', 'Approval workflows', 'Approval workflows'],
-    ['Personnel', 'Recruitment', 'Recruitment & applicant tracking'],
-    ['Personnel', 'Headcount requests', 'Headcount requests'],
-    ['Personnel', 'Performance', 'Performance management'],
-    ['Personnel', 'Learning & development', 'Learning & development'],
-    ['Personnel', 'My learning', 'My learning'],
-    ['Timekeeping', 'Time & attendance', 'Time & attendance'],
-    ['Timekeeping', 'Leave management', 'Leave management'],
-    ['Timekeeping', 'Schedules & shifts', 'Schedules & shifts'],
-    ['Timekeeping', 'Overtime', 'Overtime'],
-    ['Timekeeping', 'Approval center', 'Approval center'],
-    ['Payroll', 'Payroll runs', 'Payroll runs'],
-    ['Payroll', 'Pay groups & periods', 'Pay groups & periods'],
-    ['Payroll', 'Benefits & deductions', 'Benefits & deductions'],
-    ['Payroll', 'Payslips', 'Payslips'],
-    ['Payroll', 'Tax & compliance', 'Tax & compliance'],
-    ['Insights', 'Reports & analytics', 'Reports & analytics'],
-    ['Insights', 'Announcements', 'Announcements'],
-    ['Administration', 'Settings', 'Settings'],
-    ['Administration', 'Users & roles', 'Staff assignments'],
-    ['Administration', 'Billing', 'Plan & billing'],
-    ['Administration', 'Audit logs', 'Audit logs'],
-  ];
-
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' });
   const openSidebar = async () => {
     const openWorkspace = page.getByRole('button', { name: 'Open workspace navigation' });
@@ -122,54 +91,74 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     await workspaceNav.getByRole('button', { name: section, exact: true }).click();
   };
 
-  for (const [module, section, heading] of sections) {
-    console.log(`owner tour: ${section}`);
-    await navigateTo(module, section);
-    await expect(page.getByRole('heading', { name: heading, exact: true }).first()).toBeVisible({ timeout: 15_000 });
-    if (section === 'My learning') {
-      const learningAlert = page.getByRole('alert');
-      if (await learningAlert.count()) await expect(learningAlert).toContainText('Your learning profile has not been linked to your employee record.');
-    } else {
-      await expect(page.getByRole('alert')).toHaveCount(0);
-    }
-    if (section === 'Employee directory') expect(reactKeyWarnings).toHaveLength(0);
-    await testInfo.attach(`owner-tour-${section.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`, {
-      body: await page.screenshot(),
-      contentType: 'image/png',
-    });
-  }
+  expect(reactKeyWarnings).toHaveLength(0);
 
-  // Configure a real sequential workflow and tenant-wide assignment as the new owner.
+  // Begin the actual setup journey in the organization maintenance UI. Signup
+  // provisions the first legal entity; complete its company, branch, position,
+  // and organization chart records before hiring anyone.
+  await navigateTo('Personnel', 'Organization');
+  await expect(page.getByRole('heading', { name: 'Organization', exact: true })).toBeVisible();
+  const setupRunId = `${Date.now()}`.slice(-7);
+  const branchCode = `BR-${setupRunId}`;
+  const branchName = `Main office ${setupRunId}`;
+  const positionCode = `POS-${setupRunId}`;
+  const positionName = `People Operations Associate ${setupRunId}`;
+  await page.getByRole('button', { name: 'Company setup & positions' }).click();
+  const companyForm = page.locator('form.org-entity-details');
+  await companyForm.getByLabel('Registered legal name').fill(`${sample.workspaceName} ${setupRunId} Incorporated`);
+  await companyForm.getByRole('button', { name: 'Save legal entity' }).click();
+  await expect(page.getByText('Legal entity details saved.', { exact: true })).toBeVisible();
+  const branchForm = page.locator('form.people-inline-form').nth(0);
+  const positionForm = page.locator('form.people-inline-form').nth(1);
+  await branchForm.getByLabel('Code').fill(branchCode);
+  await branchForm.getByLabel('Branch name').fill(branchName);
+  await branchForm.getByRole('button', { name: 'Add branch' }).click();
+  await expect(page.getByText(branchName, { exact: true })).toBeVisible();
+  await positionForm.getByLabel('Code').fill(positionCode);
+  await positionForm.getByLabel('Position title').fill(positionName);
+  await positionForm.getByRole('button', { name: 'Add position' }).click();
+  await expect(page.getByText(positionName, { exact: true }).last()).toBeVisible();
+  await page.getByRole('button', { name: 'Organization chart' }).click();
+  const firstNodeForm = page.locator('form.org-chart-first-node');
+  const ownerNode = page.locator('.org-chart-card.type-owner');
+  await expect(firstNodeForm.or(ownerNode).first()).toBeVisible();
+  if (await firstNodeForm.isVisible().catch(() => false)) {
+    await firstNodeForm.getByLabel('Owner name').fill('Apex E2E Owner');
+    await firstNodeForm.getByRole('button', { name: 'Create owner node' }).click();
+  }
+  await expect(ownerNode).toBeVisible();
+  await ownerNode.getByRole('button', { name: /Add child/ }).click();
+  const departmentDialog = page.getByRole('dialog');
+  await departmentDialog.getByLabel('Node type').selectOption('DEPARTMENT');
+  await departmentDialog.getByLabel('Label / unit name').fill(`People Operations ${setupRunId}`);
+  await departmentDialog.getByLabel('Position or description').fill('Employee services and payroll');
+  await departmentDialog.getByRole('button', { name: 'Add to chart' }).click();
+  await expect(page.getByText(`People Operations ${setupRunId}`, { exact: true })).toBeVisible();
+
+  // Publish leave and overtime approval routes through their maintenance UI.
   await navigateTo('Personnel', 'Approval workflows');
   await expect(page.getByRole('heading', { name: 'Approval workflows', exact: true })).toBeVisible();
-  const workflowName = `E2E headcount approval ${sample.workspaceName.slice(-8)}`;
-  let workflowCard = page.locator('.approval-card').filter({ hasText: workflowName }).first();
-  if (await workflowCard.count() === 0) {
+  const createApprovalWorkflow = async processCode => {
+    const workflowName = `E2E ${processCode} approval ${Date.now()}`;
     await page.getByLabel('Workflow name').fill(workflowName);
-    await page.getByLabel('Business process').first().selectOption('HEADCOUNT');
+    await page.getByLabel('Business process').first().selectOption(processCode);
     await page.getByRole('button', { name: 'Create draft' }).click();
-  } else {
-    await workflowCard.getByRole('button', { name: 'Configure' }).click();
-  }
-  await expect(page.getByText(`${workflowName} · VERSION 1`, { exact: true })).toBeVisible();
-  const publishButton = page.getByRole('button', { name: 'Publish version' });
-  if (await publishButton.isVisible()) {
-    if (!(await publishButton.isEnabled())) {
-      await page.getByLabel('Step label').fill('Owner approval');
-      await page.getByLabel('Route to').selectOption('ROLE');
-      await page.getByRole('combobox', { name: 'Role' }).selectOption({ label: 'TENANT_ADMIN' });
-      await page.getByRole('button', { name: /^Add step \d+$/ }).click();
-    }
+    await expect(page.getByText(`${workflowName} · VERSION 1`, { exact: true })).toBeVisible();
+    const publishButton = page.getByRole('button', { name: 'Publish version' });
+    await page.getByLabel('Step label').fill('Independent HR approval');
+    await page.getByLabel('Route to').selectOption('ROLE');
+    await page.getByRole('combobox', { name: 'Role' }).selectOption({ label: 'HR_ADMIN' });
+    await page.getByRole('button', { name: /^Add step \d+$/ }).click();
     await expect(publishButton).toBeEnabled();
     await publishButton.click();
     await expect(page.getByRole('status')).toContainText('Workflow version published.');
-  }
-  await page.locator('form.announcements-editor').last().locator('select').first().selectOption('HEADCOUNT');
-  await page.getByLabel('Published workflow').selectOption({ label: `${workflowName} · v1` });
-  await page.getByRole('button', { name: 'Save assignment' }).click();
-  await expect(page.getByText('Workflow assignment saved.', { exact: true })).toBeVisible();
-
-  await expect(page.getByText(`${workflowName} v1`, { exact: false }).first()).toBeVisible();
+    await page.locator('form.announcements-editor').last().locator('select').first().selectOption(processCode);
+    await page.getByLabel('Published workflow').selectOption({ label: `${workflowName} · v1` });
+    await page.getByRole('button', { name: 'Save assignment' }).click();
+    await expect(page.getByText('Workflow assignment saved.', { exact: true })).toBeVisible();
+  };
+  await createApprovalWorkflow('LEAVE');
+  await createApprovalWorkflow('OVERTIME');
 
   // Exercise the personnel-to-timekeeping-to-payroll bridge for weekly and daily staff.
   const today = new Date().toISOString().slice(0, 10);
@@ -208,34 +197,91 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     bracket.effectiveFrom && bracket.effectiveFrom <= today);
   expect(currentTaxBrackets.length, 'effective withholding tax brackets are available').toBeGreaterThan(0);
   // Establish the organization's core reference data before adding the journey hire.
-  const branchResult = await callApi('POST', `/api/v1/companies/${company.id}/branches`, {
-    branchCode: `BR-${runId}`, branchName: `Journey Branch ${runId}`, regionCode: 'NCR',
-  });
-  expectOk(branchResult);
+  const branchRows = await callApi('GET', `/api/v1/companies/${company.id}/branches`);
+  expectOk(branchRows);
+  const branchResult = { body: branchRows.body.find(item => item.branchCode === branchCode) };
+  expect(branchResult.body, 'branch created in Organization maintenance').toBeTruthy();
   const departmentResult = await callApi('POST', '/api/v1/personnel/departments', {
     companyId: company.id, code: `DEPT-${runId}`, name: `Journey Operations ${runId}`,
   });
   expectOk(departmentResult);
-  const positionResult = await callApi('POST', '/api/v1/personnel/positions', {
-    companyId: company.id, code: `POS-${runId}`, name: 'People Operations Associate',
-  });
-  expectOk(positionResult);
-  const holidayDate = new Date().toISOString().slice(0, 10);
-  const holidayName = `Journey special working holiday ${runId}`;
-  const holidayResult = await callApi('POST', '/api/holidays', {
-    holidayDate, name: holidayName, holidayType: 'SPECIAL_WORKING', workLocationId: null,
-  });
-  expectOk(holidayResult);
-  const weeklyGroupResult = await callApi('POST', '/api/pay-groups', {
-    companyId: company.id, code: `E2E-W-${runId}`, name: `E2E weekly ${runId}`, frequency: 'WEEKLY',
-    daysFactor: 261, hoursPerDay: 8, contributionSchedule: 'EVERY_CUTOFF', taxMethod: 'STRICT',
-  });
-  expectOk(weeklyGroupResult);
-  const dailyGroupResult = await callApi('POST', '/api/pay-groups', {
-    companyId: company.id, code: `E2E-D-${runId}`, name: `E2E daily ${runId}`, frequency: 'DAILY',
-    daysFactor: 261, hoursPerDay: 8, contributionSchedule: 'EVERY_CUTOFF', taxMethod: 'STRICT',
-  });
-  expectOk(dailyGroupResult);
+  const positionRows = await callApi('GET', `/api/v1/personnel/positions?companyId=${company.id}`);
+  expectOk(positionRows);
+  const positionResult = { body: positionRows.body.find(item => item.code === positionCode) };
+  expect(positionResult.body, 'position created in Organization maintenance').toBeTruthy();
+  const monday = new Date(`${today}T00:00:00Z`);
+  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
+  const weekStart = monday.toISOString().slice(0, 10);
+  const sunday = new Date(`${weekStart}T00:00:00Z`);
+  sunday.setUTCDate(sunday.getUTCDate() + 6);
+  const weekEnd = sunday.toISOString().slice(0, 10);
+  await navigateTo('Payroll', 'Pay groups & periods');
+  await expect(page.getByRole('heading', { name: 'Pay groups & periods', exact: true })).toBeVisible();
+  const createPayGroup = async (kind, frequency, from, through) => {
+    const form = page.locator('form.pay-setup-form').first();
+    await form.getByLabel('Company').selectOption(company.id);
+    await form.getByLabel('Group code').fill(`E2E-${kind[0].toUpperCase()}-${runId}`);
+    await form.getByLabel('Name').fill(`E2E ${kind} ${runId}`);
+    await form.getByLabel('Frequency').selectOption(frequency);
+    await form.getByLabel('Days factor per year').fill('261');
+    await form.getByLabel('Hours per workday').fill('8');
+    await form.getByLabel('Statutory contribution schedule').selectOption('EVERY_CUTOFF');
+    await form.getByRole('button', { name: /Create pay group/ }).click();
+    await expect(page.getByRole('status')).toContainText(`Pay group E2E ${kind} ${runId} created.`);
+    const rows = await callApi('GET', '/api/pay-groups?size=500&page=0');
+    expectOk(rows);
+    const group = rows.body.content.find(item => item.code === `E2E-${kind[0].toUpperCase()}-${runId}`);
+    expect(group, `${frequency} group created through pay setup UI`).toBeTruthy();
+    const calendar = page.locator('form.pay-setup-form').nth(2);
+    await calendar.getByLabel('Pay group').selectOption(group.id);
+    await calendar.getByLabel('Calendar starts').fill(from);
+    await calendar.getByLabel('Generate through').fill(through);
+    await calendar.getByLabel('Pay date after period end (calendar days)').fill('5');
+    await calendar.getByRole('button', { name: 'Generate pay calendar' }).click();
+    await expect(page.getByRole('status')).toContainText('Calendar created');
+    return { body: group };
+  };
+  const weeklyGroupResult = await createPayGroup('weekly', 'WEEKLY', weekStart, weekEnd);
+  const dailyGroupResult = await createPayGroup('daily', 'DAILY', today, today);
+  // Set up a hire-prorated annual leave policy and local employee class before hire.
+  await navigateTo('Timekeeping', 'Leave management');
+  await page.getByRole('tab', { name: 'Leave types' }).click();
+  const leaveTypeForm = page.locator('form.leave-file-form').first();
+  const leaveCode = `E2E-${runId}`;
+  const leaveName = `E2E annual leave ${runId}`;
+  await leaveTypeForm.getByLabel('Policy code').fill(leaveCode);
+  await leaveTypeForm.getByLabel('Policy name').fill(leaveName);
+  await leaveTypeForm.getByLabel('Annual entitlement (days)').fill('');
+  await leaveTypeForm.getByLabel('Prorate hire-year balance').check();
+  await leaveTypeForm.getByRole('button', { name: 'Create leave policy' }).click();
+  await expect(page.getByRole('status')).toContainText(`${leaveName} leave policy created.`);
+  const leaveRows = await callApi('GET', '/api/leave-types');
+  expectOk(leaveRows);
+  const leaveRecords = Array.isArray(leaveRows.body) ? leaveRows.body : leaveRows.body.content || [];
+  const leaveType = leaveRecords.find(item => item.code === leaveCode);
+  expect(leaveType, 'leave type created in Leave management').toBeTruthy();
+  await page.getByRole('tab', { name: 'Benefit profiles' }).click();
+  const benefitProfileForm = page.locator('form.leave-file-form').first();
+  const benefitProfileName = `E2E local prorated benefits ${runId}`;
+  await benefitProfileForm.getByLabel('Profile code').fill(`E2E-LOCAL-${runId}`);
+  await benefitProfileForm.getByLabel('Profile name').fill(benefitProfileName);
+  await benefitProfileForm.getByLabel('Employee class').selectOption('LOCAL');
+  await benefitProfileForm.getByLabel('Description').fill('Annual leave prorated from hire date.');
+  await benefitProfileForm.getByRole('button', { name: 'Create profile' }).click();
+  await expect(page.getByRole('status')).toContainText(`${benefitProfileName} profile created.`);
+  await page.locator('div.tax-form-grid').first().getByLabel('Benefit profile').selectOption({ label: `${benefitProfileName} · LOCAL` });
+  const entitlementForm = page.locator('form.tax-form-grid').first();
+  await entitlementForm.getByLabel('Leave type').selectOption(leaveType.id);
+  await entitlementForm.getByLabel('Maximum days per year').fill('12');
+  await entitlementForm.getByLabel('Effective from').fill(priorDay);
+  await entitlementForm.getByRole('checkbox', { name: 'Prorate assignment year' }).check();
+  await entitlementForm.getByRole('button', { name: 'Save entitlement' }).click();
+  await expect(page.getByRole('status')).toContainText('Effective-dated leave entitlement saved to this benefit profile.');
+  const benefitRows = await callApi('GET', '/api/leave-benefit-profiles?size=200&page=0');
+  expectOk(benefitRows);
+  const benefitRecords = Array.isArray(benefitRows.body) ? benefitRows.body : benefitRows.body.content || [];
+  const benefitProfile = benefitRecords.find(item => item.code === `E2E-LOCAL-${runId}`);
+  expect(benefitProfile, 'leave profile created before employee hire').toBeTruthy();
   const employees = [];
   for (const kind of ['weekly', 'daily']) {
     let created;
@@ -245,7 +291,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
       await page.getByRole('button', { name: /Add employee/ }).first().click();
       const add = page.getByRole('dialog', { name: 'Add employee' });
       await add.getByLabel('Employee number').fill(`E2E-WEEKLY-${runId}`);
-      await add.getByLabel('First name').fill('Weekly');
+      await add.getByLabel('First name').fill('Nova');
       await add.getByLabel('Last name').fill(`Journey${runId}`);
       await add.getByLabel('Hire date').fill(priorDay);
       await add.getByRole('button', { name: 'Create employee' }).click();
@@ -254,8 +300,27 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
       expectOk(created);
       created.body = created.body.find(item => item.employeeNumber === `E2E-WEEKLY-${runId}`);
       expect(created.body, 'employee created through the personnel UI').toBeTruthy();
+      await page.getByPlaceholder('Search name, employee number, or status').fill(`E2E-WEEKLY-${runId}`);
       await page.getByRole('row').filter({ hasText: `E2E-WEEKLY-${runId}` }).getByRole('button', { name: /Open profile/ }).click();
       const tabs = page.getByRole('navigation', { name: 'Employee profile sections' });
+      await tabs.getByRole('button', { name: 'Private data', exact: true }).click();
+      const privateForm = page.locator('form.people-private-form');
+      await privateForm.getByLabel('Government ID').fill(`GOV-${runId}`);
+      await privateForm.getByLabel('Contact email').fill(`nova.${runId}@e2e.apexhrm.test`);
+      await privateForm.getByLabel('Mobile').fill('+639171234567');
+      await privateForm.getByLabel('Bank account').fill(`BANK-${runId}`);
+      await privateForm.getByRole('button', { name: 'Save private data' }).click();
+      await expect(page.getByText('Encrypted private employee data saved.', { exact: true })).toBeVisible();
+      await tabs.getByRole('button', { name: 'Documents', exact: true }).click();
+      const documentForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Upload document' }) });
+      await documentForm.getByLabel('Category').selectOption('ONBOARDING');
+      await documentForm.getByLabel('PDF file').setInputFiles({
+        name: `employment-agreement-${runId}.pdf`, mimeType: 'application/pdf',
+        buffer: Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF'),
+      });
+      await documentForm.getByRole('button', { name: 'Upload document' }).click();
+      await expect(page.getByText('Document uploaded to encrypted quarantine for review.', { exact: true })).toBeVisible();
+      await tabs.getByRole('button', { name: 'Assignments', exact: true }).click();
       await tabs.getByRole('button', { name: 'Assignments', exact: true }).click();
       const assignment = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save assignment' }) });
       await assignment.getByRole('combobox', { name: 'Branch', exact: true }).selectOption(branchResult.body.id);
@@ -300,15 +365,43 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
       });
       expectOk(assignment);
     }
-    const schedule = await callApi('POST', '/api/work-schedules', {
-      code: `E2E-${kind.toUpperCase()}-${runId}`, name: `E2E ${kind} schedule`, startTime: '09:00', endTime: '17:00',
-      breakMinutes: 60, graceMinutes: 5, restDays: 'SAT,SUN',
-    });
-    expectOk(schedule);
-    const scheduleAssignment = await callApi('POST', '/api/employee-schedules', {
-      employeeId: employee.id, scheduleId: schedule.body.id, effectiveFrom: today,
-    });
-    expectOk(scheduleAssignment);
+    if (kind === 'weekly') {
+      await navigateTo('Timekeeping', 'Schedules & shifts');
+      const scheduleForm = page.locator('form.schedule-create-form');
+      await scheduleForm.getByLabel('Code').fill(`E2E-${kind.toUpperCase()}-${runId}`);
+      await scheduleForm.getByLabel('Name').fill(`E2E ${kind} schedule`);
+      await scheduleForm.getByLabel('Start time').fill('09:00');
+      await scheduleForm.getByLabel('End time').fill('17:00');
+      await scheduleForm.getByLabel('Break (minutes)').fill('60');
+      await scheduleForm.getByLabel('Grace (minutes)').fill('5');
+      await scheduleForm.getByLabel('Rest days (comma separated)').fill('SAT,SUN');
+      await scheduleForm.getByRole('button', { name: 'Create schedule' }).click();
+      await expect(page.getByText(`E2E ${kind} schedule`, { exact: true }).first()).toBeVisible();
+      await page.getByRole('tab', { name: 'Employee assignments' }).click();
+      const scheduleAssignmentForm = page.locator('form.timekeeping-manual-form').last();
+      await scheduleAssignmentForm.getByLabel('Employee').selectOption(employee.id);
+      await scheduleAssignmentForm.getByLabel('Work schedule').selectOption({ label: `E2E-${kind.toUpperCase()}-${runId} · E2E ${kind} schedule` });
+      await scheduleAssignmentForm.getByLabel('Effective from').fill(today);
+      await scheduleAssignmentForm.getByRole('button', { name: 'Assign schedule' }).click();
+      await expect(page.getByText(`E2E ${kind} schedule`, { exact: true }).last()).toBeVisible();
+      await page.getByRole('tab', { name: 'Holiday calendar' }).click();
+      const holidayForm = page.locator('form.timekeeping-manual-form').last();
+      await holidayForm.getByLabel('Date').fill(today);
+      await holidayForm.getByLabel('Name').fill(`E2E sample holiday ${runId}`);
+      await holidayForm.getByLabel('Type').selectOption('SPECIAL_WORKING');
+      await holidayForm.getByRole('button', { name: 'Add holiday' }).click();
+      await expect(page.getByText(`E2E sample holiday ${runId}`, { exact: true })).toBeVisible();
+    } else {
+      const schedule = await callApi('POST', '/api/work-schedules', {
+        code: `E2E-${kind.toUpperCase()}-${runId}`, name: `E2E ${kind} schedule`, startTime: '09:00', endTime: '17:00',
+        breakMinutes: 60, graceMinutes: 5, restDays: 'SAT,SUN',
+      });
+      expectOk(schedule);
+      const scheduleAssignment = await callApi('POST', '/api/employee-schedules', {
+        employeeId: employee.id, scheduleId: schedule.body.id, effectiveFrom: today,
+      });
+      expectOk(scheduleAssignment);
+    }
     for (const [logType, time] of [['IN', '09:00:00'], ['OUT', '17:00:00']]) {
       const log = await callApi('POST', '/api/attendance/manual', {
         employeeId: employee.id, logType, logTime: new Date(`${today}T${time}+08:00`).toISOString(), remarks: 'E2E payroll journey',
@@ -377,81 +470,61 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   });
   expectOk(link);
 
-  const configureWorkflow = async processCode => {
-    const workflow = await callApi('POST', '/api/v1/approvals/workflows', {
-      name: `E2E ${processCode} approval ${runId}`, processCode,
-    });
-    expectOk(workflow);
-    const steps = await callApi('PUT', `/api/v1/approvals/workflows/${workflow.body.id}/versions/${workflow.body.versionId}/steps`, [
-      { stepNo: 1, label: 'Independent HR approval', actionType: 'APPROVE', approverType: 'ROLE', roleCode: 'HR_ADMIN' },
-    ]);
-    expectOk(steps);
-    const published = await callApi('POST', `/api/v1/approvals/workflows/${workflow.body.id}/versions/${workflow.body.versionId}/publish`);
-    expectOk(published);
-    const assignment = await callApi('PUT', '/api/v1/approvals/assignments', {
-      processCode, companyId: null, departmentId: null, workflowVersionId: workflow.body.versionId,
-    });
-    expectOk(assignment);
-  };
-  for (const processCode of ['LEAVE', 'OVERTIME']) await configureWorkflow(processCode);
-  const leaveTypes = await callApi('GET', '/api/leave-types');
-  expectOk(leaveTypes);
-  const createdType = await callApi('POST', '/api/leave-types', {
-    code: `E2E-${runId}`, name: `E2E annual leave ${runId}`, paid: true, annualEntitlement: null,
-    hireProrationEnabled: true, convertible: false,
-  });
-  expectOk(createdType);
-  const leaveType = createdType.body;
-  const benefitProfile = await callApi('POST', '/api/leave-benefit-profiles', {
-    code: `E2E-LOCAL-${runId}`, name: `E2E local prorated benefits ${runId}`,
-    employeeClass: 'LOCAL', description: 'Annual leave entitlement prorated from hire date for the end-to-end journey.',
-  });
-  expectOk(benefitProfile);
-  const benefitEntitlement = await callApi('PUT', `/api/leave-benefit-profiles/${benefitProfile.body.id}/entitlements`, {
-    leaveTypeId: leaveType.id, annualEntitlement: 12, grantBasis: 'ANNUAL', paid: true,
-    hireProrationEnabled: true, convertible: false, carryOverMax: null,
-    effectiveFrom: priorDay, effectiveTo: null,
-  });
-  expectOk(benefitEntitlement);
-  const benefitAssignment = await callApi('POST', '/api/leave-benefit-profiles/assignments', {
-    employeeId: employees[0].id, profileId: benefitProfile.body.id, effectiveFrom: priorDay,
-    reason: 'Initial local employee prorated leave entitlement',
-  });
-  expectOk(benefitAssignment);
+  await navigateTo('Timekeeping', 'Leave management');
+  await page.getByRole('tab', { name: 'Benefit profiles' }).click();
+  const benefitAssignmentForm = page.locator('form.leave-file-form').filter({ has: page.getByRole('button', { name: 'Assign profile' }) });
+  await benefitAssignmentForm.getByLabel('Employee').selectOption(employees[0].id);
+  await benefitAssignmentForm.getByLabel('Benefit profile').selectOption(benefitProfile.id);
+  await benefitAssignmentForm.getByLabel('Effective from').fill(priorDay);
+  await benefitAssignmentForm.getByLabel('Reason').fill('Initial local employee prorated leave entitlement');
+  await benefitAssignmentForm.getByRole('button', { name: 'Assign profile' }).click();
+  await expect(page.getByRole('status')).toContainText('Benefit profile assigned. Effective-date prorated leave credits were added to the ledger.');
   const leaveDate = new Date(`${today}T00:00:00Z`);
   leaveDate.setUTCDate(leaveDate.getUTCDate() + 3);
   const requestedLeaveDate = leaveDate.toISOString().slice(0, 10);
-  const leaveRequest = await callApi('POST', '/api/v1/self-service/leave-requests', {
-    leaveTypeId: leaveType.id, dateFrom: requestedLeaveDate, dateTo: requestedLeaveDate,
-    days: 1, halfDay: false, reason: 'E2E leave approval workflow',
-  });
+  await navigateTo('Personnel', 'My workspace');
+  await page.getByRole('tab', { name: 'Request leave' }).click();
+  const leaveRequestForm = page.locator('form.announcements-editor').filter({ has: page.getByRole('heading', { name: 'Request leave', exact: true }) });
+  await leaveRequestForm.getByLabel('Leave type').selectOption(leaveType.id);
+  await leaveRequestForm.getByLabel('From').fill(requestedLeaveDate);
+  await leaveRequestForm.getByLabel('To').fill(requestedLeaveDate);
+  await leaveRequestForm.getByLabel('Days').fill('1');
+  await leaveRequestForm.getByLabel('Reason').fill('E2E leave approval workflow');
+  const leaveResponse = page.waitForResponse(response => response.url().endsWith('/api/v1/self-service/leave-requests') && response.request().method() === 'POST');
+  await leaveRequestForm.getByRole('button', { name: 'Submit leave request' }).click();
+  const leaveResult = await leaveResponse;
+  const leaveRequest = { status: leaveResult.status(), body: await leaveResult.json() };
   expectOk(leaveRequest);
-  const overtimeRequest = await callApi('POST', '/api/v1/self-service/overtime-requests', {
-    workDate: today, minutes: 60, reason: 'E2E overtime approval workflow',
-  });
+  await page.getByRole('tab', { name: 'Request overtime' }).click();
+  const overtimeRequestForm = page.locator('form.announcements-editor').filter({ has: page.getByRole('heading', { name: 'Request overtime', exact: true }) });
+  await overtimeRequestForm.getByLabel('Work date').fill(today);
+  await overtimeRequestForm.getByLabel('Minutes').fill('60');
+  await overtimeRequestForm.getByLabel('Reason').fill('E2E overtime approval workflow');
+  const overtimeResponse = page.waitForResponse(response => response.url().endsWith('/api/v1/self-service/overtime-requests') && response.request().method() === 'POST');
+  await overtimeRequestForm.getByRole('button', { name: 'Submit overtime request' }).click();
+  const overtimeResult = await overtimeResponse;
+  const overtimeRequest = { status: overtimeResult.status(), body: await overtimeResult.json() };
   expectOk(overtimeRequest);
   for (const [processCode, request, approvedMinutes] of [
     ['LEAVE', leaveRequest.body, null], ['OVERTIME', overtimeRequest.body, 60],
   ]) {
-    const inbox = await callAs(approverToken, 'GET', '/api/v1/approvals/inbox');
-    expectOk(inbox);
-    const task = inbox.body.find(item => item.instance_id === request.approvalId && item.process_code === processCode);
-    expect(task, `${processCode} approval routed to independent HR user`).toBeTruthy();
-    const decision = await callAs(approverToken, 'POST', `/api/v1/approvals/tasks/${task.task_id}/decision`, {
-      decision: 'APPROVE', comments: 'E2E independent approval', approvedMinutes,
-    });
-    expectOk(decision);
-    expect(decision.body.status).toBe('APPROVED');
+    let status = 'PENDING';
+    for (let step = 0; step < 10 && status === 'PENDING'; step += 1) {
+      const inbox = await callAs(approverToken, 'GET', '/api/v1/approvals/inbox');
+      expectOk(inbox);
+      const task = inbox.body.find(item => item.instance_id === request.approvalId && item.process_code === processCode);
+      expect(task, `${processCode} approval step ${step + 1} routed to the independent approver`).toBeTruthy();
+      const decision = await callAs(approverToken, 'POST', `/api/v1/approvals/tasks/${task.task_id}/decision`, {
+        decision: 'APPROVE', comments: `E2E independent approval step ${step + 1}`, approvedMinutes,
+      });
+      expectOk(decision);
+      status = decision.body.status;
+    }
+    expect(status).toBe('APPROVED');
   }
 
   const dtr = await callApi('POST', '/api/dtr/process', { from: today, to: today, employeeId: null });
   expectOk(dtr);
-  const weekStartDate = new Date(`${today}T00:00:00Z`);
-  weekStartDate.setUTCDate(weekStartDate.getUTCDate() - ((weekStartDate.getUTCDay() + 6) % 7));
-  const weekStart = weekStartDate.toISOString().slice(0, 10);
-  const weekEndDate = new Date(`${weekStart}T00:00:00Z`);
-  weekEndDate.setUTCDate(weekEndDate.getUTCDate() + 6);
-  const weekEnd = weekEndDate.toISOString().slice(0, 10);
   let weeklyRunId;
   for (const [group, from, through] of [[weeklyGroupResult.body, weekStart, weekEnd], [dailyGroupResult.body, today, today]]) {
     const generated = await callApi('POST', '/api/pay-periods/generate', {
@@ -462,41 +535,71 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
     expectOk(periods);
     const period = (periods.body.content || []).find(item => item.payGroupId === group.id && item.startDate === from && item.endDate === through);
     expect(period, `pay period ${from} to ${through} for ${group.frequency}`).toBeTruthy();
-    const createdRun = await callApi('POST', '/api/payroll/runs', { payPeriodId: period.id, runType: 'REGULAR' });
-    expectOk(createdRun);
-    const computedRun = await callApi('POST', `/api/payroll/runs/${createdRun.body.id}/compute`);
-    expectOk(computedRun);
-    expect(computedRun.body.status).toBe('COMPUTED');
+    let createdRun;
+    if (group.frequency === 'WEEKLY') {
+      await navigateTo('Payroll', 'Payroll runs');
+      await page.getByLabel('Open pay period').selectOption(period.id);
+      const createResponse = page.waitForResponse(response => response.url().endsWith('/api/payroll/runs') && response.request().method() === 'POST');
+      await page.getByRole('button', { name: 'Create payroll run' }).click();
+      createdRun = { status: (await createResponse).status(), body: await (await createResponse).json() };
+      expectOk(createdRun);
+      const computeResponse = page.waitForResponse(response => response.url().endsWith(`/api/payroll/runs/${createdRun.body.id}/compute`));
+      await page.getByRole('button', { name: 'Compute payroll' }).click();
+      expect((await computeResponse).status()).toBeLessThan(300);
+      const reviewResponse = page.waitForResponse(response => response.url().endsWith(`/api/payroll/runs/${createdRun.body.id}/review`));
+      await page.getByRole('button', { name: 'Mark reviewed' }).click();
+      expect((await reviewResponse).status()).toBeLessThan(300);
+      page.once('dialog', dialog => void dialog.accept());
+      const approveResponse = page.waitForResponse(response => response.url().endsWith(`/api/payroll/runs/${createdRun.body.id}/approve`));
+      await page.getByRole('button', { name: 'Approve run' }).click();
+      expect((await approveResponse).status()).toBeLessThan(300);
+      page.once('dialog', dialog => void dialog.accept());
+      const publishResponse = page.waitForResponse(response => response.url().endsWith(`/api/payroll/runs/${createdRun.body.id}/publish-for-employee-review`));
+      await page.getByRole('button', { name: 'Publish payslips for employee review' }).click();
+      expect((await publishResponse).status()).toBeLessThan(300);
+      weeklyRunId = createdRun.body.id;
+    } else {
+      createdRun = await callApi('POST', '/api/payroll/runs', { payPeriodId: period.id, runType: 'REGULAR' });
+      expectOk(createdRun);
+      const computedRun = await callApi('POST', `/api/payroll/runs/${createdRun.body.id}/compute`);
+      expectOk(computedRun);
+      expect(computedRun.body.status).toBe('COMPUTED');
+    }
     const runEmployees = await callApi('GET', `/api/payroll/runs/${createdRun.body.id}/employees`);
     expectOk(runEmployees);
     expect(runEmployees.body.some(item => employees.some(employee => employee.id === item.employeeId))).toBeTruthy();
-    if (group.frequency === 'WEEKLY') weeklyRunId = createdRun.body.id;
   }
 
-  // Complete the employee review and close lifecycle on the weekly run. Link the
-  // owner login to the journey employee in this isolated E2E tenant so the
-  // self-service acknowledgement is exercised through the real employee API.
-  let reviewed = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/review`);
-  expectOk(reviewed);
-  let approved = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/approve`);
-  expectOk(approved);
-  const published = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/publish-for-employee-review`);
-  expectOk(published);
+  // Link the owner login to this isolated employee, then review and acknowledge
+  // the published payslip in the actual employee self-service screen.
   const portal = await callApi('GET', '/api/v1/self-service/me');
   expectOk(portal);
   expect(portal.body.leaveRequests.find(item => item.id === leaveRequest.body.id)?.status).toBe('APPROVED');
   expect(portal.body.overtimeRequests.find(item => item.id === overtimeRequest.body.id)?.status).toBe('APPROVED');
   const weeklyPayslip = portal.body.payslips.find(slip => slip.run_type === 'REGULAR' && slip.run_status === 'EMPLOYEE_REVIEW');
   expect(weeklyPayslip, 'published weekly payslip in employee history').toBeTruthy();
-  const acknowledged = await callApi('POST', `/api/v1/self-service/payslips/${weeklyPayslip.id}/acknowledge`);
+  await navigateTo('Personnel', 'My workspace');
+  await expect(page.getByRole('heading', { name: 'Payslip history', exact: true })).toBeVisible();
+  const payslipCard = page.locator('.announcement-card').filter({ has: page.getByRole('button', { name: 'Acknowledge this payslip' }) }).first();
+  await payslipCard.getByRole('button', { name: 'Acknowledge this payslip' }).click();
+  await expect(page.getByRole('status')).toContainText('Payslip acknowledged.');
+  const acknowledged = await callApi('GET', '/api/v1/self-service/me');
   expectOk(acknowledged);
-  expect(acknowledged.body.acknowledged).toBe(true);
+  expect(acknowledged.body.payslips.find(slip => slip.id === weeklyPayslip.id)?.acknowledged_at).toBeTruthy();
   const counts = await callApi('GET', `/api/payroll/runs/${weeklyRunId}/employee-acknowledgements`);
   expectOk(counts);
   expect(counts.body.pending).toBe(0);
-  const closed = await callApi('POST', `/api/payroll/runs/${weeklyRunId}/lock`);
-  expectOk(closed);
-  expect(closed.body.status).toBe('LOCKED');
+  await navigateTo('Payroll', 'Payroll runs');
+  const weeklyRunRow = page.getByRole('row').filter({ hasText: `E2E weekly ${runId}` });
+  await weeklyRunRow.getByRole('button').first().click();
+  page.once('dialog', dialog => void dialog.accept());
+  const closeResponse = page.waitForResponse(response => response.url().endsWith(`/api/payroll/runs/${weeklyRunId}/lock`));
+  await page.getByRole('button', { name: 'Close payroll after acknowledgements' }).click();
+  expect((await closeResponse).status()).toBeLessThan(300);
+  const closedRuns = await callApi('GET', '/api/payroll-runs?size=500&sort=createdAt,desc');
+  expectOk(closedRuns);
+  const closed = closedRuns.body.content.find(run => run.id === weeklyRunId);
+  expect(closed?.status).toBe('LOCKED');
 
   const nextWeekStartDate = new Date(`${weekEnd}T00:00:00Z`);
   nextWeekStartDate.setUTCDate(nextWeekStartDate.getUTCDate() + 1);
@@ -674,7 +777,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expect(alphalist.body.employeeCount).toBeGreaterThan(0);
   expect(alphalist.body.approved2316Count).toBeGreaterThan(0);
   expect(alphalist.body.schedule2Count).toBeGreaterThan(0);
-  const weeklyAlphalistRow = alphalist.body.rows.find(row => row.employeeName.includes(`Journey${runId}`) && row.employeeName.includes('Weekly'));
+  const weeklyAlphalistRow = alphalist.body.rows.find(row => row.employeeName.includes(`Journey${runId}`) && row.employeeName.includes('Nova'));
   expect(weeklyAlphalistRow).toBeTruthy();
   expect(weeklyAlphalistRow.form2316Status).toBe('APPROVED');
   expect(weeklyAlphalistRow.schedule).toBe('SCHEDULE_2_MWE');
@@ -698,7 +801,7 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expectOk(changedTaxProfile);
   const staleAlphalist = await callApi('GET', `/api/payroll/reports/bir-1604c-reconciliation?year=${certificateYear}&companyId=${employees[0].companyId}`);
   expectOk(staleAlphalist);
-  expect(staleAlphalist.body.rows.find(row => row.employeeName.includes(`Journey${runId}`) && row.employeeName.includes('Weekly')).form2316Status).toBe('STALE');
+  expect(staleAlphalist.body.rows.find(row => row.employeeName.includes(`Journey${runId}`) && row.employeeName.includes('Nova')).form2316Status).toBe('STALE');
   const stalePrint = await callApi('GET', `/api/payroll/reports/bir-2316-issued?year=${certificateYear}&employeeId=${employees[0].id}`);
   expect(stalePrint.status).toBe(422);
   const resubmittedReview = await callApi('POST', `/api/payroll/reports/bir-2316-reviews?year=${certificateYear}&employeeId=${employees[0].id}`);
