@@ -88,9 +88,10 @@ export function PersonnelWorkspace({ token, roles, currentUserId, workspaceName,
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(path, { ...init, headers: { Authorization: `Bearer ${token}`, ...(init.body && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...init.headers } });
-    if (!response.ok) throw new Error(apiError(response, await response.text()));
-    if (response.status === 204) return undefined as T;
-    return response.json() as Promise<T>;
+    const text = await response.text();
+    if (!response.ok) throw new Error(apiError(response, text));
+    if (!text) return undefined as T;
+    return JSON.parse(text) as T;
   }
   async function loadCompanies() {
     setLoading(true); setError('');
@@ -288,7 +289,7 @@ type PayrollGroupOption={id:string;companyId:string;code:string;name:string;freq
 type PayrollGroupAssignment={id:string;payGroupId:string;payGroupCode:string;payGroupName:string;frequency:string;effectiveFrom:string;effectiveTo:string|null;employmentType:string;remarks:string};
 function PayGroupAssignmentPanel({employee,company,request,save,busy}:{employee:Employee;company:Company;request:<T>(path:string,init?:RequestInit)=>Promise<T>;save:(event:FormEvent,action:()=>Promise<unknown>,message:string)=>Promise<void>;busy:boolean}){
  const [groups,setGroups]=useState<PayrollGroupOption[]>([]);const [rows,setRows]=useState<PayrollGroupAssignment[]>([]);const [groupId,setGroupId]=useState('');const [effectiveFrom,setEffectiveFrom]=useState(employee.hireDate);const [remarks,setRemarks]=useState('');const assignmentPath=`/api/v1/personnel/employees/${employee.id}/pay-group-assignments`;
- useEffect(()=>{void Promise.all([request<PayrollGroupOption[]>('/api/pay-groups'),request<PayrollGroupAssignment[]>(assignmentPath)]).then(([all,history])=>{const companyGroups=all.filter(group=>group.companyId===company.id);setGroups(companyGroups);setGroupId(companyGroups[0]?.id||'');setRows(history)}).catch(()=>{setGroups([]);setRows([])})},[employee.id,company.id]);
+ useEffect(()=>{void Promise.all([request<PayrollGroupOption[]|{content:PayrollGroupOption[]}>('/api/pay-groups?size=200&sort=name,asc'),request<PayrollGroupAssignment[]>(assignmentPath)]).then(([all,history])=>{const groupList=Array.isArray(all)?all:all.content;const companyGroups=groupList.filter(group=>group.companyId===company.id);setGroups(companyGroups);setGroupId(companyGroups[0]?.id||'');setRows(history)}).catch(()=>{setGroups([]);setRows([])})},[employee.id,company.id]);
  return <section className="people-subcard"><h3>Payroll assignment</h3><p>Assign this employee to a pay group. Payroll runs include employees through this effective-dated assignment.</p>{rows.length?<div className="people-record-list">{rows.map(row=><div className="people-record" key={row.id}><span><strong>{row.payGroupCode} · {row.payGroupName} ({row.frequency.replaceAll('_',' ')})</strong><small>{row.effectiveFrom}{row.effectiveTo?` to ${row.effectiveTo}`:' · Current'} · {row.remarks||row.employmentType.replaceAll('_',' ')}</small></span></div>)}</div>:<p className="people-muted">No pay group is assigned yet.</p>}<form className="people-form" onSubmit={event=>void save(event,async()=>{const item=await request<PayrollGroupAssignment>(assignmentPath,{method:'POST',body:JSON.stringify({payGroupId:groupId,effectiveFrom,remarks})});setRows([item,...rows]);setRemarks('')},'Payroll assignment recorded.')}>{groups.length?<><Field label="Pay group"><select value={groupId} onChange={event=>setGroupId(event.target.value)} required>{groups.map(group=><option key={group.id} value={group.id}>{group.code} · {group.name} ({group.frequency.replaceAll('_',' ')})</option>)}</select></Field><Field label="Effective from"><input type="date" min={employee.hireDate} value={effectiveFrom} onChange={event=>setEffectiveFrom(event.target.value)} required/></Field><Field label="Reason"><input value={remarks} onChange={event=>setRemarks(event.target.value)} maxLength={250} placeholder="Initial pay group or payroll frequency change"/></Field><button type="submit" className="security-submit" disabled={busy||!groupId}>{busy?'Saving…':'Assign pay group'}</button></>:<p className="people-muted">Create a pay group for {company.legalName} in Payroll settings before assigning this employee.</p>}</form></section>
 }
 
