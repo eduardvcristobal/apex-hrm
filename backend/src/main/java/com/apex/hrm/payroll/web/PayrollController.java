@@ -351,7 +351,7 @@ public class PayrollController {
 
     private static BigDecimal amount(BigDecimal value) {
         if (value == null) return BigDecimal.ZERO;
-        if (value.signum() < 0 || value.scale() > 2) throw new com.apex.hrm.common.BusinessException("Prior-employer amounts must be non-negative and limited to cents");
+        if (value.signum() < 0 || value.stripTrailingZeros().scale() > 2) throw new com.apex.hrm.common.BusinessException("Prior-employer amounts must be non-negative and limited to cents");
         return value;
     }
 
