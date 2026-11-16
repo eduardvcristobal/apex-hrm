@@ -26,6 +26,8 @@ public class MfaController {
     }
     @GetMapping
     public java.util.Map<String,Boolean> status(@AuthenticationPrincipal HrmUserPrincipal user) {
-        return java.util.Map.of("enabled",mfa.isEnabled(user.id()));
+        boolean verified=user.getAuthorities().stream()
+            .anyMatch(authority -> "ROLE_MFA_VERIFIED".equals(authority.getAuthority()));
+        return java.util.Map.of("enabled",mfa.isEnabled(user.id()),"tokenVerified",verified);
     }
 }

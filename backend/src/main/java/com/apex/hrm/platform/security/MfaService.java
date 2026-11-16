@@ -3,6 +3,7 @@ package com.apex.hrm.platform.security;
 import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -17,10 +18,15 @@ public class MfaService {
     private final TotpVerifier verifier;
     private final MfaSecretCipher cipher;
     private final TransactionTemplate transactions;
+    private final boolean required;
     public MfaService(JdbcTemplate jdbc,TotpVerifier verifier,MfaSecretCipher cipher,
-            org.springframework.transaction.PlatformTransactionManager tx) {
+            org.springframework.transaction.PlatformTransactionManager tx,
+            @Value("${hrm.security.mfa-required:true}") boolean required) {
         this.jdbc=jdbc;this.verifier=verifier;this.cipher=cipher;this.transactions=new TransactionTemplate(tx);
+        this.required=required;
     }
+    /** Whether workspace MFA is enforced. When false, MFA is optional for testing and deployment flexibility. */
+    public boolean isRequired() { return required; }
     public record Enrollment(String secretHex,String type) {}
     public Enrollment enroll(HrmUserPrincipal user) {
         return transactions.execute(status -> {

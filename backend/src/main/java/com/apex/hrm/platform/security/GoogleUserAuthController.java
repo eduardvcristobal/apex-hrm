@@ -60,7 +60,7 @@ public class GoogleUserAuthController {
         boolean mfaEnabled=mfa.isEnabled(user.id());
         // MFA is a login challenge only after the user enrolls an authenticator.
         // Otherwise authorization is determined by the account's assigned roles.
-        if(mfaEnabled) {
+        if(mfa.isRequired() && mfaEnabled) {
             if(code==null || code.isBlank())
                 throw new ResponseStatusException(HttpStatus.PRECONDITION_REQUIRED,"Authenticator code required");
             mfa.requireVerified(user,code);

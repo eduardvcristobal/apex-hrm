@@ -13,7 +13,7 @@ mvn test                             # engine unit tests (DTR, premiums, SSS/Phi
 
 The API expects your local PostgreSQL server at `localhost:5432`, with database/user/password `apex_hrm / hrm / hrm` by default. Start PostgreSQL before running the API. The optional `docker-compose.yml` can start a containerized database if desired. Copy `.env.example` to `.env` for local-only service configuration; the backend loads this file when present.
 
-Configure `HRM_MFA_ENCRYPTION_KEY` before enrolling MFA or saving encrypted Resend credentials; generate it with `openssl rand -base64 32` and keep it stable. Configure `GOOGLE_CLIENT_ID` and the matching frontend `VITE_GOOGLE_CLIENT_ID` for Google sign-in. Put platform administrator addresses in `PLATFORM_ADMIN_EMAILS`. SMTP settings are needed for password recovery and invitations. The backend env template documents optional backup requirements.
+Configure `HRM_MFA_ENCRYPTION_KEY` before enrolling MFA or saving encrypted Resend credentials; generate it with `openssl rand -base64 32` and keep it stable. Workspace MFA is enforced by default; set `HRM_MFA_REQUIRED=false` to test without an authenticator (platform-admin MFA remains enforced). Configure `GOOGLE_CLIENT_ID` and the matching frontend `VITE_GOOGLE_CLIENT_ID` for Google sign-in. Put platform administrator addresses in `PLATFORM_ADMIN_EMAILS`. SMTP settings are needed for password recovery and invitations. The backend env template documents optional backup requirements.
 
 ## Structure
 
@@ -40,7 +40,7 @@ TOKEN=$(curl -s -X POST localhost:8080/api/v1/security/signup \
   -H 'Content-Type: application/json' \
   -d '{"workspaceName":"Acme Corp","email":"owner@acme.example","username":"acme-owner","password":"change-this-demo-password"}' | jq -r .value)
 curl localhost:8080/api/v1/me -H "Authorization: Bearer $TOKEN"
-# The owner enrolls an authenticator before using workspace administration.
+# Workspace administration requires MFA unless HRM_MFA_REQUIRED=false.
 ```
 
 Workflow endpoints: `/api/attendance/*`, `/api/dtr/process`, `/api/leave/*`, `/api/overtime/*`,
