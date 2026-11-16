@@ -195,6 +195,18 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
   expectOk(companyResult);
   const company = companyResult.body[0];
   expect(company).toBeTruthy();
+  // The tenant starts with effective-dated statutory reference tables. Verify
+  // that the tax and contribution inputs needed for payroll are present.
+  const contributionRules = await callApi('GET', '/api/reference/statutory-contribution-rules?size=500&page=0');
+  expectOk(contributionRules);
+  const currentContributionRules = (contributionRules.body.content || []).filter(rule =>
+    rule.effectiveFrom && rule.effectiveFrom <= today && (!rule.effectiveTo || rule.effectiveTo >= today));
+  expect(currentContributionRules.length, 'effective statutory contribution tables are available').toBeGreaterThan(0);
+  const taxBrackets = await callApi('GET', '/api/reference/withholding-tax-brackets?size=500&page=0');
+  expectOk(taxBrackets);
+  const currentTaxBrackets = (taxBrackets.body.content || []).filter(bracket =>
+    bracket.effectiveFrom && bracket.effectiveFrom <= today);
+  expect(currentTaxBrackets.length, 'effective withholding tax brackets are available').toBeGreaterThan(0);
   // Establish the organization's core reference data before adding the journey hire.
   const branchResult = await callApi('POST', `/api/v1/companies/${company.id}/branches`, {
     branchCode: `BR-${runId}`, branchName: `Journey Branch ${runId}`, regionCode: 'NCR',
@@ -304,6 +316,11 @@ test('workspace owner signs up, secures the account, and tours the HRM', async (
       expectOk(log);
     }
   }
+  const dependent = await callApi('POST', '/api/employee-dependents', {
+    employeeId: employees[0].id, fullName: `Journey Dependent ${runId}`,
+    relationship: 'CHILD', birthDate: '2018-04-12',
+  });
+  expectOk(dependent);
 
   // Provision an independent HR approver in the isolated test workspace. The
   // owner remains the employee requester; approval routing forbids self-approval.
