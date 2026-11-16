@@ -119,11 +119,13 @@
   background: rgb(255 231 178 / 8%);
 }
 .workspace-content .people-page-icon,.workspace-content .people-directory-identity > span,
-.workspace-content .people-avatar,.workspace-content .info-card-icon,.workspace-content .staff-card-icon {
+.workspace-content .people-avatar,.workspace-content .info-card-icon,.workspace-content .staff-card-icon,
+.workspace-app :is(.workspace-avatar,.profile-avatar,.header-avatar,.platform-admin-avatar) {
   border: 1px solid rgb(218 180 95 / 40%);
   color: var(--hud-gold-bright);
   background: rgb(239 202 117 / 12%);
 }
+.workspace-app .header-avatar { color: #30291b; background: linear-gradient(135deg,#f4d789,#d4a84d); }
 
 .workspace-content table { color: var(--hud-text); border-color: rgb(218 180 95 / 32%); }
 .workspace-content :is(th,td) { border-color: rgb(218 180 95 / 28%); }
@@ -530,6 +532,12 @@
 .workspace-content .self-service-photo-modal { background: rgb(7 9 8 / 88%) !important; backdrop-filter: blur(5px); }
 .workspace-content .self-service-photo-modal img { border: 1px solid var(--hud-border); box-shadow: 0 20px 60px rgb(0 0 0 / 45%); }
 .workspace-content .self-service-photo-modal button { justify-self: end; }
+.workspace-app .app-toast { border-color: var(--hud-border); color: var(--hud-text); background: #302f29; box-shadow: 0 16px 42px rgb(0 0 0 / 42%); }
+.workspace-app .app-toast > span { color: #30291b; background: var(--hud-gold); }
+.workspace-app .app-toast-error { border-color: rgb(224 124 106 / 52%); color: #ffe2dc; background: #382622; }
+.workspace-app .app-toast-error > span { color: #382622; background: #f0a092; }
+.workspace-content .approval-payload { border: 1px solid var(--hud-border); color: var(--hud-text); background: rgb(255 231 178 / 5%); }
+.workspace-content .notification-count { border: 1px solid rgb(224 124 106 / 42%); color: #ffd6cc; background: rgb(150 57 43 / 24%); }
 .workspace-content :is(.org-chart-node-menu > summary,.org-chart-close,.payslip-close) { border-color: var(--hud-border) !important; color: var(--hud-gold-bright) !important; background: rgb(255 231 178 / 7%) !important; }
 .workspace-app dialog.platform-edit-dialog,
 .workspace-app dialog.platform-confirm-dialog {
@@ -566,6 +574,11 @@
   background: linear-gradient(125deg,rgb(67 62 49 / 96%),rgb(49 49 42 / 96%)) !important;
   box-shadow: inset 0 0 22px rgb(239 202 117 / 3%),0 9px 24px rgb(0 0 0 / 12%);
 }
+.platform-content .platform-impact-metrics span { border: 1px solid rgb(218 180 95 / 32%); color: var(--hud-text); background: rgb(255 231 178 / 5%); }
+.platform-content :is(.platform-impact-blocker,.platform-impact-warning,.platform-impact-info) { border: 1px solid var(--hud-border); color: var(--hud-muted); background: rgb(239 202 117 / 8%); }
+.platform-content .platform-impact-blocker { border-color: rgb(224 124 106 / 46%); color: #ffd6cc; background: rgb(150 57 43 / 22%); }
+.platform-content .platform-impact-warning { color: #ffe7b0; background: rgb(170 124 39 / 18%); }
+.platform-content .platform-impact-info { color: #e0e5ef; background: rgb(101 111 137 / 20%); }
 .platform-content :is(.platform-tabs,.platform-account-tabs,.security-tabs,.account-tabs) {
   border-color: var(--hud-border) !important;
   background: rgb(255 231 178 / 5%) !important;
@@ -628,11 +641,16 @@
 }
 .platform-app dialog.platform-edit-dialog::backdrop,.platform-app dialog.platform-confirm-dialog::backdrop { background: rgb(7 9 8 / 78%); backdrop-filter: blur(4px); }
 .platform-app dialog :is(h1,h2,h3,h4,strong,label,p,small) { color: var(--hud-text) !important; }
+.platform-app dialog :is(p,small,label) { color: var(--hud-muted) !important; }
 .platform-app dialog :is(input:not([type="checkbox"]),select,textarea) { border-color: var(--hud-border) !important; color: var(--hud-text) !important; background: #252a27 !important; }
 .platform-app dialog :is(header button,.platform-confirm-close) { border-color: var(--hud-border) !important; color: var(--hud-gold-bright) !important; background: rgb(255 231 178 / 6%) !important; }
 .platform-app dialog .platform-confirm-summary { border-color: var(--hud-border) !important; background: rgb(255 231 178 / 5%) !important; }
 .platform-app .account-popover :is(strong,small),.platform-app .account-menu-item,.platform-app .account-signout { color: var(--hud-text) !important; }
 .platform-app .account-menu-items,.platform-app .account-menu-footer { border-color: var(--hud-border) !important; }
+.platform-app .app-toast { border-color: var(--hud-border); color: var(--hud-text); background: #302f29; box-shadow: 0 16px 42px rgb(0 0 0 / 42%); }
+.platform-app .app-toast > span { color: #30291b; background: var(--hud-gold); }
+.platform-app .app-toast-error { border-color: rgb(224 124 106 / 52%); color: #ffe2dc; background: #382622; }
+.platform-app .app-toast-error > span { color: #382622; background: #f0a092; }
 
 @media (max-width: 680px) {
   .workspace-content { min-height: calc(100dvh - 58px); }
