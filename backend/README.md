@@ -13,7 +13,7 @@ mvn test                             # engine unit tests (DTR, premiums, SSS/Phi
 
 The API expects your local PostgreSQL server at `localhost:5432`, with database/user/password `apex_hrm / hrm / hrm` by default. Start PostgreSQL before running the API. The optional `docker-compose.yml` can start a containerized database if desired. Copy `.env.example` to `.env` for local-only service configuration; the backend loads this file when present.
 
-Configure `HRM_MFA_ENCRYPTION_KEY` before enrolling MFA or saving encrypted Resend credentials; generate it with `openssl rand -base64 32` and keep it stable. Workspace MFA is enforced by default; set `HRM_MFA_REQUIRED=false` to test without an authenticator (platform-admin MFA remains enforced). Configure `GOOGLE_CLIENT_ID` and the matching frontend `VITE_GOOGLE_CLIENT_ID` for Google sign-in. Put platform administrator addresses in `PLATFORM_ADMIN_EMAILS`. SMTP settings are needed for password recovery and invitations. The backend env template documents optional backup requirements.
+Configure `HRM_MFA_ENCRYPTION_KEY` before enrolling MFA or saving encrypted Resend credentials, and `HRM_DOCUMENT_KEY` before uploading employee documents. Generate each with `openssl rand -base64 32` and keep each key stable; losing either key makes its encrypted values unreadable. Workspace MFA is enforced by default; set `HRM_MFA_REQUIRED=false` to test without an authenticator (platform-admin MFA remains enforced). Configure `GOOGLE_CLIENT_ID` and the matching frontend `VITE_GOOGLE_CLIENT_ID` for Google sign-in. Put platform administrator addresses in `PLATFORM_ADMIN_EMAILS`. SMTP settings are needed for password recovery and invitations. The backend env template documents optional backup requirements.
 
 ## Structure
 

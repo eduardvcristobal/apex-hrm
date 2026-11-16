@@ -257,6 +257,7 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await testInfo.attach('onboarding-04-independent-approver-approved-case', { body: await approverPage.screenshot(), contentType: 'image/png' });
 
   await page.getByRole('button', { name: /People directory/ }).click();
+  await navigateTo(page, 'Personnel', 'Onboarding');
   await expect(page.getByRole('heading', { name: 'Onboarding', exact: true })).toBeVisible();
   await openEmployee(page, 'Onboarding');
   const approvedCase = page.locator('.people-case').filter({ hasText: 'ONBOARDING' }).first();
