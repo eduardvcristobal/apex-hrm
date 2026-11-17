@@ -295,6 +295,30 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
     finally { setBusy(''); }
   }
 
+  async function recompute(run: Run) {
+    const confirmed = window.confirm('Recompute this payroll from current attendance, compensation, and payroll rules? This replaces the existing calculation and payroll lines.');
+    if (!confirmed) return;
+    setBusy('compute'); setError(''); setNotice('');
+    try {
+      const updated = await request<Run>(`/api/payroll/runs/${run.id}/compute`, { method: 'POST' });
+      setNotice(`Payroll recalculated. Current status: ${updated.status}.`);
+      await load(); await selectRun(updated);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not recompute this payroll run.'); }
+    finally { setBusy(''); }
+  }
+
+  async function unprocess(run: Run) {
+    const confirmed = window.confirm('Unprocess this payroll? This returns it to draft and permanently clears its calculated employee totals and pay lines so you can process it again.');
+    if (!confirmed) return;
+    setBusy('unprocess'); setError(''); setNotice('');
+    try {
+      const updated = await request<Run>(`/api/payroll/runs/${run.id}/unprocess`, { method: 'POST' });
+      setNotice('Payroll unprocessed and returned to draft. You can now compute it again.');
+      await load(); await selectRun(updated);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not unprocess this payroll run.'); }
+    finally { setBusy(''); }
+  }
+
   async function createBankFile() {
     if (!selected || !bankTemplateId) return;
     setBusy('bank-file'); setError(''); setNotice('');
@@ -399,6 +423,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
     LOCKED: { action: 'pay', label: 'Mark paid', confirm: 'Confirm that this payroll run has been paid?' },
   };
   const action = selected ? lifecycleAction[selected.status] : undefined;
+  const canRecompute = !!selected && ['COMPUTED', 'REVIEWED'].includes(selected.status);
 
   return <section className="timekeeping-workspace payroll-workspace">
     <header className="timekeeping-heading"><div><p className="eyebrow">PAYROLL</p><h1>Payroll runs</h1><p>Create payroll for an open pay period, review the calculation, and complete the controlled approval lifecycle.</p></div><button type="button" className="session-revoke" onClick={() => void load()} disabled={loading}>{loading ? 'Loading…' : '↻ Refresh'}</button></header>
@@ -486,7 +511,7 @@ export function PayrollWorkspace({ token, onOpenSecurity }: { token: string; onO
         {loading ? <div className="timekeeping-empty">Loading payroll records…</div> : runs.length ? <div className="timekeeping-table-wrap"><table className="timekeeping-table payroll-table"><thead><tr><th>PAY PERIOD</th><th>PAY GROUP</th><th>TYPE</th><th>STATUS</th><th>EMPLOYEES</th><th>NET PAY</th></tr></thead><tbody>{runs.map(run => { const period = periodById.get(run.payPeriodId); return <tr key={run.id} className={selected?.id === run.id ? 'payroll-selected-row' : ''}><td><button type="button" className="payroll-run-link" onClick={() => void selectRun(run)}>{period ? `${date(period.startDate)} – ${date(period.endDate)}` : 'Period details unavailable'}<small>Pay date {period ? date(period.payDate) : '—'}</small></button></td><td>{groupById.get(run.payGroupId)?.name || '—'}</td><td>{run.runType.replaceAll('_', ' ')}</td><td><span className={`timekeeping-status ${run.status === 'PAID' ? 'open' : run.status === 'DRAFT' ? 'warning' : run.status === 'LOCKED' ? 'locked' : 'open'}`}>{run.status}</span></td><td>{run.employeeCount}</td><td><strong>{money(run.totalNet)}</strong></td></tr>; })}</tbody></table></div> : <div className="timekeeping-empty">No payroll runs yet. Select an open pay period to get started.</div>}
       </section>
     </div>
-    {selected && <section className="payroll-panel payroll-detail-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">RUN DETAILS</p><h2>{selected.runType.replaceAll('_', ' ')} payroll</h2><p>{selectedPeriod ? `${date(selectedPeriod.startDate)} – ${date(selectedPeriod.endDate)} · Pay date ${date(selectedPeriod.payDate)}` : 'Pay period'}</p></div><div className="payroll-detail-actions">{action && <button type="button" className="security-submit" onClick={() => void transition(selected, action.action, action.confirm)} disabled={!!busy || mfaVerified === false || (action.action === 'pay' && (!settlementSummary || settlementSummary.expected <= 0 || settlementSummary.confirmed !== settlementSummary.expected))}>{busy === action.action ? 'Saving…' : action.label}</button>}{['SSS', 'PHILHEALTH', 'PAGIBIG'].map(agency => <button key={agency} type="button" className="security-submit" onClick={() => void downloadRemittance(agency as 'SSS' | 'PHILHEALTH' | 'PAGIBIG')} disabled={!!busy || mfaVerified === false}>{busy === `remittance-${agency}` ? 'Downloading…' : `${agency} review CSV`}</button>)}</div></div>
+    {selected && <section className="payroll-panel payroll-detail-panel"><div className="payroll-panel-heading"><div><p className="eyebrow">RUN DETAILS</p><h2>{selected.runType.replaceAll('_', ' ')} payroll</h2><p>{selectedPeriod ? `${date(selectedPeriod.startDate)} – ${date(selectedPeriod.endDate)} · Pay date ${date(selectedPeriod.payDate)}` : 'Pay period'}</p></div><div className="payroll-detail-actions">{selected.status === 'COMPUTED' && <button type="button" className="security-submit" onClick={() => void unprocess(selected)} disabled={!!busy || mfaVerified === false}>{busy === 'unprocess' ? 'Unprocessing…' : 'Unprocess payroll'}</button>}{canRecompute && <button type="button" className="security-submit" onClick={() => void recompute(selected)} disabled={!!busy || mfaVerified === false}>{busy === 'compute' ? 'Recomputing…' : 'Recompute payroll'}</button>}{action && <button type="button" className="security-submit" onClick={() => void transition(selected, action.action, action.confirm)} disabled={!!busy || mfaVerified === false || (action.action === 'pay' && (!settlementSummary || settlementSummary.expected <= 0 || settlementSummary.confirmed !== settlementSummary.expected))}>{busy === action.action ? 'Saving…' : action.label}</button>}{['SSS', 'PHILHEALTH', 'PAGIBIG'].map(agency => <button key={agency} type="button" className="security-submit" onClick={() => void downloadRemittance(agency as 'SSS' | 'PHILHEALTH' | 'PAGIBIG')} disabled={!!busy || mfaVerified === false}>{busy === `remittance-${agency}` ? 'Downloading…' : `${agency} review CSV`}</button>)}</div></div>
       {action?.action === 'pay' && settlementSummary && (settlementSummary.expected <= 0 || settlementSummary.confirmed !== settlementSummary.expected) && <p className="payroll-help">Mark as paid is available after confirmed bank acknowledgments cover the full payroll net amount.</p>}
       {selected.remarks && <div className="payroll-warning">{selected.remarks}</div>}
       <div className="payroll-lifecycle">{stages.map((stage, index) => <div key={stage} className={stages.indexOf(selected.status) >= index ? 'complete' : ''}><i>{stages.indexOf(selected.status) >= index ? '✓' : index + 1}</i><span>{stage.replaceAll('_', ' ')}</span></div>)}</div>

@@ -972,6 +972,11 @@ WHERE bir2316_review.status<>'APPROVED' OR bir2316_review.source_fingerprint<>EX
         return payroll.compute(id);
     }
 
+    @PostMapping("/runs/{id}/unprocess")
+    public PayrollRun unprocess(@PathVariable UUID id) {
+        return payroll.unprocess(id);
+    }
+
     @PostMapping("/runs/{id}/review")
     public PayrollRun review(@PathVariable UUID id) {
         return payroll.review(id);

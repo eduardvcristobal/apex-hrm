@@ -33,6 +33,8 @@ import com.apex.hrm.payroll.repo.PayrollEmployeeRepository;
 import com.apex.hrm.payroll.repo.PayrollLineRepository;
 import com.apex.hrm.payroll.repo.PayrollRunRepository;
 import com.apex.hrm.payroll.repo.PayrollBankSettlementRepository;
+import com.apex.hrm.payroll.repo.JournalEntryRepository;
+import com.apex.hrm.payroll.repo.BankFileRepository;
 import com.apex.hrm.payroll.repo.PremiumRuleRepository;
 import com.apex.hrm.payroll.repo.StatutoryContributionRuleRepository;
 import com.apex.hrm.payroll.repo.WageOrderRepository;
@@ -97,6 +99,8 @@ public class PayrollService {
     private final AuditService audit;
     private final SettlementService settlement;
     private final PayrollBankSettlementRepository bankSettlements;
+    private final JournalEntryRepository journals;
+    private final BankFileRepository bankFiles;
     private final EmployeePeraTaxCreditRepository peraTaxCredits;
 
     public PayrollService(PayrollRunRepository runs, PayPeriodRepository periods, PayGroupRepository payGroups,
@@ -107,7 +111,8 @@ public class PayrollService {
                           StatutoryContributionRuleRepository statutory, WithholdingTaxBracketRepository taxBrackets,
                           WageOrderRepository wageOrders, WorkLocationRepository locations, PayslipService payslips,
                           AuditService audit, SettlementService settlement,
-                          PayrollBankSettlementRepository bankSettlements, EmployeePeraTaxCreditRepository peraTaxCredits) {
+                          PayrollBankSettlementRepository bankSettlements, EmployeePeraTaxCreditRepository peraTaxCredits,
+                          JournalEntryRepository journals, BankFileRepository bankFiles) {
         this.runs = runs;
         this.periods = periods;
         this.payGroups = payGroups;
@@ -130,6 +135,8 @@ public class PayrollService {
         this.settlement = settlement;
         this.bankSettlements = bankSettlements;
         this.peraTaxCredits = peraTaxCredits;
+        this.journals = journals;
+        this.bankFiles = bankFiles;
     }
 
     @Transactional
@@ -265,6 +272,41 @@ public class PayrollService {
         run.setStatus("COMPUTED");
         run.setComputedAt(Instant.now());
         audit.log("PayrollRun", runId, "COMPUTE", count + " employees, net " + net);
+        return runs.save(run);
+    }
+
+    @Transactional
+    public PayrollRun unprocess(UUID runId) {
+        PayrollRun run = load(runId);
+        requireStatus(run, "COMPUTED");
+        if (!payslips.findByRunId(runId).isEmpty()) {
+            throw new BusinessException("This payroll has payslips. Unpublish it before unprocessing.");
+        }
+        if (!journals.findByRunId(runId).isEmpty()) {
+            throw new BusinessException("This payroll has journal entries and cannot be unprocessed.");
+        }
+        if (!bankFiles.findByRunId(runId).isEmpty()) {
+            throw new BusinessException("This payroll has bank exports and cannot be unprocessed.");
+        }
+
+        for (Adjustment adjustment : adjustments.findByAppliedRunId(runId)) {
+            adjustment.setStatus("APPROVED");
+            adjustment.setAppliedRunId(null);
+            adjustments.save(adjustment);
+        }
+        lines.deleteByRunId(runId);
+        payrollEmployees.deleteByRunId(runId);
+        payrollEmployees.flush();
+
+        run.setStatus("DRAFT");
+        run.setComputedAt(null);
+        run.setEmployeeCount(0);
+        run.setTotalGross(BigDecimal.ZERO);
+        run.setTotalDeductions(BigDecimal.ZERO);
+        run.setTotalNet(BigDecimal.ZERO);
+        run.setTotalEmployerCost(BigDecimal.ZERO);
+        run.setRemarks(null);
+        audit.log("PayrollRun", runId, "UNPROCESS", "Returned computed payroll to draft and cleared generated lines");
         return runs.save(run);
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import QRCode from 'qrcode';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -33,7 +33,72 @@ import './hud-theme.css';
 const TOKEN_KEY = 'apexHrm.accessToken';
 const EXPIRY_KEY = 'apexHrm.expiresAt';
 const THEME_KEY = 'apexHrm.workspaceTheme';
-type WorkspaceTheme = 'hud' | 'tidal';
+const APPEARANCE_KEY = 'apexHrm.appearanceSettings';
+type AppearanceMode = 'light' | 'dark' | 'system';
+type DesignStyle = 'classic' | 'minimal' | 'glass' | 'cinematic-hud';
+type ColorTheme = 'pearl-teal' | 'emerald-royale' | 'jade-obsidian' | 'forest-platinum' | 'venetian-jade' | 'oceanic-emerald' | 'sage-moonlight' | 'sapphire-luxe' | 'arctic-glass' | 'midnight-cyan' | 'pacific-pearl' | 'royal-aquamarine' | 'celestial-blue' | 'neptune-glass' | 'champagne-gold' | 'aurora-borealis' | 'titanium-frost' | 'imperial-navy' | 'amethyst-aurora' | 'obsidian-rose-gold';
+type AppearanceSettings = { mode: AppearanceMode; style: DesignStyle; color: ColorTheme; accent: string; glow: number; glass: number; previewWorkspace: string };
+const colorThemes: { value: ColorTheme; label: string; accent: string; page: string; surface: string }[] = [
+  { value: 'pearl-teal', label: 'Pearl Teal', accent: '#67d9c9', page: '#102a28', surface: '#183a37' },
+  { value: 'emerald-royale', label: 'Emerald Royale', accent: '#5cdda0', page: '#10251d', surface: '#17402e' },
+  { value: 'jade-obsidian', label: 'Jade Obsidian', accent: '#73cfa2', page: '#171f1c', surface: '#222f29' },
+  { value: 'forest-platinum', label: 'Forest Platinum', accent: '#a5d8bc', page: '#12231d', surface: '#1b362b' },
+  { value: 'venetian-jade', label: 'Venetian Jade', accent: '#83cdb2', page: '#142823', surface: '#1b3830' },
+  { value: 'oceanic-emerald', label: 'Oceanic Emerald', accent: '#59d9c7', page: '#102b32', surface: '#174545' },
+  { value: 'sage-moonlight', label: 'Sage Moonlight', accent: '#b5d6b2', page: '#202b28', surface: '#35413a' },
+  { value: 'sapphire-luxe', label: 'Sapphire Luxe', accent: '#77baf6', page: '#111d33', surface: '#1a2e4a' },
+  { value: 'arctic-glass', label: 'Arctic Glass', accent: '#77cde5', page: '#112630', surface: '#1c3b49' },
+  { value: 'midnight-cyan', label: 'Midnight Cyan', accent: '#36d6ed', page: '#0c1f2c', surface: '#123548' },
+  { value: 'pacific-pearl', label: 'Pacific Pearl', accent: '#90d9e8', page: '#132a38', surface: '#204356' },
+  { value: 'royal-aquamarine', label: 'Royal Aquamarine', accent: '#52e6d2', page: '#0e2c31', surface: '#16504e' },
+  { value: 'celestial-blue', label: 'Celestial Blue', accent: '#9ab9ff', page: '#141f39', surface: '#25345d' },
+  { value: 'neptune-glass', label: 'Neptune Glass', accent: '#54d2e5', page: '#0d2732', surface: '#153947' },
+  { value: 'champagne-gold', label: 'Champagne Gold', accent: '#efca75', page: '#252a27', surface: '#2c2b25' },
+  { value: 'aurora-borealis', label: 'Aurora Borealis', accent: '#71e1b2', page: '#10271f', surface: '#173b30' },
+  { value: 'titanium-frost', label: 'Titanium Frost', accent: '#c5d7e6', page: '#202a33', surface: '#343f49' },
+  { value: 'imperial-navy', label: 'Imperial Navy', accent: '#e4c77d', page: '#101c31', surface: '#1a2d49' },
+  { value: 'amethyst-aurora', label: 'Amethyst Aurora', accent: '#c29bff', page: '#211b32', surface: '#38294c' },
+  { value: 'obsidian-rose-gold', label: 'Obsidian Rose Gold', accent: '#e6a18e', page: '#29211f', surface: '#40302d' },
+];
+const appearanceSwatches = colorThemes;
+const previewWorkspaces = ['Personnel','Timekeeping','Payroll','Insights','Administration','Overview'];
+const colorThemeGroups = [
+  { label: 'Green & Teal Collection', themes: colorThemes.slice(0, 7) },
+  { label: 'Blue & Aqua Collection', themes: colorThemes.slice(7, 14) },
+  { label: 'Exclusive Luxury Collection', themes: colorThemes.slice(14, 20) },
+];
+function defaultAppearance(): AppearanceSettings {
+  const base: AppearanceSettings = { mode: 'dark', style: 'cinematic-hud', color: 'pearl-teal', accent: '#67d9c9', glow: 46, glass: 16, previewWorkspace: 'Personnel' };
+  const modes: AppearanceMode[] = ['light','dark','system'];
+  const styles: DesignStyle[] = ['classic','minimal','glass','cinematic-hud'];
+  try {
+    const saved = localStorage.getItem(APPEARANCE_KEY);
+    if (saved) {
+      const value = JSON.parse(saved) as Partial<AppearanceSettings>;
+      const color = colorThemes.some((theme) => theme.value === value.color) ? value.color! : base.color;
+      const presetAccent = colorThemes.find((theme) => theme.value === color)?.accent ?? base.accent;
+      return {
+        mode: modes.includes(value.mode as AppearanceMode) ? value.mode! : base.mode,
+        style: styles.includes(value.style as DesignStyle) ? value.style! : base.style,
+        color,
+        accent: presetAccent,
+        glow: typeof value.glow === 'number' && Number.isFinite(value.glow) ? Math.max(0,Math.min(100,value.glow)) : base.glow,
+        glass: typeof value.glass === 'number' && Number.isFinite(value.glass) ? Math.max(0,Math.min(60,value.glass)) : base.glass,
+        previewWorkspace: previewWorkspaces.includes(value.previewWorkspace ?? '') ? value.previewWorkspace! : base.previewWorkspace,
+      };
+    }
+    const legacy = localStorage.getItem(THEME_KEY);
+    if (legacy === 'tidal' || legacy === 'pearl') return { ...base, style: 'cinematic-hud', color: 'pearl-teal', accent: '#67d9c9' };
+    if (legacy === 'pacific') return { ...base, style: 'cinematic-hud', color: 'neptune-glass', accent: '#54d2e5' };
+    if (legacy === 'aurora') return { ...base, style: 'cinematic-hud', color: 'aurora-borealis', accent: '#71e1b2' };
+  } catch { /* Use defaults when browser storage is unavailable. */ }
+  return base;
+}
+function hexRgb(hex: string) {
+  const value = hex.replace('#', '');
+  const parsed = Number.parseInt(value, 16);
+  return `${(parsed >> 16) & 255} ${(parsed >> 8) & 255} ${parsed & 255}`;
+}
 
 const workspaceRouteSections = ['Overview','My workspace','People','Onboarding','Organization','Documents','Users & staff','HR policies','Recruitment','Headcount requests','Performance','Learning & development','My learning','Time & attendance','Leave management','Schedules & shifts','Overtime','Approval center','Approval workflows','Payroll','Payroll adjustments','Pay groups & periods','Benefits & deductions','Payslips','Tax & compliance','Reports','Announcements','Settings','Billing','Audit logs','Profile'];
 const platformRouteSections = ['Subscriptions','Payment requests','Statutory rules','Plan maintenance','Payment QR','Module status','Mail settings','Backup & restore','Account security'];
@@ -392,13 +457,17 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
   const [message, setMessage] = useState('');
   const [messageKind, setMessageKind] = useState<MessageKind>('error');
   const [activeSection, setActiveSectionState] = useState(() => sectionFromPath(location.pathname, '/dashboard', workspaceRouteSections, 'Overview'));
-  const [theme, setTheme] = useState<WorkspaceTheme>(() => {
-    try { return localStorage.getItem(THEME_KEY) === 'tidal' ? 'tidal' : 'hud'; }
-    catch { return 'hud'; }
-  });
-  const updateTheme = (next: WorkspaceTheme) => {
-    setTheme(next);
-    try { localStorage.setItem(THEME_KEY, next); } catch { /* Keep the selected theme for this session. */ }
+  const [appearance, setAppearance] = useState<AppearanceSettings>(defaultAppearance);
+  const updateAppearance = (next: AppearanceSettings) => {
+    setAppearance(next);
+    try { localStorage.setItem(APPEARANCE_KEY, JSON.stringify(next)); } catch { /* Keep the selection for this session. */ }
+  };
+  const setAppearanceValue = <K extends keyof AppearanceSettings>(key: K, value: AppearanceSettings[K]) => {
+    updateAppearance({ ...appearance, [key]: value });
+  };
+  const selectColorTheme = (theme: ColorTheme) => {
+    const preset = colorThemes.find((item) => item.value === theme);
+    if (preset) updateAppearance({ ...appearance, color: preset.value, accent: preset.accent, style: 'cinematic-hud' });
   };
   const setActiveSection = (section: string) => {
     setActiveSectionState(section);
@@ -681,7 +750,7 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
   }
 
   return (
-    <div className={`workspace-app${sidebarOpen ? ' navigation-open' : ''}${activeSection === 'People' ? ' people-page-no-header' : ''}`} data-theme={theme}>
+    <div className={`workspace-app${sidebarOpen ? ' navigation-open' : ''}${activeSection === 'People' ? ' people-page-no-header' : ''}`} data-mode={appearance.mode} data-design-style={appearance.style} data-color-theme={appearance.color} style={{ '--appearance-accent': appearance.accent, '--appearance-accent-rgb': hexRgb(appearance.accent), '--appearance-glow': `${appearance.glow}%`, '--appearance-glow-alpha': appearance.glow / 1000, '--appearance-glass-opacity': (40 + appearance.glass) / 100 } as CSSProperties}>
       {navigationOpen && <button type="button" className="navigation-backdrop" aria-label="Close navigation" onClick={() => setNavigationOpen(false)} />}
       <aside className={`workspace-sidebar${sidebarOpen ? ' is-open' : ''}`} aria-label="Workspace navigation" aria-hidden={!sidebarOpen}>
         <div className="workspace-brand"><BrandMark /><span><strong>Apex</strong><small>PEOPLE SYSTEM</small></span><button type="button" className="navigation-close" aria-label="Close navigation" onClick={() => setNavigationOpen(false)}>×</button></div>
@@ -817,7 +886,36 @@ function Dashboard({ user, onSignOut }: { user: CurrentUser; onSignOut: () => vo
               </> : profileTab === 'plan' ? <div className="security-card"><h2>Plan &amp; billing</h2><p className="security-description">Subscription and payment options for your workspace.</p><button type="button" className="security-submit" onClick={() => setActiveSection('Billing')}>View plan &amp; billing</button></div>
                 : <div className="security-card"><h2>Guides</h2><p className="security-description">Guides for setting up and managing your workspace will appear here.</p></div>}
           </section>
-            : activeSection === 'Settings' ? <section className="account-page"><p className="eyebrow">PREFERENCES</p><h1>Settings</h1><p className="account-page-intro">Manage your account security and workspace preferences.</p><section className="settings-detail-card appearance-settings-card"><div className="settings-detail-icon" aria-hidden="true">◐</div><div className="settings-detail-copy"><h2>Workspace appearance</h2><p>Choose a color theme for every workspace module. Your selection is saved on this device.</p></div><label className="appearance-theme-control" htmlFor="workspace-theme-select">Color theme<select id="workspace-theme-select" value={theme} onChange={event => updateTheme(event.currentTarget.value as WorkspaceTheme)}><option value="hud">Ocean HUD · Gold</option><option value="tidal">Tidal Glass · Teal</option></select></label></section><div className="settings-detail-card"><div className="settings-detail-icon"><AccountMenuIcon kind="settings" /></div><div className="settings-detail-copy"><h2>Account security</h2><p>{privileged ? 'Authenticator verification protects administrator features.' : 'Your account security status.'}</p><span className={`security-status${mfaEnabled ? ' is-secure' : ''}`}><i />{mfaEnabled ? 'Authenticator enabled' : privileged ? 'Authenticator needed' : 'Account active'}</span></div>{privileged && !mfaEnabled && <button type="button" className="checklist-action" onClick={() => void beginMfaSetup()} disabled={busy || Boolean(secret)}>{busy ? 'Starting…' : secret ? 'Setup started' : 'Set up MFA'}</button>}</div>{secret && !mfaEnabled && <form className="mfa-setup-card settings-mfa" onSubmit={(event) => void confirmMfaSetup(event)}><p className="eyebrow">AUTHENTICATOR SETUP</p><p className="signed-in-copy">Scan this QR code with your authenticator app, then enter the six-digit code it displays.</p><AuthenticatorQrSetup dataUrl={mfaQrCode} secret={secret} /><label className="field-label" htmlFor="settings-setup-code">6-digit authenticator code</label><div className="input-wrap"><input id="settings-setup-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.currentTarget.value.replace(/\D/g, '').slice(0, 6))} required /></div><button type="submit" className="checklist-action" disabled={busy || code.length !== 6}>{busy ? 'Verifying…' : 'Verify code'}</button><Message text={message} kind={messageKind} /></form>}</section>
+            : activeSection === 'Settings' ? <section className="account-page"><p className="eyebrow">PREFERENCES</p><h1>Settings</h1><p className="account-page-intro">Manage your account security and workspace preferences.</p><section className="appearance-studio" aria-labelledby="appearance-studio-title">
+                  <header className="appearance-studio-heading"><div><p className="eyebrow">PERSONALIZATION</p><h2 id="appearance-studio-title">Cinematic Theme Studio</h2></div><span>Interactive preview</span></header>
+                  <div className="appearance-settings-group">
+                    <h3>Appearance mode</h3><div className="appearance-choice-grid" role="radiogroup" aria-label="Appearance mode">
+                      {([['light','Light'],['dark','Dark'],['system','System']] as const).map(([value,label])=><button key={value} type="button" role="radio" aria-checked={appearance.mode===value} className={appearance.mode===value?'selected':''} onClick={()=>setAppearanceValue('mode',value)}>{label}</button>)}
+                    </div>
+                  </div>
+                  <div className="appearance-settings-group">
+                    <h3>Design style</h3><div className="appearance-choice-grid" role="radiogroup" aria-label="Design style">
+                      {([['classic','Classic'],['minimal','Minimal'],['glass','Glassmorphism'],['cinematic-hud','Cinematic HUD']] as const).map(([value,label])=><button key={value} type="button" role="radio" aria-checked={appearance.style===value} className={appearance.style===value?'selected':''} onClick={()=>setAppearanceValue('style',value)}>{label}</button>)}
+                    </div>
+                  </div>
+                  <div className="appearance-settings-group appearance-color-group">
+                    <div className="appearance-color-heading"><div><h3>Color theme</h3><small>Signature Cinematic Collection · 20 themes</small></div><select aria-label="Color theme preset" value={appearance.color} onChange={event=>selectColorTheme(event.currentTarget.value as ColorTheme)}>{colorThemeGroups.map(group=><optgroup key={group.label} label={group.label}>{group.themes.map(item=><option key={item.value} value={item.value}>{item.label}</option>)}</optgroup>)}</select></div>
+                    <div className="appearance-swatch-grid" role="radiogroup" aria-label="Signature Cinematic color themes">{appearanceSwatches.map(theme=><button key={theme.value} type="button" role="radio" aria-label={theme.label} title={theme.label} aria-checked={appearance.color===theme.value} className={appearance.color===theme.value?'selected':''} style={{'--swatch-accent':theme.accent,'--swatch-page':theme.page,'--swatch-surface':theme.surface} as CSSProperties} onClick={()=>selectColorTheme(theme.value)}><span aria-hidden="true">✓</span></button>)}</div>
+                  </div>
+                  <div className={`appearance-preview design-${appearance.style}`} data-mode={appearance.mode} data-color-theme={appearance.color} style={{'--preview-accent':appearance.accent,'--preview-glow':`${appearance.glow}%`,'--preview-glass-opacity':(40+appearance.glass)/100} as CSSProperties}>
+                    <div className="appearance-preview-brand"><span>✧</span><strong>Apex</strong><small>PEOPLE SYSTEM</small><span className="appearance-preview-close">×</span></div>
+                    <p className="appearance-preview-kicker">WORKSPACE CONTROL</p><h3>CHOOSE AN AREA</h3><p className="appearance-preview-copy">People operations, organized around your work.</p>
+                    <div className="appearance-preview-modules">{previewWorkspaces.map((workspace,index)=><button key={workspace} type="button" aria-pressed={appearance.previewWorkspace===workspace} className={appearance.previewWorkspace===workspace?'selected':''} onClick={()=>setAppearanceValue('previewWorkspace',workspace)}><span>{['♙','◷','₱','▥','⚙','⌂'][index]}</span>{workspace}</button>)}</div>
+                    <div className="appearance-preview-core" aria-hidden="true"><i/><i/><i/><span>✧</span></div>
+                    <div className="appearance-preview-active"><span>● ACTIVE MODULE</span><strong>{appearance.previewWorkspace}</strong><div><span>My workspace</span><span>Employee directory</span><span>Organization</span></div></div>
+                  </div>
+                  <div className="appearance-sliders">
+                    <label><span>Ambient glow <output>{appearance.glow}%</output></span><input type="range" min="0" max="100" value={appearance.glow} onChange={event=>setAppearanceValue('glow',Number(event.currentTarget.value))}/></label>
+                    <label><span>Glass opacity <output>{appearance.glass}%</output></span><input type="range" min="0" max="60" value={appearance.glass} onChange={event=>setAppearanceValue('glass',Number(event.currentTarget.value))}/></label>
+                  </div>
+                  <div className="appearance-settings-group appearance-preview-workspace"><h3>Active workspace preview</h3><div role="group" aria-label="Preview workspace">{previewWorkspaces.map(workspace=><button key={workspace} type="button" aria-pressed={appearance.previewWorkspace===workspace} className={appearance.previewWorkspace===workspace?'selected':''} onClick={()=>setAppearanceValue('previewWorkspace',workspace)}>{workspace}</button>)}</div></div>
+                  <p className="appearance-studio-note">Preferences are saved on this device and apply across workspace modules.</p>
+                </section><div className="settings-detail-card"><div className="settings-detail-icon"><AccountMenuIcon kind="settings" /></div><div className="settings-detail-copy"><h2>Account security</h2><p>{privileged ? 'Authenticator verification protects administrator features.' : 'Your account security status.'}</p><span className={`security-status${mfaEnabled ? ' is-secure' : ''}`}><i />{mfaEnabled ? 'Authenticator enabled' : privileged ? 'Authenticator needed' : 'Account active'}</span></div>{privileged && !mfaEnabled && <button type="button" className="checklist-action" onClick={() => void beginMfaSetup()} disabled={busy || Boolean(secret)}>{busy ? 'Starting…' : secret ? 'Setup started' : 'Set up MFA'}</button>}</div>{secret && !mfaEnabled && <form className="mfa-setup-card settings-mfa" onSubmit={(event) => void confirmMfaSetup(event)}><p className="eyebrow">AUTHENTICATOR SETUP</p><p className="signed-in-copy">Scan this QR code with your authenticator app, then enter the six-digit code it displays.</p><AuthenticatorQrSetup dataUrl={mfaQrCode} secret={secret} /><label className="field-label" htmlFor="settings-setup-code">6-digit authenticator code</label><div className="input-wrap"><input id="settings-setup-code" type="text" inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.currentTarget.value.replace(/\D/g, '').slice(0, 6))} required /></div><button type="submit" className="checklist-action" disabled={busy || code.length !== 6}>{busy ? 'Verifying…' : 'Verify code'}</button><Message text={message} kind={messageKind} /></form>}</section>
               : activeSection === 'Billing' ? <section className="account-page"><p className="eyebrow">WORKSPACE PLAN</p><h1>Plan &amp; billing</h1><p className="account-page-intro">Review your current subscription, compare available plans, and submit payment for review.</p>{billingError&&<div className="platform-alert" role="alert">{billingError}</div>}{billingMessage&&<p className="platform-notice" role="status">{billingMessage}</p>}{billingLoading?<div className="security-card"><p className="security-description">Loading subscription details…</p></div>:billing&&<><div className="billing-detail-card"><span className="billing-card-icon"><AccountMenuIcon kind="billing" /></span><div><h2>{billing.planName}</h2><p>{billing.status.replaceAll('_',' ')}{billing.periodEndsAt?` · Renews through ${new Date(billing.periodEndsAt).toLocaleDateString()}`:billing.trialEndsAt?` · Trial ends ${new Date(billing.trialEndsAt).toLocaleDateString()}`:''}</p></div><strong>{billing.amount>0?new Intl.NumberFormat(undefined,{style:'currency',currency:billing.currency}).format(billing.amount):'Free'}<small> / {billing.billingInterval==='ANNUAL'?'year':'month'}</small></strong></div><div className="billing-workspace-grid"><section className="security-card"><h2>Available plans</h2><p className="security-description">Choose a plan, make the payment, then submit its reference for verification.</p><div className="billing-plan-list">{billing.availablePlans.map(plan=><label key={plan.code} className={`billing-plan-option${billingPlan===plan.code?' selected':''}`}><input type="radio" name="billing-plan" value={plan.code} checked={billingPlan===plan.code} onChange={()=>setBillingPlan(plan.code)}/><span><strong>{plan.name}</strong><small>{plan.description||plan.featureCodes.join(' · ')}</small></span><b>{plan.amount>0?new Intl.NumberFormat(undefined,{style:'currency',currency:plan.currency}).format(plan.amount):'Free'}<small> / {plan.billingInterval==='ANNUAL'?'year':'month'}</small></b></label>)}</div></section><section className="security-card billing-payment-card"><h2>Payment instructions</h2><p className="security-description">Make payment using the platform QR code, then submit the payment reference.</p>{billing.paymentQrDataUrl?<img className="billing-payment-qr" src={billing.paymentQrDataUrl} alt="Subscription payment QR code"/>:<p className="platform-empty">Payment QR has not been configured. Contact your platform administrator.</p>}{billing.pendingRequest?<div className="billing-pending"><span className="platform-status-tag suspended">Pending review</span><strong>{billing.pendingRequest.planName}</strong><small>Reference: {billing.pendingRequest.paymentReference}</small><small>Submitted {new Date(billing.pendingRequest.submittedAt).toLocaleString()}</small></div>:user.roles.includes('ROLE_TENANT_ADMIN')?<form className="billing-request-form" onSubmit={event=>void submitPaymentRequest(event)}><label>Payment reference<input value={paymentReference} onChange={event=>setPaymentReference(event.currentTarget.value)} required minLength={4} maxLength={100}/></label><label>Note (optional)<textarea value={paymentNote} onChange={event=>setPaymentNote(event.currentTarget.value)} maxLength={300}/></label><button type="submit" className="security-submit" disabled={billingBusy||!billingPlan||!billing.paymentQrDataUrl}>{billingBusy?'Submitting…':'Submit payment for review'}</button><small>Only the workspace owner can submit a request. One pending request is allowed at a time.</small></form>:<p className="security-description">Ask your workspace owner to submit a payment request.</p>}</section></div></>}</section>
                 : <section className="module-placeholder"><span className="placeholder-icon">{navigationGroups.flatMap((group) => group.items).find((item) => item.label === activeSection)?.icon || '⚙'}</span><p className="eyebrow">COMING SOON</p><h1>{activeSection}</h1><p>This area is part of your workspace navigation. We’re building these tools next.</p><button type="button" className="checklist-action" onClick={() => setActiveSection('Overview')}>Back to overview</button></section>}
         </main>
