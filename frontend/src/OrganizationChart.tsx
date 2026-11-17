@@ -70,7 +70,7 @@ export function OrganizationChart({ company, companies, onSelectCompany, request
   const [isChartFullscreen, setIsChartFullscreen] = useState(false);
   const [zoom, setZoom] = useState(100);
   const [compact, setCompact] = useState(false);
-  const [cardBackground, setCardBackground] = useState('#ffffff');
+  const [cardBackground, setCardBackground] = useState('#39362d');
   const [exporting, setExporting] = useState(false);
   const zoomContentRef = useRef<HTMLDivElement>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -93,7 +93,10 @@ export function OrganizationChart({ company, companies, onSelectCompany, request
   useEffect(() => {
     if (!company) return;
     const saved = localStorage.getItem(`org-chart-card-background:${company.id}`);
-    setCardBackground(saved && /^#[0-9a-f]{6}$/i.test(saved) ? saved : '#ffffff');
+    const next = saved && /^#[0-9a-f]{6}$/i.test(saved) ? saved : '#39362d';
+    // The original default was white. Migrate that default so saved charts
+    // also pick up the workspace HUD treatment instead of keeping white cards.
+    setCardBackground(next.toLowerCase() === '#ffffff' ? '#39362d' : next);
   }, [company?.id]);
   useEffect(() => { if (!isChartFullscreen) return; const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsChartFullscreen(false); }; document.addEventListener('keydown', closeOnEscape); return () => document.removeEventListener('keydown', closeOnEscape); }, [isChartFullscreen]);
 
@@ -179,7 +182,7 @@ export function OrganizationChart({ company, companies, onSelectCompany, request
     const isCollapsed = collapsed.has(node.id);
     const cardTextColors = getCardTextColors(cardBackground);
     return <div className={`org-chart-branch depth-${Math.min(depth, 5)}`} key={node.id}>
-      <article className={`org-chart-card${compact ? ' is-compact' : ''} type-${node.nodeType.toLowerCase()}${node.active ? '' : ' is-inactive'}`} style={{ backgroundColor: cardBackground }}>
+      <article className={`org-chart-card${compact ? ' is-compact' : ''} type-${node.nodeType.toLowerCase()}${node.active ? '' : ' is-inactive'}`} style={cardBackground === '#39362d' ? undefined : { backgroundColor: cardBackground }}>
         <div className="org-chart-card-top">{photoDataUrl ? <button type="button" className="org-chart-avatar has-photo" onClick={() => setPhotoView({ src: photoDataUrl, name: assigned ? `${assigned.firstName} ${assigned.lastName}` : node.name })} aria-label={`View ${node.name} photo`}><img src={photoDataUrl} alt="" /></button> : <span className="org-chart-avatar">{node.nodeType === 'OWNER' ? '✦' : node.name.split(/\s+/).slice(0,2).map(part => part[0]).join('').toUpperCase()}</span>}<span className="org-chart-type" style={{ color: cardTextColors.muted }}>{typeNames[node.nodeType] || node.nodeType}</span>{children.length > 0 && <button type="button" className="org-chart-collapse" aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${node.name}`} onClick={() => setCollapsed(current => { const next = new Set(current); isCollapsed ? next.delete(node.id) : next.add(node.id); return next; })}>{isCollapsed ? '+' : '−'}</button>}</div>
         <h3 style={{ color: cardTextColors.primary }}>{node.name}</h3><p className="org-chart-title" style={{ color: cardTextColors.muted }}>{node.title || typeNames[node.nodeType] || node.nodeType}</p>
         {assigned && <p className="org-chart-assigned" style={{ color: cardTextColors.accent }}>Assigned to {assigned.firstName} {assigned.lastName}</p>}

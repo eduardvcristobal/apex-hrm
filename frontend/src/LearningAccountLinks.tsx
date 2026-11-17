@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { WorkspaceModal } from './WorkspaceModal';
 
 type Account = { id: string; email: string; enabled: boolean };
 type Employee = { id: string; name: string; employeeNumber: string };
@@ -48,7 +49,7 @@ export function LearningAccountLinks({ token }: { token: string }) {
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to link account.'); }
     finally { setBusy(false); }
   }
-  return <form className="announcements-editor" onSubmit={event => void link(event)}>
+  return <WorkspaceModal title="Link learning account" triggerLabel="＋ Link learning account"><form className="announcements-editor" onSubmit={event => void link(event)}>
     <h2>Employee portal account linking</h2>
     <p>Workspace owners can explicitly associate a signed-in staff account with an employee record. Each employee can have one linked account.</p>
     <div className="announcements-form-row">
@@ -58,5 +59,5 @@ export function LearningAccountLinks({ token }: { token: string }) {
     </div>
     {notice && <p role="status">{notice}</p>}
     <button type="submit" className="announcements-primary" disabled={busy || !identityId || !employeeId}>{busy ? 'Linking…' : 'Link employee account'}</button>
-  </form>;
+  </form></WorkspaceModal>;
 }

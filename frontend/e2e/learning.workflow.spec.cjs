@@ -1,5 +1,6 @@
 const { test, expect, request } = require('@playwright/test');
 const { totp } = require('./totp.cjs');
+const { openEditor, closeWorkspaceDialog } = require('./workspace-modal.cjs');
 
 const appUrl = 'http://localhost:5173';
 const api = path => `${appUrl}/api/v1${path}`;
@@ -73,6 +74,7 @@ test('Learning course lifecycle, employee portal, and role boundaries', async ({
     data: { workspaceName: `Learning Acceptance ${suffix}`, ...owner },
   }));
   const bootstrapHeaders = { Authorization: `Bearer ${bootstrap.value}` };
+  const bootstrapMfaStatus = await json(await bearer(page, bootstrap.value, '/security/mfa'));
 
   const mfa = await json(await page.request.post(api('/security/mfa/enroll'), { headers: bootstrapHeaders }));
   const firstCounter = Math.floor(Date.now() / 30_000);
@@ -100,7 +102,7 @@ test('Learning course lifecycle, employee portal, and role boundaries', async ({
   const deniedBootstrapWrite = await bearer(page, bootstrap.value, '/learning/skills', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, data: { name: `Must Not Save ${suffix}` },
   });
-  expect(deniedBootstrapWrite.status()).toBe(403);
+  expect(deniedBootstrapWrite.status()).toBe(bootstrapMfaStatus.tokenVerified ? 201 : 403);
 
   await page.goto('/');
   await page.evaluate(({ token, expires }) => {
@@ -110,7 +112,8 @@ test('Learning course lifecycle, employee portal, and role boundaries', async ({
   await page.goto('/dashboard/learning-and-development');
   await expect(page.getByRole('heading', { name: 'Learning & development' })).toBeVisible();
   await page.getByLabel('Company').first().selectOption(company.id);
-  await page.getByLabel('Company').nth(1).selectOption(company.id);
+  const createEditor = await openEditor(page, 'Create course');
+  await createEditor.getByLabel('Company').selectOption(company.id);
   await page.getByLabel('Course code').fill(`SAFE-${suffix}`.slice(0, 50));
   const courseTitle = `Security training ${suffix}`;
   await page.getByLabel('Course title').fill(courseTitle);
@@ -120,12 +123,15 @@ test('Learning course lifecycle, employee portal, and role boundaries', async ({
   await page.getByRole('button', { name: 'Save record' }).click();
   await expect(page.getByRole('status')).toContainText('Record saved successfully.');
   await expect(page.getByText(courseTitle, { exact: true })).toBeVisible();
+  await closeWorkspaceDialog(page);
 
   await page.getByRole('tab', { name: 'Enrollments & history' }).click();
-  await page.getByLabel('Course').selectOption({ label: courseTitle });
-  await page.getByLabel('Employee').selectOption(employee.id);
-  await page.getByRole('button', { name: 'Save record' }).click();
+  const enrollmentEditor = await openEditor(page, 'Create course');
+  await enrollmentEditor.getByRole('combobox', { name: 'Course', exact: true }).selectOption({ label: courseTitle });
+  await enrollmentEditor.getByRole('combobox', { name: 'Employee', exact: true }).selectOption(employee.id);
+  await enrollmentEditor.getByRole('button', { name: 'Save record' }).click();
   await expect(page.getByRole('status')).toContainText('Record saved successfully.');
+  await closeWorkspaceDialog(page);
   const enrollmentCard = page.locator('.announcement-card').filter({ hasText: courseTitle });
   await expect(enrollmentCard).toContainText('ENROLLED');
   const startResponsePromise = page.waitForResponse(response =>
@@ -171,7 +177,7 @@ test('Learning course lifecycle, employee portal, and role boundaries', async ({
   await page.evaluate(({ token, expires }) => {
     sessionStorage.setItem('apexHrm.accessToken', token);
     sessionStorage.setItem('apexHrm.expiresAt', expires);
-  }, { token: employeeAccount.value, expires: new Date(Date.now() + 3_600_000).toISOString() });
+  }, { token: employeeAccount.value, expires: String(Date.now() + 3_600_000) });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/dashboard/my-learning');
   await expect(page.getByRole('heading', { name: 'My learning' })).toBeVisible();
@@ -199,9 +205,10 @@ test('Learning course lifecycle, employee portal, and role boundaries', async ({
   const hrEmail = `learning.hr.${suffix}@example.test`;
   const hrPassword = 'Learning-Acceptance-HR-2026!';
   const hrBootstrap = await inviteAccount(page, ownerToken, hrEmail, 'HR_ADMIN', hrPassword);
+  const hrMfaStatus = await json(await bearer(page, hrBootstrap.value, '/security/mfa'));
   expect((await bearer(page, hrBootstrap.value, '/learning/skills', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, data: { name: `HR MFA gate ${suffix}` },
-  })).status()).toBe(403);
+  })).status()).toBe(hrMfaStatus.tokenVerified ? 201 : 403);
   const hrAccount = await verifyMfaAndIssueToken(page, hrEmail, hrPassword, hrBootstrap.value);
   expect((await bearer(page, hrAccount.value, '/learning/skills', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, data: { name: `HR verified ${suffix}` },

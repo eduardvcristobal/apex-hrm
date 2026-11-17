@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { WorkspaceModal } from './WorkspaceModal';
 
 type Milestone = { id: string; title: string; description?: string; status: string; dueOn?: string };
 type Evidence = { note: string; recordedAt: string };
@@ -33,10 +34,10 @@ export function MilestonePanel({token,planId}:{token:string;planId:string}) {
   return <div className="performance-milestones">
     <h3>Development milestones</h3>
     {error && <p role="alert">{error}</p>}
-    <form onSubmit={(e:FormEvent)=>{e.preventDefault();void run(()=>call(token,'/plans/'+planId+'/milestones','POST',{title}));}}>
+    <WorkspaceModal title="Add performance milestone" triggerLabel="＋ Add performance milestone"><form onSubmit={(e:FormEvent)=>{e.preventDefault();void run(()=>call(token,'/plans/'+planId+'/milestones','POST',{title}));}}>
       <input aria-label="Milestone title" maxLength={200} value={title} required onChange={e=>setTitle(e.target.value)} placeholder="Action milestone or training target"/>
       <button disabled={busy}>Add milestone</button>
-    </form>
+    </form></WorkspaceModal>
     <ul>{milestones.map(m=><li key={m.id}>
       <strong>{m.title}</strong> · {m.status}
       {['PLANNED','IN_PROGRESS'].includes(m.status) && <>

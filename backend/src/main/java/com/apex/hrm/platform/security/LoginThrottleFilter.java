@@ -57,6 +57,10 @@ public class LoginThrottleFilter extends OncePerRequestFilter {
                 updated_at=now()
             """,key);
         chain.doFilter(request,response);
+        // These endpoints are throttled to stop repeated failures. A legitimate
+        // signup, invite acceptance, or MFA confirmation must not consume the
+        // same failure budget as an invalid attempt from the same client.
+        if(response.getStatus()<400) jdbc.update("DELETE FROM auth_login_attempt WHERE key_sha256=?",key);
 
     }
     private boolean validCredentials(HttpServletRequest request) {

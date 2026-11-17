@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WorkspaceModal } from './WorkspaceModal';
 import './performance.css';
 import { MilestonePanel } from './PerformanceMilestones';
 
@@ -62,24 +63,24 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
     <div className="performance-grid">
       <div className="performance-panel"><h2>My goals</h2>
         {goals.length===0 && <p>No active performance goals. Contact HR if your employee account has not been linked.</p>}
-        {goals.map(g=><form key={g.id} onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/goals/'+g.id+'/progress','POST',{actualValue:Number(values[g.id]??g.actualValue??0),note:notes[g.id]??''}));}}>
+        {goals.map(g=><WorkspaceModal title="Submit self review" triggerLabel="＋ Submit self review"><form key={g.id} onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/goals/'+g.id+'/progress','POST',{actualValue:Number(values[g.id]??g.actualValue??0),note:notes[g.id]??''}));}}>
           <h3>{g.title}</h3><p>{g.metric||'KPI'} · {g.actualValue??0} / {g.targetValue??'—'}</p>
           <label>Actual value <input type="number" step=".001" min="0" required value={values[g.id]??String(g.actualValue??0)} onChange={e=>setValues(v=>({...v,[g.id]:e.target.value}))}/></label>
           <input aria-label={`Progress note for ${g.title}`} placeholder="What changed?" maxLength={2000} value={notes[g.id]??''} onChange={e=>setNotes(v=>({...v,[g.id]:e.target.value}))}/>
           <button disabled={busy||g.status!=='ACTIVE'}>Update progress</button>
-        </form>)}
+        </form></WorkspaceModal>)}
       </div>
       <div className="performance-panel"><h2>My evaluations</h2>
         {reviews.length===0 && <p>No reviews assigned.</p>}
         {reviews.map(r=><div key={r.id}>
           <h3>Review · {r.status}</h3><p>Manager rating: {r.rating??'Not yet submitted'} / 5 · Final rating: {r.finalRating??'—'} / 5</p>
-          {r.status==='DRAFT' && <form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/self-assessment','POST',{rating:Number(values[r.id]??3),assessment:notes[r.id]??''}));}}>
+          {r.status==='DRAFT' && <WorkspaceModal title="Add self goal" triggerLabel="＋ Add self goal"><form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/self-assessment','POST',{rating:Number(values[r.id]??3),assessment:notes[r.id]??''}));}}>
             <label>Self-rating <input type="number" min="1" max="5" step=".5" required value={values[r.id]??'3'} onChange={e=>setValues(v=>({...v,[r.id]:e.target.value}))}/></label>
             <textarea aria-label="Self-assessment" placeholder="Achievements, challenges, evidence" required value={notes[r.id]??''} onChange={e=>setNotes(v=>({...v,[r.id]:e.target.value}))}/>
             <button disabled={busy}>Save self-assessment</button>
-          </form>}
+          </form></WorkspaceModal>}
           {r.status==='SUBMITTED' && <><p>{r.managerComments||'No manager comments recorded.'}</p>{Number(r.approvalCount||0)>0&&<p>Additional reviewers approved: {r.approvedCount||0} / {r.approvalCount}</p>}<button disabled={busy||Number(r.approvedCount||0)<Number(r.approvalCount||0)} onClick={()=>void run(()=>api(token,'/reviews/'+r.id+'/acknowledge','POST'))}>Acknowledge review</button></>}
-          {r.status==='FINALIZED'&&!appeals.some(a=>a.reviewId===r.id)&&<form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/appeals','POST',{reason:appealReasons[r.id]}));}}><label>Appeal this finalized review (available for 30 days)<textarea required maxLength={10000} value={appealReasons[r.id]||''} onChange={e=>setAppealReasons(v=>({...v,[r.id]:e.target.value}))}/></label><button disabled={busy}>Submit appeal</button></form>}
+          {r.status==='FINALIZED'&&!appeals.some(a=>a.reviewId===r.id)&&<WorkspaceModal title="Update self goal" triggerLabel="＋ Update self goal"><form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/appeals','POST',{reason:appealReasons[r.id]}));}}><label>Appeal this finalized review (available for 30 days)<textarea required maxLength={10000} value={appealReasons[r.id]||''} onChange={e=>setAppealReasons(v=>({...v,[r.id]:e.target.value}))}/></label><button disabled={busy}>Submit appeal</button></form></WorkspaceModal>}
         </div>)}
       </div>
       <div className="performance-panel"><h2>My development plans</h2>
@@ -93,25 +94,25 @@ export function PerformanceSelfService({ token, isManager }: { token: string; is
         <p>Goals: {teamGoals.length} · Evaluations: {teamReviews.length}</p>
         <ul>{teamGoals.map(g=><li key={g.id}>{g.title} · {g.status}</li>)}</ul>
         <h3>Create a team review</h3>
-        <form onSubmit={e=>{e.preventDefault();const assignment=assignments[Number(selectedAssignment)];if(assignment) void run(()=>api(token,'/reviews/drafts','POST',{cycleId:assignment.cycleId,employeeId:assignment.employeeId}));}}>
+        <WorkspaceModal title="Request feedback" triggerLabel="＋ Request feedback"><form onSubmit={e=>{e.preventDefault();const assignment=assignments[Number(selectedAssignment)];if(assignment) void run(()=>api(token,'/reviews/drafts','POST',{cycleId:assignment.cycleId,employeeId:assignment.employeeId}));}}>
           <label>Direct report and active cycle <select aria-label="Review assignment" value={selectedAssignment} onChange={e=>setSelectedAssignment(e.target.value)} required><option value="">Select employee and cycle</option>{assignments.map((a,i)=><option key={a.cycleId+':'+a.employeeId} value={i}>{a.firstName} {a.lastName} — {a.cycleName}</option>)}</select></label>
           <button disabled={busy||!selectedAssignment}>Create draft</button>
-        </form>
+        </form></WorkspaceModal>
         <h3>Review queue</h3>
         {teamReviews.length===0&&<p>No team reviews yet.</p>}
         {teamReviews.map(r=><div key={r.id} className="performance-review-item">
           <p>{assignments.find(a=>a.employeeId===r.employeeId)?.firstName||'Employee'} · {r.status} · Rating: {r.rating??'Pending'}</p>
-          {r.status==='DRAFT' && <form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/submit','POST',{rating:Number(managerRatings[r.id]||'3'),comments:managerComments[r.id]||''}));}}>
+          {r.status==='DRAFT' && <WorkspaceModal title="Submit appeal" triggerLabel="＋ Submit appeal"><form onSubmit={e=>{e.preventDefault();void run(()=>api(token,'/reviews/'+r.id+'/submit','POST',{rating:Number(managerRatings[r.id]||'3'),comments:managerComments[r.id]||''}));}}>
             <label>Rating <input type="number" min="1" max="5" step=".5" required value={managerRatings[r.id]||'3'} onChange={e=>setManagerRatings(v=>({...v,[r.id]:e.target.value}))}/></label>
             <textarea aria-label="Manager assessment" placeholder="Evidence, achievements and development feedback" maxLength={5000} value={managerComments[r.id]||''} onChange={e=>setManagerComments(v=>({...v,[r.id]:e.target.value}))}/>
             <button disabled={busy}>Submit manager evaluation</button>
-          </form>}
-          {r.status==='FINALIZED'&&!r.recommendationId&&<form onSubmit={e=>{e.preventDefault();const value=recommendations[r.id]||{amount:'',effectiveDate:new Date().toISOString().slice(0,10),reason:''};void run(()=>api(token,`/reviews/${r.id}/compensation-recommendations`,'POST',{proposedAmount:Number(value.amount),effectiveDate:value.effectiveDate,reason:value.reason}));}}>
+          </form></WorkspaceModal>}
+          {r.status==='FINALIZED'&&!r.recommendationId&&<WorkspaceModal title="Add development plan" triggerLabel="＋ Add development plan"><form onSubmit={e=>{e.preventDefault();const value=recommendations[r.id]||{amount:'',effectiveDate:new Date().toISOString().slice(0,10),reason:''};void run(()=>api(token,`/reviews/${r.id}/compensation-recommendations`,'POST',{proposedAmount:Number(value.amount),effectiveDate:value.effectiveDate,reason:value.reason}));}}>
             <h4>Recommend a salary increase</h4><p>Current compensation is checked from the employee's effective-dated pay history. The recommendation requires a configured Compensation change approval workflow.</p>
             <label>Proposed new pay rate<input type="number" min="0.01" step="0.01" required value={recommendations[r.id]?.amount||''} onChange={e=>setRecommendations(v=>({...v,[r.id]:{amount:e.target.value,effectiveDate:v[r.id]?.effectiveDate||new Date().toISOString().slice(0,10),reason:v[r.id]?.reason||''}}))}/></label>
             <label>Effective date<input type="date" required value={recommendations[r.id]?.effectiveDate||new Date().toISOString().slice(0,10)} onChange={e=>setRecommendations(v=>({...v,[r.id]:{amount:v[r.id]?.amount||'',effectiveDate:e.target.value,reason:v[r.id]?.reason||''}}))}/></label>
             <label>Business rationale<textarea required maxLength={4000} value={recommendations[r.id]?.reason||''} onChange={e=>setRecommendations(v=>({...v,[r.id]:{amount:v[r.id]?.amount||'',effectiveDate:v[r.id]?.effectiveDate||new Date().toISOString().slice(0,10),reason:e.target.value}}))}/></label><button disabled={busy}>Submit for approval</button>
-          </form>}
+          </form></WorkspaceModal>}
           {r.recommendationId&&<p>Salary increase recommendation: {r.currentAmount} → {r.proposedAmount} {r.payBasis}, effective {r.effectiveDate} · {r.recommendationStatus}</p>}
         </div>)}
       </div>}

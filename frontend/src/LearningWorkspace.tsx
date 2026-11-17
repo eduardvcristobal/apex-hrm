@@ -1,6 +1,7 @@
 import { LearningAccountLinks } from './LearningAccountLinks';
 import { LearningReports } from './LearningReports';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { WorkspaceModal } from './WorkspaceModal';
 
 type RecordRow = Record<string, unknown> & { id: string };
 type Props = { token: string; canManage: boolean; canLinkAccounts: boolean; onOpenSecurity: () => void };
@@ -144,27 +145,27 @@ export function LearningWorkspace({ token, canManage, canLinkAccounts, onOpenSec
     </div>
     {showAccountLinks ? <LearningAccountLinks token={token} /> : showReports ? <LearningReports token={token} /> : <>
     {canManage && <div className="announcements-editor"><label>Company<select value={companyId} onChange={event => { setCompanyId(event.target.value); setForm(previous => ({ ...previous, companyId: event.target.value, employeeId: '', courseId: '' })); }}><option value="">Select a company</option>{companies.map(company => <option key={company.id} value={company.id}>{String(company.name)}</option>)}</select></label></div>}
-    {canManage && <form className="announcements-editor" onSubmit={event => void create(event)}>
+    {canManage && <WorkspaceModal title="Create course" triggerLabel="＋ Create course"><form className="announcements-editor" onSubmit={event => void create(event)}>
       <h2>Add {titles[tab].toLowerCase().replace(/s$/, '')}</h2>
       <p className="security-description">Select a company and choose employees or courses from the lists.</p>
       <div className="announcements-form-row" style={{ flexWrap: 'wrap' }}>
         {fields[tab].map(field => <label key={field.name} style={{ minWidth: 180, flex: 1 }}>{field.label}{fieldControl(field)}</label>)}
       </div>
       <button type="submit" className="announcements-primary" disabled={busy}>{busy ? 'Saving…' : 'Save record'}</button>
-    </form>}
+    </form></WorkspaceModal>}
     <section className="announcements-feed"><div className="announcements-section-heading"><h2>{titles[tab]}</h2><input aria-label="Search learning records" placeholder="Search records" value={query} onChange={e => setQuery(e.target.value)} /></div>
       {loading ? <p>Loading…</p> : shown.length === 0 ? <p className="announcements-empty">No records found.</p> :
         <div className="announcements-list">{shown.map(row => <article className="announcement-card" key={row.id}>
           <h3>{readable(row.title || row.name || row.courseTitle || row.skillName || row.id)}</h3>
           <div>{Object.entries(row).filter(([key]) => key !== 'id').map(([key, value]) => <p key={key}><strong>{key.replace(/([A-Z])/g, ' $1')}:</strong> {readable(value)}</p>)}</div>
           {tab === 'certifications' && canManage && <div className="announcement-actions">
-            {renewing === row.id ? <form onSubmit={event => void renewCertificate(event)}>
+            {renewing === row.id ? <WorkspaceModal title="Open editor" triggerLabel="＋ Open editor"><form onSubmit={event => void renewCertificate(event)}>
               <label>New issue date<input type="date" required value={renewal.issuedOn} onChange={event => setRenewal({ ...renewal, issuedOn: event.target.value })} /></label>
               <label>Expiry (optional)<input type="date" value={renewal.expiresOn} onChange={event => setRenewal({ ...renewal, expiresOn: event.target.value })} /></label>
               <label>Credential reference<input value={renewal.credentialRef} onChange={event => setRenewal({ ...renewal, credentialRef: event.target.value })} /></label>
               <button type="submit" disabled={busy} className="announcements-primary">Save renewal</button>
               <button type="button" className="announcements-secondary" onClick={() => setRenewing(null)}>Cancel</button>
-            </form> : <button type="button" className="announcements-secondary" onClick={() => { setRenewing(row.id); setRenewal({ issuedOn: String(row.issuedOn || ''), expiresOn: String(row.expiresOn || ''), credentialRef: String(row.credentialRef || '') }); }}>Renew</button>}
+            </form></WorkspaceModal> : <button type="button" className="announcements-secondary" onClick={() => { setRenewing(row.id); setRenewal({ issuedOn: String(row.issuedOn || ''), expiresOn: String(row.expiresOn || ''), credentialRef: String(row.credentialRef || '') }); }}>Renew</button>}
           </div>}
           {tab === 'enrollments' && canManage && row.status !== 'COMPLETED' && row.status !== 'CANCELLED' && <div className="announcement-actions">
             {row.status === 'ENROLLED' && <button type="button" className="announcements-secondary" disabled={busy} onClick={() => void transition(row.id, 'IN_PROGRESS')}>Start</button>}

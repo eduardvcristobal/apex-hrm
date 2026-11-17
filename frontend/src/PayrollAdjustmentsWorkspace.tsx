@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { WorkspaceModal } from './WorkspaceModal';
 
 type Page<T> = { content: T[] };
 type Employee = { id: string; employeeNo: string; firstName: string; lastName: string; status: string; separationDate: string | null };
@@ -112,7 +113,7 @@ export function PayrollAdjustmentsWorkspace({ token, currentUserId, canConfigure
     {error && <div className="platform-alert" role="alert">{error}</div>}{notice && <p className="platform-notice" role="status">{notice}</p>}
     <div className="payroll-adjustment-metrics"><article><span>PENDING APPROVAL</span><strong>{pendingCount}</strong></article><article><span>APPROVED TO APPLY</span><strong>{approvedCount}</strong></article><article><span>APPLIED ON PAYROLL</span><strong>{appliedCount}</strong></article></div>
     <div className="payroll-adjustment-layout">
-      <form className="payroll-panel payroll-adjustment-form" onSubmit={event => void submit(event)}>
+      <WorkspaceModal title="Create payroll adjustment" triggerLabel="＋ Create payroll adjustment"><form className="payroll-panel payroll-adjustment-form" onSubmit={event => void submit(event)}>
         <div className="payroll-panel-heading"><div><p className="eyebrow">NEW REQUEST</p><h2>Encode a payroll correction</h2></div></div>
         <label className="payroll-field">Employee<select value={employeeId} onChange={event => setEmployeeId(event.target.value)} required><option value="">Select employee…</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.employeeNo} · {employee.firstName} {employee.lastName}</option>)}</select></label>
         <div className="payroll-adjustment-fields"><label className="payroll-field">Adjustment type<select value={category} onChange={event => setCategory(event.target.value as typeof category)}><option value="EARNING">Additional income</option><option value="DEDUCTION">Additional deduction</option></select></label><label className="payroll-field">Amount (PHP)<input type="number" min="0.01" step="0.01" value={amount} onChange={event => setAmount(event.target.value)} required /></label></div>
@@ -123,7 +124,7 @@ export function PayrollAdjustmentsWorkspace({ token, currentUserId, canConfigure
         <button type="submit" className="security-submit" disabled={busy || loading || mfaVerified === false || !employeeId || !targetPeriodId}>{busy ? 'Submitting…' : 'Submit for approval'}</button>
         <p className="payroll-help">A missed overtime correction should reference the locked payroll period and select the next open period. Approval is required before the item can be computed into payroll.</p>
         {canConfigureWorkflows ? <button type="button" className="platform-text-action payroll-adjustment-workflow-link" onClick={onOpenApprovalWorkflows}>Configure approval workflows <span aria-hidden="true">→</span></button> : <p className="payroll-help">If no workflow is assigned, ask a workspace owner or HR administrator to configure Payroll adjustment approvals.</p>}
-      </form>
+      </form></WorkspaceModal>
       <section className="payroll-panel payroll-adjustment-history"><div className="payroll-panel-heading"><div><p className="eyebrow">AUDIT TRAIL</p><h2>Adjustment history</h2></div><span>{adjustments.length} records</span></div>
         {loading ? <div className="payroll-empty">Loading adjustments…</div> : !adjustments.length ? <div className="payroll-empty">No one-time payroll adjustments have been recorded.</div> : <div className="payroll-adjustment-list">{adjustments.map(adjustment => {
           const employee = employeeById.get(adjustment.employeeId);

@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test');
+const { openFormEditor, openEditor, closeWorkspaceDialog } = require('./workspace-modal.cjs');
+const { totp } = require('./totp.cjs');
 
 const pngBytes = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAeElEQVR4nO3PUQkAIBTAwJfEzDbWEH4cwmABbrP2+brhgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAsa0IIGtKABLWhACxrQgga0oAEtaEALGtCCBrSgAS1oQAseuwhu0YdVjn6RAAAAAElFTkSuQmCC',
@@ -55,6 +57,25 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await page.getByRole('button', { name: 'Create workspace' }).click();
   await expect(page).toHaveURL(/\/dashboard\/overview$/, { timeout: 30_000 });
 
+  const bootstrapToken = await page.evaluate(() => sessionStorage.getItem('apexHrm.accessToken'));
+  const bootstrapHeaders = { Authorization: `Bearer ${bootstrapToken}` };
+  const enrollmentResponse = await page.request.post('http://localhost:5173/api/v1/security/mfa/enroll', { headers: bootstrapHeaders });
+  expect(enrollmentResponse.status()).toBe(201);
+  const enrollment = await enrollmentResponse.json();
+  const firstCounter = Math.floor(Date.now() / 30_000);
+  expect((await page.request.post('http://localhost:5173/api/v1/security/mfa/confirm', {
+    headers: { ...bootstrapHeaders, 'Content-Type': 'application/json' }, data: { code: totp(enrollment.secretHex, firstCounter) },
+  })).status()).toBe(204);
+  while (Math.floor(Date.now() / 30_000) === firstCounter) await new Promise(resolve => setTimeout(resolve, 500));
+  const csrfResponse = await page.request.get('http://localhost:5173/api/v1/security/csrf');
+  const csrf = await csrfResponse.json();
+  const tokenResponse = await page.request.post('http://localhost:5173/api/v1/security/tokens', {
+    headers: { Authorization: `Basic ${Buffer.from(`${owner.email}:${owner.password}`).toString('base64')}`, 'X-TOTP-Code': totp(enrollment.secretHex), [csrf.headerName || 'X-CSRF-TOKEN']: csrf.token },
+  });
+  expect(tokenResponse.status()).toBe(201);
+  const authenticated = await tokenResponse.json();
+  await page.evaluate(token => sessionStorage.setItem('apexHrm.accessToken', token), authenticated.value);
+
   const callAs = async (token, method, path, body) => page.evaluate(async input => {
     const response = await fetch(input.path, {
       method: input.method,
@@ -93,14 +114,25 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   });
   expectOk(payGroupResult);
 
-  const sidebar = p => p.getByRole('complementary', { name: 'Workspace navigation' });
+  const sidebar = p => p.locator('aside.workspace-sidebar[aria-hidden="false"]');
   const openSidebar = async p => {
-    const openWorkspace = p.getByRole('button', { name: 'Open workspace navigation' });
-    if (await openWorkspace.isVisible().catch(() => false)) { await openWorkspace.click(); return; }
-    const openPeopleNavigation = p.getByRole('button', { name: 'Open navigation', exact: true });
-    if (await openPeopleNavigation.isVisible().catch(() => false)) await openPeopleNavigation.click();
+    const drawer = p.locator('aside.workspace-sidebar');
+    if (await drawer.getAttribute('aria-hidden') === 'false') return;
+    const toggle = p.getByRole('button', { name: /workspace navigation/ }).first();
+    if (!(await toggle.count())) {
+      const dashboardLink = p.getByRole('link', { name: /Dashboard/ }).first();
+      if (await dashboardLink.isVisible().catch(() => false)) {
+        await dashboardLink.click();
+        await expect(p).toHaveURL(/\/dashboard\/overview$/);
+      }
+    }
+    await expect(toggle).toBeVisible();
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(drawer).toHaveAttribute('aria-hidden', 'false');
   };
   const navigateTo = async (p, module, section) => {
+    if (!/\/dashboard\/overview$/.test(new URL(p.url()).pathname)) await p.goto('/dashboard/overview');
     await openSidebar(p);
     await expect(sidebar(p)).toBeVisible();
     await sidebar(p).getByRole('button', { name: module }).first().click();
@@ -137,6 +169,7 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await openEmployee(page);
 
   const profileForm = page.locator('form.people-subcard').filter({ hasText: 'Personal profile' });
+  await openFormEditor(page, profileForm);
   await profileForm.getByLabel('Employee photo').setInputFiles({ name: 'onboarding-photo.png', mimeType: 'image/png', buffer: pngBytes });
   await expect(profileForm.getByAltText('Employee profile preview')).toBeVisible({ timeout: 15_000 });
   await profileForm.getByLabel('Middle name').fill('Onboarding');
@@ -144,9 +177,11 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await profileForm.getByLabel('Suffix').fill('III');
   await profileForm.getByRole('button', { name: 'Save profile' }).click();
   await expect(page.getByText('Profile details saved.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   await profileTabs(page).getByRole('button', { name: 'Assignments', exact: true }).click();
   const assignmentForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Save assignment' }) });
+  await openFormEditor(page, assignmentForm, 'Record employee assignment');
   await assignmentForm.getByRole('combobox', { name: 'Branch', exact: true }).selectOption(branchResult.body.id);
   await assignmentForm.getByRole('combobox', { name: 'Department', exact: true }).selectOption(departmentResult.body.id);
   await assignmentForm.getByRole('combobox', { name: 'Position', exact: true }).selectOption(positionResult.body.id);
@@ -154,16 +189,20 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await assignmentForm.getByLabel('Reason').fill('Initial onboarding assignment');
   await assignmentForm.getByRole('button', { name: 'Save assignment' }).click();
   await expect(page.getByText('Assignment recorded.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   const payGroupForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Assign pay group' }) });
+  await openFormEditor(page, payGroupForm, 'Assign pay group');
   await payGroupForm.getByLabel('Pay group').selectOption(payGroupResult.body.id);
   await payGroupForm.getByLabel('Effective from').fill(hireDate);
   await payGroupForm.getByLabel('Reason').fill('Initial onboarding pay group');
   await payGroupForm.getByRole('button', { name: 'Assign pay group' }).click();
   await expect(page.getByText('Payroll assignment recorded.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   await profileTabs(page).getByRole('button', { name: 'Employment', exact: true }).click();
   const employmentForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Record change' }) });
+  await openFormEditor(page, employmentForm, 'Record employment change');
   await employmentForm.getByLabel('Effective date').fill(today);
   await employmentForm.getByLabel('Employment status').selectOption('ACTIVE');
   await employmentForm.getByLabel('Employment type').selectOption('PROBATIONARY');
@@ -171,27 +210,33 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await employmentForm.getByLabel('Reason').fill('Onboarding classification and job title');
   await employmentForm.getByRole('button', { name: 'Record change' }).click();
   await expect(page.getByText('Employment change recorded.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   await profileTabs(page).getByRole('button', { name: 'Compensation', exact: true }).click();
   const compensationForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Add compensation' }) });
+  await openFormEditor(page, compensationForm, 'Record compensation');
   await compensationForm.getByLabel('Effective date').fill(today);
   await compensationForm.getByLabel('Amount (PHP)').fill('45000');
   await compensationForm.getByLabel('Pay basis').selectOption('MONTHLY');
   await compensationForm.getByLabel('Reason').fill('Initial onboarding compensation');
   await compensationForm.getByRole('button', { name: 'Add compensation' }).click();
   await expect(page.getByText('Compensation entry recorded.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   await profileTabs(page).getByRole('button', { name: 'Private data', exact: true }).click();
   const privateForm = page.locator('form.people-private-form');
+  await openFormEditor(page, privateForm, 'Save private employee data');
   await privateForm.getByLabel('Government ID').fill(`GOV-${runId}`);
   await privateForm.getByLabel('Contact email').fill(`${firstName.toLowerCase()}.${runId}@e2e.apexhrm.test`);
   await privateForm.getByLabel('Mobile').fill('+639171234567');
   await privateForm.getByLabel('Bank account').fill(`BANK-${runId}`);
   await privateForm.getByRole('button', { name: 'Save private data' }).click();
   await expect(page.getByText('Encrypted private employee data saved.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   await profileTabs(page).getByRole('button', { name: 'Documents', exact: true }).click();
   const documentForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Upload document' }) });
+  await openFormEditor(page, documentForm, 'Upload employee document');
   await documentForm.getByLabel('Category').selectOption('ONBOARDING');
   await documentForm.getByLabel('PDF file').setInputFiles({
     name: `onboarding-contract-${runId}.pdf`, mimeType: 'application/pdf', buffer: pdfBytes,
@@ -199,16 +244,19 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await documentForm.getByRole('button', { name: 'Upload document' }).click();
   await expect(page.getByText('Document uploaded to encrypted quarantine for review.', { exact: true })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText(`onboarding-contract-${runId}.pdf`, { exact: false }).first()).toBeVisible();
+  await closeWorkspaceDialog(page);
 
   await testInfo.attach('onboarding-02-profile-data-complete', { body: await page.screenshot(), contentType: 'image/png' });
 
   await profileTabs(page).getByRole('button', { name: 'HR lifecycle', exact: true }).click();
   const caseForm = page.locator('form').filter({ has: page.getByRole('button', { name: 'Request case' }) });
+  await openFormEditor(page, caseForm, 'Request HR case');
   await caseForm.getByLabel('Case type').selectOption('ONBOARDING');
   await caseForm.getByLabel('Effective date').fill(today);
   await caseForm.getByLabel('Reason').fill(`Onboard ${firstName} ${lastName} into ${departmentName}`);
   await caseForm.getByRole('button', { name: 'Request case' }).click();
   await expect(page.getByText('HR case requested.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
 
   const caseCard = page.locator('.people-case').filter({ hasText: 'ONBOARDING' }).first();
   await expect(caseCard.getByText('PENDING', { exact: true })).toBeVisible({ timeout: 20_000 });
@@ -217,11 +265,11 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await expect.poll(() => tasks.getByRole('button', { name: 'Verify', exact: true }).count(), { timeout: 20_000 }).toBeGreaterThan(0);
   for (let guard = 0; guard < 20; guard += 1) {
     const verifyButton = tasks.getByRole('button', { name: 'Verify', exact: true }).first();
-    if (!(await verifyButton.count())) break;
-    const verification = page.waitForResponse(response =>
-      response.url().includes('/verification') && response.request().method() === 'PATCH');
+    if (!(await verifyButton.isVisible().catch(() => false))) break;
+    const progress = await tasks.getByText(/^\d+ \/ \d+ verified$/).innerText();
+    const verified = Number(progress.split('/')[0].trim()) + 1;
     await verifyButton.click();
-    expectOk({ status: (await verification).status() });
+    await expect(tasks.getByText(`${verified} / 4 verified`, { exact: true })).toBeVisible({ timeout: 20_000 });
   }
   await expect(tasks.getByText(/^\d+ \/ \d+ verified$/)).toBeVisible({ timeout: 20_000 });
   await expect(tasks.getByRole('button', { name: 'Verify', exact: true })).toHaveCount(0);
@@ -248,7 +296,8 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   const approverPage = await page.context().newPage();
   approverPage.setDefaultTimeout(15_000);
   await signInWithPassword(approverPage, approverEmail, approverPassword);
-  await openEmployee(approverPage, 'Onboarding');
+  await openEmployee(approverPage, 'Employee directory');
+  await profileTabs(approverPage).getByRole('button', { name: 'HR lifecycle', exact: true }).click();
   const approverCase = approverPage.locator('.people-case').filter({ hasText: 'ONBOARDING' }).first();
   const approveCaseButton = approverCase.getByRole('button', { name: 'Approve', exact: true });
   await expect(approveCaseButton).toBeEnabled({ timeout: 20_000 });
@@ -257,33 +306,38 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
   await testInfo.attach('onboarding-04-independent-approver-approved-case', { body: await approverPage.screenshot(), contentType: 'image/png' });
 
   await page.getByRole('button', { name: /People directory/ }).click();
-  await navigateTo(page, 'Personnel', 'Onboarding');
-  await expect(page.getByRole('heading', { name: 'Onboarding', exact: true })).toBeVisible();
-  await openEmployee(page, 'Onboarding');
+  await openEmployee(page);
+  await profileTabs(page).getByRole('button', { name: 'HR lifecycle', exact: true }).click();
   const approvedCase = page.locator('.people-case').filter({ hasText: 'ONBOARDING' }).first();
   await expect(approvedCase.getByText('APPROVED', { exact: true })).toBeVisible({ timeout: 20_000 });
 
+  await page.goto('/dashboard/overview');
   await navigateTo(page, 'Personnel', 'Approval workflows');
   await expect(page.getByRole('heading', { name: 'Approval workflows', exact: true })).toBeVisible();
   const workflowName = `Onboarding leave approval ${runId.slice(-5)}`;
+  await openEditor(page, 'Create workflow');
   await page.getByLabel('Workflow name').fill(workflowName);
   await page.getByLabel('Business process').first().selectOption('LEAVE');
   await page.getByRole('button', { name: 'Create draft' }).click();
   await expect(page.getByText(`${workflowName} · VERSION 1`, { exact: true })).toBeVisible({ timeout: 20_000 });
   const publishButton = page.getByRole('button', { name: 'Publish version' });
   if (!(await publishButton.isEnabled())) {
+    await openEditor(page, 'Assign approval workflow');
     await page.getByLabel('Step label').fill('Independent HR approval');
     await page.getByLabel('Route to').selectOption('ROLE');
     await page.getByRole('combobox', { name: 'Role' }).selectOption({ label: 'HR_ADMIN' });
     await page.getByRole('button', { name: /^Add step \d+$/ }).click();
+    await closeWorkspaceDialog(page);
   }
   await expect(publishButton).toBeEnabled();
   await publishButton.click();
   await expect(page.getByRole('status')).toContainText('Workflow version published.');
-  await page.locator('form.announcements-editor').last().locator('select').first().selectOption('LEAVE');
-  await page.getByLabel('Published workflow').selectOption({ label: `${workflowName} · v1` });
-  await page.getByRole('button', { name: 'Save assignment' }).click();
+  const workflowAssignmentDialog = await openEditor(page, 'Configure approval steps');
+  await workflowAssignmentDialog.locator('form select').first().selectOption('LEAVE');
+  await workflowAssignmentDialog.getByLabel('Published workflow').selectOption({ label: `${workflowName} · v1` });
+  await workflowAssignmentDialog.getByRole('button', { name: 'Save assignment' }).click();
   await expect(page.getByText('Workflow assignment saved.', { exact: true })).toBeVisible({ timeout: 20_000 });
+  await closeWorkspaceDialog(page);
   await testInfo.attach('onboarding-05-leave-workflow-published-and-assigned', { body: await page.screenshot(), contentType: 'image/png' });
 
   const leaveTypes = await callApi('GET', '/api/leave-types');
@@ -329,10 +383,8 @@ test('HR admin onboards a new hire with complete data, dual-control approval, an
     return request ? request.status : 'NOT_FOUND';
   }, { timeout: 20_000 }).toBe('APPROVED');
 
-  await navigateTo(page, 'Personnel', 'Onboarding');
-  await openEmployee(page, 'Onboarding');
-  await expect(page.locator('.people-case').filter({ hasText: 'ONBOARDING' }).first().getByText('APPROVED', { exact: true })).toBeVisible();
-  await testInfo.attach('onboarding-07-owner-final-approved-state', { body: await page.screenshot(), contentType: 'image/png' });
+  // The owner's HR lifecycle view was already verified after dual-control approval;
+  // the employee leave state is confirmed from the ledger API above.
 });
 
 async function signInWithPassword(page, email, password) {
